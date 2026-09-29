@@ -1,0 +1,1991 @@
+{
+  "description": "Synthetic model definitions mapped to the table and column names the real ORMs produce (Django per backend via connection.ops, SQLAlchemy/Flask-SQLAlchemy via mappers).",
+  "django": {
+    "mysql": {
+      "backend": "mysql",
+      "maxNameLength": 64,
+      "models": {
+        "accounts.profile": {
+          "columns": {
+            "bio": "bio",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_profile"
+          ]
+        },
+        "accounts.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "nickname": "nickname",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user"
+          ]
+        },
+        "accounts.user_groups": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_groups"
+          ]
+        },
+        "accounts.user_user_permissions": {
+          "columns": {
+            "id": "id",
+            "permission": "permission_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_user_permissions"
+          ]
+        },
+        "admin.logentry": {
+          "columns": {
+            "action_flag": "action_flag",
+            "action_time": "action_time",
+            "change_message": "change_message",
+            "content_type": "content_type_id",
+            "id": "id",
+            "object_id": "object_id",
+            "object_repr": "object_repr",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "django_admin_log"
+          ]
+        },
+        "auth.group": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group"
+          ]
+        },
+        "auth.group_permissions": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "permission": "permission_id"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group_permissions"
+          ]
+        },
+        "auth.permission": {
+          "columns": {
+            "codename": "codename",
+            "content_type": "content_type_id",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_permission"
+          ]
+        },
+        "auth.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "auth_user"
+          ]
+        },
+        "contenttypes.contenttype": {
+          "columns": {
+            "app_label": "app_label",
+            "id": "id",
+            "model": "model"
+          },
+          "proxy": false,
+          "table": [
+            "django_content_type"
+          ]
+        },
+        "custom_label.widget": {
+          "columns": {
+            "id": "id",
+            "name": "name",
+            "owner": "owner_id"
+          },
+          "proxy": false,
+          "table": [
+            "custom_label_widget"
+          ]
+        },
+        "library.archiveddocument": {
+          "columns": {
+            "body": "body",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "\"archive\".\"documents\""
+          ]
+        },
+        "library.archiveddocument_tags": {
+          "columns": {
+            "archiveddocument": "archiveddocument_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "archive\".\"documents_tags"
+          ]
+        },
+        "library.author": {
+          "columns": {
+            "account": "account_id",
+            "created": "created",
+            "id": "id",
+            "modified_on": "modified_on",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_author"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle": {
+          "columns": {
+            "extraordinarily_long_column_name_over_thirty": "extraordinarily_long_column_name_over_thirty",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle_labels": {
+          "columns": {
+            "averylongmodelnamethatwilldefinitelyexceedoracle": "averylongmodelnamethatwilldefinitelyexceedoracle_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels"
+          ]
+        },
+        "library.bar": {
+          "columns": {
+            "happy_hour": "happy_hour",
+            "restaurant_ptr": "restaurant_ptr_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_bar"
+          ]
+        },
+        "library.book": {
+          "columns": {
+            "author": "author_id",
+            "created": "created",
+            "editor": "editor_ref",
+            "id": "id",
+            "isbn": "ISBN_CODE",
+            "modified_on": "modified_on",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.book_shelves": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "shelf": "shelf_id"
+          },
+          "proxy": false,
+          "table": [
+            "book_shelf_links"
+          ]
+        },
+        "library.book_tags": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_book_tags"
+          ]
+        },
+        "library.club": {
+          "columns": {
+            "id": "id",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_club"
+          ]
+        },
+        "library.featuredbook": {
+          "columns": {},
+          "proxy": true,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.kiosk": {
+          "columns": {
+            "base": "base_id",
+            "number": "number"
+          },
+          "proxy": false,
+          "table": [
+            "library_kiosk"
+          ]
+        },
+        "library.membership": {
+          "columns": {
+            "club": "club_id",
+            "id": "id",
+            "person": "person_id",
+            "since": "since"
+          },
+          "proxy": false,
+          "table": [
+            "library_membership"
+          ]
+        },
+        "library.person": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_person"
+          ]
+        },
+        "library.person_friends": {
+          "columns": {
+            "from_person": "from_person_id",
+            "id": "id",
+            "to_person": "to_person_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_person_friends"
+          ]
+        },
+        "library.place": {
+          "columns": {
+            "address": "address",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_place"
+          ]
+        },
+        "library.restaurant": {
+          "columns": {
+            "place_ptr": "place_ptr_id",
+            "serves_pizza": "serves_pizza"
+          },
+          "proxy": false,
+          "table": [
+            "library_restaurant"
+          ]
+        },
+        "library.shelf": {
+          "columns": {
+            "id": "id",
+            "label": "label"
+          },
+          "proxy": false,
+          "table": [
+            "legacy_shelves"
+          ]
+        },
+        "library.tag": {
+          "columns": {
+            "slug": "slug"
+          },
+          "proxy": false,
+          "table": [
+            "library_tag"
+          ]
+        },
+        "sessions.session": {
+          "columns": {
+            "expire_date": "expire_date",
+            "session_data": "session_data",
+            "session_key": "session_key"
+          },
+          "proxy": false,
+          "table": [
+            "django_session"
+          ]
+        },
+        "sites.site": {
+          "columns": {
+            "domain": "domain",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "django_site"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord": {
+          "columns": {
+            "id": "id",
+            "quantity": "quantity"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord_approved_by_supervisors_and_managers": {
+          "columns": {
+            "id": "id",
+            "inventoryadjustmentrecord": "inventoryadjustmentrecord_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord_approv5ce2"
+          ]
+        }
+      }
+    },
+    "oracle": {
+      "backend": "oracle",
+      "maxNameLength": 30,
+      "models": {
+        "accounts.profile": {
+          "columns": {
+            "bio": "BIO",
+            "id": "ID",
+            "user": "USER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "ACCOUNTS_PROFILE"
+          ]
+        },
+        "accounts.user": {
+          "columns": {
+            "date_joined": "DATE_JOINED",
+            "email": "EMAIL",
+            "first_name": "FIRST_NAME",
+            "id": "ID",
+            "is_active": "IS_ACTIVE",
+            "is_staff": "IS_STAFF",
+            "is_superuser": "IS_SUPERUSER",
+            "last_login": "LAST_LOGIN",
+            "last_name": "LAST_NAME",
+            "nickname": "NICKNAME",
+            "password": "PASSWORD",
+            "username": "USERNAME"
+          },
+          "proxy": false,
+          "table": [
+            "ACCOUNTS_USER"
+          ]
+        },
+        "accounts.user_groups": {
+          "columns": {
+            "group": "GROUP_ID",
+            "id": "ID",
+            "user": "USER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "ACCOUNTS_USER_GROUPS"
+          ]
+        },
+        "accounts.user_user_permissions": {
+          "columns": {
+            "id": "ID",
+            "permission": "PERMISSION_ID",
+            "user": "USER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "ACCOUNTS_USER_USER_PERMISSIONS"
+          ]
+        },
+        "admin.logentry": {
+          "columns": {
+            "action_flag": "ACTION_FLAG",
+            "action_time": "ACTION_TIME",
+            "change_message": "CHANGE_MESSAGE",
+            "content_type": "CONTENT_TYPE_ID",
+            "id": "ID",
+            "object_id": "OBJECT_ID",
+            "object_repr": "OBJECT_REPR",
+            "user": "USER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "DJANGO_ADMIN_LOG"
+          ]
+        },
+        "auth.group": {
+          "columns": {
+            "id": "ID",
+            "name": "NAME"
+          },
+          "proxy": false,
+          "table": [
+            "AUTH_GROUP"
+          ]
+        },
+        "auth.group_permissions": {
+          "columns": {
+            "group": "GROUP_ID",
+            "id": "ID",
+            "permission": "PERMISSION_ID"
+          },
+          "proxy": false,
+          "table": [
+            "AUTH_GROUP_PERMISSIONS"
+          ]
+        },
+        "auth.permission": {
+          "columns": {
+            "codename": "CODENAME",
+            "content_type": "CONTENT_TYPE_ID",
+            "id": "ID",
+            "name": "NAME"
+          },
+          "proxy": false,
+          "table": [
+            "AUTH_PERMISSION"
+          ]
+        },
+        "auth.user": {
+          "columns": {
+            "date_joined": "DATE_JOINED",
+            "email": "EMAIL",
+            "first_name": "FIRST_NAME",
+            "id": "ID",
+            "is_active": "IS_ACTIVE",
+            "is_staff": "IS_STAFF",
+            "is_superuser": "IS_SUPERUSER",
+            "last_login": "LAST_LOGIN",
+            "last_name": "LAST_NAME",
+            "password": "PASSWORD",
+            "username": "USERNAME"
+          },
+          "proxy": false,
+          "table": [
+            "AUTH_USER"
+          ]
+        },
+        "contenttypes.contenttype": {
+          "columns": {
+            "app_label": "APP_LABEL",
+            "id": "ID",
+            "model": "MODEL"
+          },
+          "proxy": false,
+          "table": [
+            "DJANGO_CONTENT_TYPE"
+          ]
+        },
+        "custom_label.widget": {
+          "columns": {
+            "id": "ID",
+            "name": "NAME",
+            "owner": "OWNER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "CUSTOM_LABEL_WIDGET"
+          ]
+        },
+        "library.archiveddocument": {
+          "columns": {
+            "body": "BODY",
+            "id": "ID"
+          },
+          "proxy": false,
+          "table": [
+            "ARCHIVE",
+            "DOCUMENTS"
+          ]
+        },
+        "library.archiveddocument_tags": {
+          "columns": {
+            "archiveddocument": "ARCHIVEDDOCUMENT_ID",
+            "id": "ID",
+            "tag": "TAG_ID"
+          },
+          "proxy": false,
+          "table": [
+            "ARCHIVE",
+            "DOCUMENTS_TAGS"
+          ]
+        },
+        "library.author": {
+          "columns": {
+            "account": "ACCOUNT_ID",
+            "created": "CREATED",
+            "id": "ID",
+            "modified_on": "MODIFIED_ON",
+            "name": "NAME"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_AUTHOR"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle": {
+          "columns": {
+            "extraordinarily_long_column_name_over_thirty": "EXTRAORDINARILY_LONG_COLUMDE56",
+            "id": "ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_AVERYLONGMODELNAMEAFFE"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle_labels": {
+          "columns": {
+            "averylongmodelnamethatwilldefinitelyexceedoracle": "AVERYLONGMODELNAMETHATWILL4023",
+            "id": "ID",
+            "tag": "TAG_ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_AVERYLONGMODELNAME679F"
+          ]
+        },
+        "library.bar": {
+          "columns": {
+            "happy_hour": "HAPPY_HOUR",
+            "restaurant_ptr": "RESTAURANT_PTR_ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_BAR"
+          ]
+        },
+        "library.book": {
+          "columns": {
+            "author": "AUTHOR_ID",
+            "created": "CREATED",
+            "editor": "EDITOR_REF",
+            "id": "ID",
+            "isbn": "ISBN_CODE",
+            "modified_on": "MODIFIED_ON",
+            "title": "TITLE"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_BOOK"
+          ]
+        },
+        "library.book_shelves": {
+          "columns": {
+            "book": "BOOK_ID",
+            "id": "ID",
+            "shelf": "SHELF_ID"
+          },
+          "proxy": false,
+          "table": [
+            "BOOK_SHELF_LINKS"
+          ]
+        },
+        "library.book_tags": {
+          "columns": {
+            "book": "BOOK_ID",
+            "id": "ID",
+            "tag": "TAG_ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_BOOK_TAGS"
+          ]
+        },
+        "library.club": {
+          "columns": {
+            "id": "ID",
+            "title": "TITLE"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_CLUB"
+          ]
+        },
+        "library.featuredbook": {
+          "columns": {},
+          "proxy": true,
+          "table": [
+            "LIBRARY_BOOK"
+          ]
+        },
+        "library.kiosk": {
+          "columns": {
+            "base": "BASE_ID",
+            "number": "NUMBER"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_KIOSK"
+          ]
+        },
+        "library.membership": {
+          "columns": {
+            "club": "CLUB_ID",
+            "id": "ID",
+            "person": "PERSON_ID",
+            "since": "SINCE"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_MEMBERSHIP"
+          ]
+        },
+        "library.person": {
+          "columns": {
+            "id": "ID",
+            "name": "NAME"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_PERSON"
+          ]
+        },
+        "library.person_friends": {
+          "columns": {
+            "from_person": "FROM_PERSON_ID",
+            "id": "ID",
+            "to_person": "TO_PERSON_ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_PERSON_FRIENDS"
+          ]
+        },
+        "library.place": {
+          "columns": {
+            "address": "ADDRESS",
+            "id": "ID"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_PLACE"
+          ]
+        },
+        "library.restaurant": {
+          "columns": {
+            "place_ptr": "PLACE_PTR_ID",
+            "serves_pizza": "SERVES_PIZZA"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_RESTAURANT"
+          ]
+        },
+        "library.shelf": {
+          "columns": {
+            "id": "ID",
+            "label": "LABEL"
+          },
+          "proxy": false,
+          "table": [
+            "LEGACY_SHELVES"
+          ]
+        },
+        "library.tag": {
+          "columns": {
+            "slug": "SLUG"
+          },
+          "proxy": false,
+          "table": [
+            "LIBRARY_TAG"
+          ]
+        },
+        "sessions.session": {
+          "columns": {
+            "expire_date": "EXPIRE_DATE",
+            "session_data": "SESSION_DATA",
+            "session_key": "SESSION_KEY"
+          },
+          "proxy": false,
+          "table": [
+            "DJANGO_SESSION"
+          ]
+        },
+        "sites.site": {
+          "columns": {
+            "domain": "DOMAIN",
+            "id": "ID",
+            "name": "NAME"
+          },
+          "proxy": false,
+          "table": [
+            "DJANGO_SITE"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord": {
+          "columns": {
+            "id": "ID",
+            "quantity": "QUANTITY"
+          },
+          "proxy": false,
+          "table": [
+            "WAREHOUSE_MANAGEMENT_SYSTE8200"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord_approved_by_supervisors_and_managers": {
+          "columns": {
+            "id": "ID",
+            "inventoryadjustmentrecord": "INVENTORYADJUSTMENTRECORD_ID",
+            "user": "USER_ID"
+          },
+          "proxy": false,
+          "table": [
+            "WAREHOUSE_MANAGEMENT_SYSTE8256"
+          ]
+        }
+      }
+    },
+    "postgresql": {
+      "backend": "postgresql",
+      "maxNameLength": 63,
+      "models": {
+        "accounts.profile": {
+          "columns": {
+            "bio": "bio",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_profile"
+          ]
+        },
+        "accounts.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "nickname": "nickname",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user"
+          ]
+        },
+        "accounts.user_groups": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_groups"
+          ]
+        },
+        "accounts.user_user_permissions": {
+          "columns": {
+            "id": "id",
+            "permission": "permission_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_user_permissions"
+          ]
+        },
+        "admin.logentry": {
+          "columns": {
+            "action_flag": "action_flag",
+            "action_time": "action_time",
+            "change_message": "change_message",
+            "content_type": "content_type_id",
+            "id": "id",
+            "object_id": "object_id",
+            "object_repr": "object_repr",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "django_admin_log"
+          ]
+        },
+        "auth.group": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group"
+          ]
+        },
+        "auth.group_permissions": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "permission": "permission_id"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group_permissions"
+          ]
+        },
+        "auth.permission": {
+          "columns": {
+            "codename": "codename",
+            "content_type": "content_type_id",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_permission"
+          ]
+        },
+        "auth.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "auth_user"
+          ]
+        },
+        "contenttypes.contenttype": {
+          "columns": {
+            "app_label": "app_label",
+            "id": "id",
+            "model": "model"
+          },
+          "proxy": false,
+          "table": [
+            "django_content_type"
+          ]
+        },
+        "custom_label.widget": {
+          "columns": {
+            "id": "id",
+            "name": "name",
+            "owner": "owner_id"
+          },
+          "proxy": false,
+          "table": [
+            "custom_label_widget"
+          ]
+        },
+        "library.archiveddocument": {
+          "columns": {
+            "body": "body",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "archive",
+            "documents"
+          ]
+        },
+        "library.archiveddocument_tags": {
+          "columns": {
+            "archiveddocument": "archiveddocument_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "archive",
+            "documents_tags"
+          ]
+        },
+        "library.author": {
+          "columns": {
+            "account": "account_id",
+            "created": "created",
+            "id": "id",
+            "modified_on": "modified_on",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_author"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle": {
+          "columns": {
+            "extraordinarily_long_column_name_over_thirty": "extraordinarily_long_column_name_over_thirty",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle_labels": {
+          "columns": {
+            "averylongmodelnamethatwilldefinitelyexceedoracle": "averylongmodelnamethatwilldefinitelyexceedoracle_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels"
+          ]
+        },
+        "library.bar": {
+          "columns": {
+            "happy_hour": "happy_hour",
+            "restaurant_ptr": "restaurant_ptr_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_bar"
+          ]
+        },
+        "library.book": {
+          "columns": {
+            "author": "author_id",
+            "created": "created",
+            "editor": "editor_ref",
+            "id": "id",
+            "isbn": "ISBN_CODE",
+            "modified_on": "modified_on",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.book_shelves": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "shelf": "shelf_id"
+          },
+          "proxy": false,
+          "table": [
+            "book_shelf_links"
+          ]
+        },
+        "library.book_tags": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_book_tags"
+          ]
+        },
+        "library.club": {
+          "columns": {
+            "id": "id",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_club"
+          ]
+        },
+        "library.featuredbook": {
+          "columns": {},
+          "proxy": true,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.kiosk": {
+          "columns": {
+            "base": "base_id",
+            "number": "number"
+          },
+          "proxy": false,
+          "table": [
+            "library_kiosk"
+          ]
+        },
+        "library.membership": {
+          "columns": {
+            "club": "club_id",
+            "id": "id",
+            "person": "person_id",
+            "since": "since"
+          },
+          "proxy": false,
+          "table": [
+            "library_membership"
+          ]
+        },
+        "library.person": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_person"
+          ]
+        },
+        "library.person_friends": {
+          "columns": {
+            "from_person": "from_person_id",
+            "id": "id",
+            "to_person": "to_person_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_person_friends"
+          ]
+        },
+        "library.place": {
+          "columns": {
+            "address": "address",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_place"
+          ]
+        },
+        "library.restaurant": {
+          "columns": {
+            "place_ptr": "place_ptr_id",
+            "serves_pizza": "serves_pizza"
+          },
+          "proxy": false,
+          "table": [
+            "library_restaurant"
+          ]
+        },
+        "library.shelf": {
+          "columns": {
+            "id": "id",
+            "label": "label"
+          },
+          "proxy": false,
+          "table": [
+            "legacy_shelves"
+          ]
+        },
+        "library.tag": {
+          "columns": {
+            "slug": "slug"
+          },
+          "proxy": false,
+          "table": [
+            "library_tag"
+          ]
+        },
+        "sessions.session": {
+          "columns": {
+            "expire_date": "expire_date",
+            "session_data": "session_data",
+            "session_key": "session_key"
+          },
+          "proxy": false,
+          "table": [
+            "django_session"
+          ]
+        },
+        "sites.site": {
+          "columns": {
+            "domain": "domain",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "django_site"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord": {
+          "columns": {
+            "id": "id",
+            "quantity": "quantity"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord_approved_by_supervisors_and_managers": {
+          "columns": {
+            "id": "id",
+            "inventoryadjustmentrecord": "inventoryadjustmentrecord_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord_appro5ce2"
+          ]
+        }
+      }
+    },
+    "sqlite3": {
+      "backend": "sqlite3",
+      "maxNameLength": null,
+      "models": {
+        "accounts.profile": {
+          "columns": {
+            "bio": "bio",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_profile"
+          ]
+        },
+        "accounts.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "nickname": "nickname",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user"
+          ]
+        },
+        "accounts.user_groups": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_groups"
+          ]
+        },
+        "accounts.user_user_permissions": {
+          "columns": {
+            "id": "id",
+            "permission": "permission_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "accounts_user_user_permissions"
+          ]
+        },
+        "admin.logentry": {
+          "columns": {
+            "action_flag": "action_flag",
+            "action_time": "action_time",
+            "change_message": "change_message",
+            "content_type": "content_type_id",
+            "id": "id",
+            "object_id": "object_id",
+            "object_repr": "object_repr",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "django_admin_log"
+          ]
+        },
+        "auth.group": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group"
+          ]
+        },
+        "auth.group_permissions": {
+          "columns": {
+            "group": "group_id",
+            "id": "id",
+            "permission": "permission_id"
+          },
+          "proxy": false,
+          "table": [
+            "auth_group_permissions"
+          ]
+        },
+        "auth.permission": {
+          "columns": {
+            "codename": "codename",
+            "content_type": "content_type_id",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "auth_permission"
+          ]
+        },
+        "auth.user": {
+          "columns": {
+            "date_joined": "date_joined",
+            "email": "email",
+            "first_name": "first_name",
+            "id": "id",
+            "is_active": "is_active",
+            "is_staff": "is_staff",
+            "is_superuser": "is_superuser",
+            "last_login": "last_login",
+            "last_name": "last_name",
+            "password": "password",
+            "username": "username"
+          },
+          "proxy": false,
+          "table": [
+            "auth_user"
+          ]
+        },
+        "contenttypes.contenttype": {
+          "columns": {
+            "app_label": "app_label",
+            "id": "id",
+            "model": "model"
+          },
+          "proxy": false,
+          "table": [
+            "django_content_type"
+          ]
+        },
+        "custom_label.widget": {
+          "columns": {
+            "id": "id",
+            "name": "name",
+            "owner": "owner_id"
+          },
+          "proxy": false,
+          "table": [
+            "custom_label_widget"
+          ]
+        },
+        "library.archiveddocument": {
+          "columns": {
+            "body": "body",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "archive",
+            "documents"
+          ]
+        },
+        "library.archiveddocument_tags": {
+          "columns": {
+            "archiveddocument": "archiveddocument_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "archive",
+            "documents_tags"
+          ]
+        },
+        "library.author": {
+          "columns": {
+            "account": "account_id",
+            "created": "created",
+            "id": "id",
+            "modified_on": "modified_on",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_author"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle": {
+          "columns": {
+            "extraordinarily_long_column_name_over_thirty": "extraordinarily_long_column_name_over_thirty",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle"
+          ]
+        },
+        "library.averylongmodelnamethatwilldefinitelyexceedoracle_labels": {
+          "columns": {
+            "averylongmodelnamethatwilldefinitelyexceedoracle": "averylongmodelnamethatwilldefinitelyexceedoracle_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels"
+          ]
+        },
+        "library.bar": {
+          "columns": {
+            "happy_hour": "happy_hour",
+            "restaurant_ptr": "restaurant_ptr_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_bar"
+          ]
+        },
+        "library.book": {
+          "columns": {
+            "author": "author_id",
+            "created": "created",
+            "editor": "editor_ref",
+            "id": "id",
+            "isbn": "ISBN_CODE",
+            "modified_on": "modified_on",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.book_shelves": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "shelf": "shelf_id"
+          },
+          "proxy": false,
+          "table": [
+            "book_shelf_links"
+          ]
+        },
+        "library.book_tags": {
+          "columns": {
+            "book": "book_id",
+            "id": "id",
+            "tag": "tag_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_book_tags"
+          ]
+        },
+        "library.club": {
+          "columns": {
+            "id": "id",
+            "title": "title"
+          },
+          "proxy": false,
+          "table": [
+            "library_club"
+          ]
+        },
+        "library.featuredbook": {
+          "columns": {},
+          "proxy": true,
+          "table": [
+            "library_book"
+          ]
+        },
+        "library.kiosk": {
+          "columns": {
+            "base": "base_id",
+            "number": "number"
+          },
+          "proxy": false,
+          "table": [
+            "library_kiosk"
+          ]
+        },
+        "library.membership": {
+          "columns": {
+            "club": "club_id",
+            "id": "id",
+            "person": "person_id",
+            "since": "since"
+          },
+          "proxy": false,
+          "table": [
+            "library_membership"
+          ]
+        },
+        "library.person": {
+          "columns": {
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "library_person"
+          ]
+        },
+        "library.person_friends": {
+          "columns": {
+            "from_person": "from_person_id",
+            "id": "id",
+            "to_person": "to_person_id"
+          },
+          "proxy": false,
+          "table": [
+            "library_person_friends"
+          ]
+        },
+        "library.place": {
+          "columns": {
+            "address": "address",
+            "id": "id"
+          },
+          "proxy": false,
+          "table": [
+            "library_place"
+          ]
+        },
+        "library.restaurant": {
+          "columns": {
+            "place_ptr": "place_ptr_id",
+            "serves_pizza": "serves_pizza"
+          },
+          "proxy": false,
+          "table": [
+            "library_restaurant"
+          ]
+        },
+        "library.shelf": {
+          "columns": {
+            "id": "id",
+            "label": "label"
+          },
+          "proxy": false,
+          "table": [
+            "legacy_shelves"
+          ]
+        },
+        "library.tag": {
+          "columns": {
+            "slug": "slug"
+          },
+          "proxy": false,
+          "table": [
+            "library_tag"
+          ]
+        },
+        "sessions.session": {
+          "columns": {
+            "expire_date": "expire_date",
+            "session_data": "session_data",
+            "session_key": "session_key"
+          },
+          "proxy": false,
+          "table": [
+            "django_session"
+          ]
+        },
+        "sites.site": {
+          "columns": {
+            "domain": "domain",
+            "id": "id",
+            "name": "name"
+          },
+          "proxy": false,
+          "table": [
+            "django_site"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord": {
+          "columns": {
+            "id": "id",
+            "quantity": "quantity"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord"
+          ]
+        },
+        "warehouse_management_system.inventoryadjustmentrecord_approved_by_supervisors_and_managers": {
+          "columns": {
+            "id": "id",
+            "inventoryadjustmentrecord": "inventoryadjustmentrecord_id",
+            "user": "user_id"
+          },
+          "proxy": false,
+          "table": [
+            "warehouse_management_system_inventoryadjustmentrecord_approved_by_supervisors_and_managers"
+          ]
+        }
+      }
+    }
+  },
+  "format": "pythograph-persistence-naming-vectors",
+  "oracle": {
+    "django": "5.2.17",
+    "flask-sqlalchemy": "3.1.1",
+    "sqlalchemy": "2.0.54"
+  },
+  "sqlalchemy": {
+    "fsa-shop": {
+      "classes": {
+        "shopapp.models.CatalogItem": {
+          "columns": {
+            "id": [
+              "catalog_item",
+              "id"
+            ],
+            "title": [
+              "catalog_item",
+              "title"
+            ]
+          },
+          "table": [
+            "catalog_item"
+          ]
+        },
+        "shopapp.models.Coupon": {
+          "columns": {
+            "code": [
+              "coupon",
+              "code"
+            ],
+            "created": [
+              "coupon",
+              "created"
+            ],
+            "id": [
+              "coupon",
+              "id"
+            ]
+          },
+          "table": [
+            "coupon"
+          ]
+        },
+        "shopapp.models.CustomerOrder": {
+          "columns": {
+            "id": [
+              "customer_order",
+              "id"
+            ],
+            "placed_at": [
+              "customer_order",
+              "placed_on"
+            ]
+          },
+          "table": [
+            "customer_order"
+          ]
+        },
+        "shopapp.models.Employee": {
+          "columns": {
+            "id": [
+              "employee",
+              "id"
+            ],
+            "type": [
+              "employee",
+              "type"
+            ]
+          },
+          "table": [
+            "employee"
+          ]
+        },
+        "shopapp.models.Engineer": {
+          "columns": {
+            "id": [
+              "engineer",
+              "id"
+            ],
+            "language": [
+              "engineer",
+              "language"
+            ],
+            "type": [
+              "employee",
+              "type"
+            ]
+          },
+          "table": [
+            "engineer"
+          ]
+        },
+        "shopapp.models.GiftCard": {
+          "columns": {
+            "balance": [
+              "gift_card",
+              "balance"
+            ],
+            "id": [
+              "gift_card",
+              "id"
+            ]
+          },
+          "table": [
+            "gift_card"
+          ]
+        },
+        "shopapp.models.HTTPRequestLog": {
+          "columns": {
+            "id": [
+              "http_request_log",
+              "id"
+            ],
+            "path": [
+              "http_request_log",
+              "path"
+            ]
+          },
+          "table": [
+            "http_request_log"
+          ]
+        },
+        "shopapp.models.Legacy": {
+          "columns": {
+            "id": [
+              "legacy_records",
+              "id"
+            ]
+          },
+          "table": [
+            "legacy_records"
+          ]
+        },
+        "shopapp.models.Manager": {
+          "columns": {
+            "id": [
+              "employee",
+              "id"
+            ],
+            "level": [
+              "employee",
+              "level"
+            ],
+            "type": [
+              "employee",
+              "type"
+            ]
+          },
+          "table": [
+            "employee"
+          ]
+        },
+        "shopapp.models.OAuth2Token": {
+          "columns": {
+            "id": [
+              "o_auth2_token",
+              "id"
+            ]
+          },
+          "table": [
+            "o_auth2_token"
+          ]
+        }
+      },
+      "tables": {
+        "catalog_item": [
+          "id",
+          "title"
+        ],
+        "coupon": [
+          "code",
+          "created",
+          "id"
+        ],
+        "customer_order": [
+          "id",
+          "placed_on"
+        ],
+        "employee": [
+          "id",
+          "level",
+          "type"
+        ],
+        "engineer": [
+          "id",
+          "language"
+        ],
+        "gift_card": [
+          "balance",
+          "id"
+        ],
+        "http_request_log": [
+          "id",
+          "path"
+        ],
+        "legacy_records": [
+          "id"
+        ],
+        "o_auth2_token": [
+          "id"
+        ],
+        "order_items": [
+          "item_id",
+          "order_id"
+        ]
+      }
+    },
+    "sa-catalog": {
+      "classes": {
+        "catalog.models.AuditEntry": {
+          "columns": {
+            "id": [
+              "audit",
+              "audit_log",
+              "id"
+            ]
+          },
+          "table": [
+            "audit",
+            "audit_log"
+          ]
+        },
+        "catalog.models.Car": {
+          "columns": {
+            "id": [
+              "cars",
+              "id"
+            ],
+            "kind": [
+              "vehicles",
+              "kind"
+            ],
+            "seats": [
+              "cars",
+              "seats"
+            ]
+          },
+          "table": [
+            "cars"
+          ]
+        },
+        "catalog.models.Invoice": {
+          "columns": {
+            "id": [
+              "billing",
+              "invoices",
+              "id"
+            ],
+            "product_id": [
+              "billing",
+              "invoices",
+              "product_id"
+            ]
+          },
+          "table": [
+            "billing",
+            "invoices"
+          ]
+        },
+        "catalog.models.NamedThing": {
+          "columns": {
+            "id": [
+              "named_things",
+              "id"
+            ]
+          },
+          "table": [
+            "named_things"
+          ]
+        },
+        "catalog.models.Product": {
+          "columns": {
+            "created_by": [
+              "products",
+              "created_by_user"
+            ],
+            "id": [
+              "products",
+              "id"
+            ],
+            "note": [
+              "products",
+              "note"
+            ],
+            "price": [
+              "products",
+              "unit_price"
+            ],
+            "sku": [
+              "products",
+              "stock_keeping_unit"
+            ],
+            "weight": [
+              "products",
+              "weight_grams"
+            ]
+          },
+          "table": [
+            "products"
+          ]
+        },
+        "catalog.models.Report": {
+          "columns": {
+            "id": [
+              "reporting",
+              "reports",
+              "id"
+            ],
+            "title": [
+              "reporting",
+              "reports",
+              "title"
+            ]
+          },
+          "table": [
+            "reporting",
+            "reports"
+          ]
+        },
+        "catalog.models.Tag": {
+          "columns": {
+            "label": [
+              "tags",
+              "label"
+            ]
+          },
+          "table": [
+            "tags"
+          ]
+        },
+        "catalog.models.Truck": {
+          "columns": {
+            "id": [
+              "vehicles",
+              "id"
+            ],
+            "kind": [
+              "vehicles",
+              "kind"
+            ],
+            "payload": [
+              "vehicles",
+              "payload"
+            ]
+          },
+          "table": [
+            "vehicles"
+          ]
+        },
+        "catalog.models.Vehicle": {
+          "columns": {
+            "id": [
+              "vehicles",
+              "id"
+            ],
+            "kind": [
+              "vehicles",
+              "kind"
+            ]
+          },
+          "table": [
+            "vehicles"
+          ]
+        }
+      },
+      "tables": {
+        "audit.audit_log": [
+          "id"
+        ],
+        "billing.invoices": [
+          "id",
+          "product_id"
+        ],
+        "cars": [
+          "id",
+          "seats"
+        ],
+        "named_things": [
+          "id"
+        ],
+        "product_tags": [
+          "product_id",
+          "tag_label"
+        ],
+        "products": [
+          "created_by_user",
+          "id",
+          "note",
+          "stock_keeping_unit",
+          "unit_price",
+          "weight_grams"
+        ],
+        "reporting.reports": [
+          "id",
+          "title"
+        ],
+        "tags": [
+          "label"
+        ],
+        "vehicles": [
+          "id",
+          "kind",
+          "payload"
+        ]
+      }
+    }
+  },
+  "version": 1
+}
