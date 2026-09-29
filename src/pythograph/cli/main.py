@@ -8,16 +8,22 @@ isthmus 상한을 넘는 출력, 예기치 못한 내부 오류), 64 사용법 �
 
 from __future__ import annotations
 
-import os
-import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TextIO
 
 from pythograph import __version__
+from pythograph.cli.common import FORBIDDEN, InputError, UsageError, parse_timestamp, resolve_project
+from pythograph.cli.graph_commands import (
+    GRAPH_USAGE,
+    IMPACT_USAGE,
+    REACH_USAGE,
+    RootNotFoundExit,
+    run_graph,
+    run_traversal,
+)
 from pythograph.exchange.document import DocumentHeader, DocumentLimitError, build_document, encode_document
 from pythograph.exchange.persistence import build_persistence_document
 from pythograph.persistence.command import SchemaOptions, extract_persistence
@@ -34,12 +40,6 @@ EXIT_USAGE = 64
 #: `--service` 최대 길이다.
 MAX_SERVICE_LENGTH = 256
 
-#: 계약이 금지하는 식별자 문자다(제어 문자, U+2028/2029, UTF-8로 쓸 수 없는 짝 없는 서로게이트).
-_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
-
-#: `--generated-at` 형식이다.
-_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
-
 MAIN_USAGE = """Usage: pythograph <command> [options]
 
 Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy) in the isthmus
@@ -49,6 +49,9 @@ ast only; it is never imported or executed.
 Commands:
   routes     Server route declarations (route-decl facts)
   schema     Relation and column references (persistence relation-use facts)
+  graph      Python call graph snapshot (pythograph-graph v1)
+  reach      Symbols the roots depend on (isthmus language-traversal v1)
+  impact     Symbols that depend on the roots (isthmus language-traversal v1)
   help       Show help for a command
 
 Options:
@@ -118,14 +121,6 @@ _VALUE_FLAGS = (
 _BOOLEAN_FLAGS = ("--include-tests", "--help")
 
 
-class UsageError(Exception):
-    """사용법 오류(64). 메시지는 해결 방향을 담는다."""
-
-
-class InputError(Exception):
-    """입력 오류(2). 메시지는 원인과 해결 방향을 담는다."""
-
-
 @dataclass(frozen=True)
 class RoutesArguments:
     """검증한 routes 인자."""
@@ -139,13 +134,19 @@ class RoutesArguments:
     generated_at: datetime | None
 
 
-def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None, stderr: TextIO | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+    stdin: TextIO | None = None,
+) -> int:
     """명령을 실행하고 종료 코드를 돌려준다.
 
     Args:
         argv: 인자(없으면 `sys.argv[1:]`).
         stdout: 표준 출력(테스트 주입용).
         stderr: 표준 오류(테스트 주입용).
+        stdin: 표준 입력(`--roots-from -`, 테스트 주입용).
 
     Returns:
         종료 코드.
@@ -154,7 +155,10 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None, stderr
     out = stdout or sys.stdout
     err = stderr or sys.stderr
     try:
-        text = run(arguments)
+        text = run(arguments, stdin)
+    except RootNotFoundExit as partial:
+        _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
+        return _write(out, err, partial.text, EXIT_USAGE)
     except UsageError as error:
         _report(err, str(error))
         return EXIT_USAGE
@@ -164,13 +168,28 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None, stderr
     except Exception as error:  # 1은 예약이므로 어떤 내부 오류도 2로 바꾼다. 원문은 싣지 않는다.
         _report(err, f"internal error ({type(error).__name__}); please report it with the command line")
         return EXIT_INPUT
+    return _write(out, err, text, EXIT_OK)
+
+
+def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
+    """표준 출력에 결과를 쓴다. 닫힌 파이프·인코딩 실패도 1이 아니라 2다.
+
+    Args:
+        out: 표준 출력.
+        err: 표준 오류.
+        text: 출력 문자열.
+        code: 쓰기에 성공했을 때의 종료 코드.
+
+    Returns:
+        종료 코드.
+    """
     try:
         out.write(text)
         out.flush()
-    except (OSError, UnicodeError) as error:  # 닫힌 파이프·인코딩 실패도 1이 아니라 2다.
+    except (OSError, UnicodeError) as error:
         _report(err, f"could not write the output ({type(error).__name__}); check the output destination")
         return EXIT_INPUT
-    return EXIT_OK
+    return code
 
 
 def _report(err: TextIO, message: str) -> None:
@@ -187,11 +206,12 @@ def _report(err: TextIO, message: str) -> None:
         return
 
 
-def run(arguments: list[str]) -> str:
+def run(arguments: list[str], stdin: TextIO | None = None) -> str:
     """인자를 해석해 표준 출력에 쓸 문자열을 만든다.
 
     Args:
         arguments: 인자 목록.
+        stdin: 표준 입력(없으면 `sys.stdin`).
 
     Returns:
         출력 문자열.
@@ -213,6 +233,10 @@ def run(arguments: list[str]) -> str:
         return _routes(rest)
     if command == "schema":
         return _schema(rest)
+    if command == "graph":
+        return run_graph(rest)
+    if command in ("reach", "impact"):
+        return run_traversal(rest, "dependencies" if command == "reach" else "dependents", stdin)
     raise UsageError("unknown command.\n" + MAIN_USAGE)
 
 
@@ -234,6 +258,9 @@ def _help(rest: list[str]) -> str:
         return ROUTES_USAGE
     if rest == ["schema"]:
         return SCHEMA_USAGE
+    topics = {"graph": GRAPH_USAGE, "reach": REACH_USAGE, "impact": IMPACT_USAGE}
+    if len(rest) == 1 and rest[0] in topics:
+        return topics[rest[0]]
     raise UsageError("unknown command for help.\n" + MAIN_USAGE)
 
 
@@ -296,7 +323,7 @@ def _schema(rest: list[str]) -> str:
     if project_argument is None:
         raise UsageError("--project <root> is required.\n" + SCHEMA_USAGE)
     settings_module = _settings_module(values.get("--settings"))
-    generated_at = _timestamp(values.get("--generated-at"))
+    generated_at = parse_timestamp(values.get("--generated-at"))
     root = resolve_project(project_argument)
     extraction = extract_persistence(Project.open(root), SchemaOptions("--include-tests" in flags, settings_module))
     header = DocumentHeader(
@@ -385,7 +412,7 @@ def validate_routes(values: dict[str, str], flags: set[str]) -> RoutesArguments:
         framework=framework,
         settings_module=_settings_module(values.get("--settings")),
         dispatch=dispatch,
-        generated_at=_timestamp(values.get("--generated-at")),
+        generated_at=parse_timestamp(values.get("--generated-at")),
     )
 
 
@@ -401,7 +428,7 @@ def _service(value: str | None) -> str | None:
     Raises:
         UsageError: 길이·문자 위반.
     """
-    if value is not None and (len(value) > MAX_SERVICE_LENGTH or _FORBIDDEN.search(value)):
+    if value is not None and (len(value) > MAX_SERVICE_LENGTH or FORBIDDEN.search(value)):
         raise UsageError(f"--service must be 1-{MAX_SERVICE_LENGTH} characters without control characters.")
     return value
 
@@ -421,51 +448,3 @@ def _settings_module(value: str | None) -> str | None:
     if value is not None and not all(part.isidentifier() for part in value.split(".")):
         raise UsageError("--settings must be a dotted Python module name such as mysite.settings.")
     return value
-
-
-def _timestamp(value: str | None) -> datetime | None:
-    """`--generated-at` 값을 해석한다.
-
-    Args:
-        value: 값.
-
-    Returns:
-        UTC 시각 또는 None.
-
-    Raises:
-        UsageError: 형식 위반.
-    """
-    if value is None:
-        return None
-    if _TIMESTAMP.fullmatch(value) is None:
-        raise UsageError("--generated-at takes a UTC timestamp such as 2026-01-01T00:00:00.000Z.")
-    try:
-        return datetime.strptime(value[:-1] + ("" if "." in value else ".0"), "%Y-%m-%dT%H:%M:%S.%f").replace(
-            tzinfo=timezone.utc
-        )
-    except ValueError as error:
-        raise UsageError("--generated-at takes a valid UTC timestamp such as 2026-01-01T00:00:00.000Z.") from error
-
-
-def resolve_project(argument: str) -> Path:
-    """프로젝트 경로를 realpath로 정규화하고 디렉터리인지 확인한다.
-
-    Args:
-        argument: `--project` 값.
-
-    Returns:
-        realpath.
-
-    Raises:
-        InputError: 디렉터리가 아니거나 계약이 금지하는 문자를 담을 때.
-    """
-    try:
-        root = Path(os.path.realpath(argument))
-        is_directory = root.is_dir()
-    except (OSError, ValueError):
-        is_directory = False
-    if not is_directory:
-        raise InputError("--project does not name a readable directory; pass the project root.")
-    if _FORBIDDEN.search(root.as_posix()):
-        raise InputError("the project path contains characters the exchange format forbids; rename or move it.")
-    return root

@@ -1,0 +1,106 @@
+{
+  "format": "isthmus-trace-context",
+  "links": [
+    {
+      "client": "ios",
+      "match": {
+        "hosts": [
+          "api.example.com"
+        ]
+      },
+      "name": "ios->api",
+      "server": "server"
+    },
+    {
+      "client": "android",
+      "match": {
+        "hosts": [
+          "api.example.com"
+        ]
+      },
+      "name": "android->api",
+      "server": "server"
+    }
+  ],
+  "members": [
+    {
+      "analyses": [
+        {
+          "id": "server-forward",
+          "path": "server-forward.json",
+          "platform": "python",
+          "role": "forward"
+        },
+        {
+          "id": "server-reverse",
+          "path": "server-reverse.json",
+          "platform": "python",
+          "role": "reverse"
+        },
+        {
+          "id": "server-db",
+          "path": "server-db.json",
+          "platform": "sql",
+          "role": "db-dependents"
+        }
+      ],
+      "documents": [
+        "server.http.json",
+        "server.persistence.json",
+        "server.sql.json"
+      ],
+      "name": "server",
+      "project": "/e2e/shop-api",
+      "revision": "e2e-shop-api"
+    },
+    {
+      "analyses": [
+        {
+          "id": "ios-reverse",
+          "path": "ios-reverse.json",
+          "platform": "swift",
+          "role": "reverse"
+        }
+      ],
+      "documents": [
+        "ios.http.json"
+      ],
+      "name": "ios",
+      "project": "/e2e/clients/ios",
+      "revision": "e2e-ios-client"
+    },
+    {
+      "analyses": [
+        {
+          "id": "android-reverse",
+          "path": "android-reverse.json",
+          "platform": "kotlin",
+          "role": "reverse"
+        }
+      ],
+      "documents": [
+        "android.http.json"
+      ],
+      "name": "android",
+      "project": "/e2e/clients/android",
+      "revision": "a11d000000000000000000000000000000000e2e"
+    }
+  ],
+  "selection": {
+    "routes": [
+      {
+        "method": "GET",
+        "template": "/api/orders/{}/"
+      },
+      {
+        "method": "POST",
+        "template": "/api/orders/{}/cancel/"
+      },
+      {
+        "method": "GET",
+        "template": "/api/products/"
+      }
+    ]
+  },
+  "version": 1
+}

@@ -1,0 +1,764 @@
+{
+  "direction": "dependents",
+  "format": "language-traversal",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "4b796775d97d824278d3246dde0404aef2db0532c31ab07ef224d2fc60303c8b",
+  "limitations": [
+    "DDL 인라인 UNIQUE/CHECK 제약은 카탈로그에 없어 수집하지 못함 (인라인 제약 파싱 미지원)"
+  ],
+  "platform": "sql",
+  "project": "/e2e/shop-api",
+  "reached": [
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        0,
+        7,
+        32
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions",
+        "usr": "main.auth_group_permissions"
+      },
+      "via": "main.auth_group"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions.group_id",
+        "usr": "main.auth_group_permissions.group_id"
+      },
+      "via": "main.auth_group.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        10
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions.permission_id",
+        "usr": "main.auth_group_permissions.permission_id"
+      },
+      "via": "main.auth_permission.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        32
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_permission",
+        "usr": "main.auth_permission"
+      },
+      "via": "main.django_content_type"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        34
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_permission.content_type_id",
+        "usr": "main.auth_permission.content_type_id"
+      },
+      "via": "main.django_content_type.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        0,
+        12
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups",
+        "usr": "main.auth_user_groups"
+      },
+      "via": "main.auth_group"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups.group_id",
+        "usr": "main.auth_user_groups.group_id"
+      },
+      "via": "main.auth_group.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        16
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups.user_id",
+        "usr": "main.auth_user_groups.user_id"
+      },
+      "via": "main.auth_user.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        7,
+        12,
+        32
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions",
+        "usr": "main.auth_user_user_permissions"
+      },
+      "via": "main.auth_permission"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        10
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions.permission_id",
+        "usr": "main.auth_user_user_permissions.permission_id"
+      },
+      "via": "main.auth_permission.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        16
+      ],
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions.user_id",
+        "usr": "main.auth_user_user_permissions.user_id"
+      },
+      "via": "main.auth_user.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "reads"
+      ],
+      "roots": [
+        40,
+        42,
+        48,
+        49,
+        50,
+        51,
+        52
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_open_orders",
+        "usr": "main.store_open_orders"
+      },
+      "via": "main.store_order"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "derives-from"
+      ],
+      "roots": [
+        49
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.created_at",
+        "usr": "main.store_open_orders.created_at"
+      },
+      "via": "main.store_order.created_at"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "derives-from"
+      ],
+      "roots": [
+        42,
+        50
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.customer_id",
+        "usr": "main.store_open_orders.customer_id"
+      },
+      "via": "main.store_order.customer_id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "derives-from"
+      ],
+      "roots": [
+        51
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.id",
+        "usr": "main.store_open_orders.id"
+      },
+      "via": "main.store_order.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        40
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_order",
+        "usr": "main.store_order"
+      },
+      "via": "main.store_customer"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        42
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_order.customer_id",
+        "usr": "main.store_order.customer_id"
+      },
+      "via": "main.store_customer.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        40,
+        48,
+        58
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_orderline",
+        "usr": "main.store_orderline"
+      },
+      "via": "main.store_order"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        51
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_orderline.order_id",
+        "usr": "main.store_orderline.order_id"
+      },
+      "via": "main.store_order.id"
+    },
+    {
+      "depth": 1,
+      "relationships": [
+        "references"
+      ],
+      "roots": [
+        60
+      ],
+      "symbol": {
+        "qualifiedName": "main.store_orderline.product_id",
+        "usr": "main.store_orderline.product_id"
+      },
+      "via": "main.store_product.id"
+    }
+  ],
+  "revision": "e2e-shop-api",
+  "roots": [
+    {
+      "id": "main.auth_group",
+      "symbol": {
+        "qualifiedName": "main.auth_group",
+        "usr": "main.auth_group"
+      }
+    },
+    {
+      "id": "main.auth_group.id",
+      "symbol": {
+        "qualifiedName": "main.auth_group.id",
+        "usr": "main.auth_group.id"
+      }
+    },
+    {
+      "id": "main.auth_group.name",
+      "symbol": {
+        "qualifiedName": "main.auth_group.name",
+        "usr": "main.auth_group.name"
+      }
+    },
+    {
+      "id": "main.auth_group_permissions",
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions",
+        "usr": "main.auth_group_permissions"
+      }
+    },
+    {
+      "id": "main.auth_group_permissions.group_id",
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions.group_id",
+        "usr": "main.auth_group_permissions.group_id"
+      }
+    },
+    {
+      "id": "main.auth_group_permissions.id",
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions.id",
+        "usr": "main.auth_group_permissions.id"
+      }
+    },
+    {
+      "id": "main.auth_group_permissions.permission_id",
+      "symbol": {
+        "qualifiedName": "main.auth_group_permissions.permission_id",
+        "usr": "main.auth_group_permissions.permission_id"
+      }
+    },
+    {
+      "id": "main.auth_permission",
+      "symbol": {
+        "qualifiedName": "main.auth_permission",
+        "usr": "main.auth_permission"
+      }
+    },
+    {
+      "id": "main.auth_permission.codename",
+      "symbol": {
+        "qualifiedName": "main.auth_permission.codename",
+        "usr": "main.auth_permission.codename"
+      }
+    },
+    {
+      "id": "main.auth_permission.content_type_id",
+      "symbol": {
+        "qualifiedName": "main.auth_permission.content_type_id",
+        "usr": "main.auth_permission.content_type_id"
+      }
+    },
+    {
+      "id": "main.auth_permission.id",
+      "symbol": {
+        "qualifiedName": "main.auth_permission.id",
+        "usr": "main.auth_permission.id"
+      }
+    },
+    {
+      "id": "main.auth_permission.name",
+      "symbol": {
+        "qualifiedName": "main.auth_permission.name",
+        "usr": "main.auth_permission.name"
+      }
+    },
+    {
+      "id": "main.auth_user",
+      "symbol": {
+        "qualifiedName": "main.auth_user",
+        "usr": "main.auth_user"
+      }
+    },
+    {
+      "id": "main.auth_user.date_joined",
+      "symbol": {
+        "qualifiedName": "main.auth_user.date_joined",
+        "usr": "main.auth_user.date_joined"
+      }
+    },
+    {
+      "id": "main.auth_user.email",
+      "symbol": {
+        "qualifiedName": "main.auth_user.email",
+        "usr": "main.auth_user.email"
+      }
+    },
+    {
+      "id": "main.auth_user.first_name",
+      "symbol": {
+        "qualifiedName": "main.auth_user.first_name",
+        "usr": "main.auth_user.first_name"
+      }
+    },
+    {
+      "id": "main.auth_user.id",
+      "symbol": {
+        "qualifiedName": "main.auth_user.id",
+        "usr": "main.auth_user.id"
+      }
+    },
+    {
+      "id": "main.auth_user.is_active",
+      "symbol": {
+        "qualifiedName": "main.auth_user.is_active",
+        "usr": "main.auth_user.is_active"
+      }
+    },
+    {
+      "id": "main.auth_user.is_staff",
+      "symbol": {
+        "qualifiedName": "main.auth_user.is_staff",
+        "usr": "main.auth_user.is_staff"
+      }
+    },
+    {
+      "id": "main.auth_user.is_superuser",
+      "symbol": {
+        "qualifiedName": "main.auth_user.is_superuser",
+        "usr": "main.auth_user.is_superuser"
+      }
+    },
+    {
+      "id": "main.auth_user.last_login",
+      "symbol": {
+        "qualifiedName": "main.auth_user.last_login",
+        "usr": "main.auth_user.last_login"
+      }
+    },
+    {
+      "id": "main.auth_user.last_name",
+      "symbol": {
+        "qualifiedName": "main.auth_user.last_name",
+        "usr": "main.auth_user.last_name"
+      }
+    },
+    {
+      "id": "main.auth_user.password",
+      "symbol": {
+        "qualifiedName": "main.auth_user.password",
+        "usr": "main.auth_user.password"
+      }
+    },
+    {
+      "id": "main.auth_user.username",
+      "symbol": {
+        "qualifiedName": "main.auth_user.username",
+        "usr": "main.auth_user.username"
+      }
+    },
+    {
+      "id": "main.auth_user_groups",
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups",
+        "usr": "main.auth_user_groups"
+      }
+    },
+    {
+      "id": "main.auth_user_groups.group_id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups.group_id",
+        "usr": "main.auth_user_groups.group_id"
+      }
+    },
+    {
+      "id": "main.auth_user_groups.id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups.id",
+        "usr": "main.auth_user_groups.id"
+      }
+    },
+    {
+      "id": "main.auth_user_groups.user_id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_groups.user_id",
+        "usr": "main.auth_user_groups.user_id"
+      }
+    },
+    {
+      "id": "main.auth_user_user_permissions",
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions",
+        "usr": "main.auth_user_user_permissions"
+      }
+    },
+    {
+      "id": "main.auth_user_user_permissions.id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions.id",
+        "usr": "main.auth_user_user_permissions.id"
+      }
+    },
+    {
+      "id": "main.auth_user_user_permissions.permission_id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions.permission_id",
+        "usr": "main.auth_user_user_permissions.permission_id"
+      }
+    },
+    {
+      "id": "main.auth_user_user_permissions.user_id",
+      "symbol": {
+        "qualifiedName": "main.auth_user_user_permissions.user_id",
+        "usr": "main.auth_user_user_permissions.user_id"
+      }
+    },
+    {
+      "id": "main.django_content_type",
+      "symbol": {
+        "qualifiedName": "main.django_content_type",
+        "usr": "main.django_content_type"
+      }
+    },
+    {
+      "id": "main.django_content_type.app_label",
+      "symbol": {
+        "qualifiedName": "main.django_content_type.app_label",
+        "usr": "main.django_content_type.app_label"
+      }
+    },
+    {
+      "id": "main.django_content_type.id",
+      "symbol": {
+        "qualifiedName": "main.django_content_type.id",
+        "usr": "main.django_content_type.id"
+      }
+    },
+    {
+      "id": "main.django_content_type.model",
+      "symbol": {
+        "qualifiedName": "main.django_content_type.model",
+        "usr": "main.django_content_type.model"
+      }
+    },
+    {
+      "id": "main.store_auditentry",
+      "symbol": {
+        "qualifiedName": "main.store_auditentry",
+        "usr": "main.store_auditentry"
+      }
+    },
+    {
+      "id": "main.store_auditentry.action",
+      "symbol": {
+        "qualifiedName": "main.store_auditentry.action",
+        "usr": "main.store_auditentry.action"
+      }
+    },
+    {
+      "id": "main.store_auditentry.id",
+      "symbol": {
+        "qualifiedName": "main.store_auditentry.id",
+        "usr": "main.store_auditentry.id"
+      }
+    },
+    {
+      "id": "main.store_auditentry.order_id",
+      "symbol": {
+        "qualifiedName": "main.store_auditentry.order_id",
+        "usr": "main.store_auditentry.order_id"
+      }
+    },
+    {
+      "id": "main.store_customer",
+      "symbol": {
+        "qualifiedName": "main.store_customer",
+        "usr": "main.store_customer"
+      }
+    },
+    {
+      "id": "main.store_customer.email",
+      "symbol": {
+        "qualifiedName": "main.store_customer.email",
+        "usr": "main.store_customer.email"
+      }
+    },
+    {
+      "id": "main.store_customer.id",
+      "symbol": {
+        "qualifiedName": "main.store_customer.id",
+        "usr": "main.store_customer.id"
+      }
+    },
+    {
+      "id": "main.store_customer.name",
+      "symbol": {
+        "qualifiedName": "main.store_customer.name",
+        "usr": "main.store_customer.name"
+      }
+    },
+    {
+      "id": "main.store_open_orders",
+      "symbol": {
+        "qualifiedName": "main.store_open_orders",
+        "usr": "main.store_open_orders"
+      }
+    },
+    {
+      "id": "main.store_open_orders.created_at",
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.created_at",
+        "usr": "main.store_open_orders.created_at"
+      }
+    },
+    {
+      "id": "main.store_open_orders.customer_id",
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.customer_id",
+        "usr": "main.store_open_orders.customer_id"
+      }
+    },
+    {
+      "id": "main.store_open_orders.id",
+      "symbol": {
+        "qualifiedName": "main.store_open_orders.id",
+        "usr": "main.store_open_orders.id"
+      }
+    },
+    {
+      "id": "main.store_order",
+      "symbol": {
+        "qualifiedName": "main.store_order",
+        "usr": "main.store_order"
+      }
+    },
+    {
+      "id": "main.store_order.created_at",
+      "symbol": {
+        "qualifiedName": "main.store_order.created_at",
+        "usr": "main.store_order.created_at"
+      }
+    },
+    {
+      "id": "main.store_order.customer_id",
+      "symbol": {
+        "qualifiedName": "main.store_order.customer_id",
+        "usr": "main.store_order.customer_id"
+      }
+    },
+    {
+      "id": "main.store_order.id",
+      "symbol": {
+        "qualifiedName": "main.store_order.id",
+        "usr": "main.store_order.id"
+      }
+    },
+    {
+      "id": "main.store_order.status",
+      "symbol": {
+        "qualifiedName": "main.store_order.status",
+        "usr": "main.store_order.status"
+      }
+    },
+    {
+      "id": "main.store_orderline",
+      "symbol": {
+        "qualifiedName": "main.store_orderline",
+        "usr": "main.store_orderline"
+      }
+    },
+    {
+      "id": "main.store_orderline.id",
+      "symbol": {
+        "qualifiedName": "main.store_orderline.id",
+        "usr": "main.store_orderline.id"
+      }
+    },
+    {
+      "id": "main.store_orderline.order_id",
+      "symbol": {
+        "qualifiedName": "main.store_orderline.order_id",
+        "usr": "main.store_orderline.order_id"
+      }
+    },
+    {
+      "id": "main.store_orderline.product_id",
+      "symbol": {
+        "qualifiedName": "main.store_orderline.product_id",
+        "usr": "main.store_orderline.product_id"
+      }
+    },
+    {
+      "id": "main.store_orderline.quantity",
+      "symbol": {
+        "qualifiedName": "main.store_orderline.quantity",
+        "usr": "main.store_orderline.quantity"
+      }
+    },
+    {
+      "id": "main.store_product",
+      "symbol": {
+        "qualifiedName": "main.store_product",
+        "usr": "main.store_product"
+      }
+    },
+    {
+      "id": "main.store_product.active",
+      "symbol": {
+        "qualifiedName": "main.store_product.active",
+        "usr": "main.store_product.active"
+      }
+    },
+    {
+      "id": "main.store_product.id",
+      "symbol": {
+        "qualifiedName": "main.store_product.id",
+        "usr": "main.store_product.id"
+      }
+    },
+    {
+      "id": "main.store_product.price_cents",
+      "symbol": {
+        "qualifiedName": "main.store_product.price_cents",
+        "usr": "main.store_product.price_cents"
+      }
+    },
+    {
+      "id": "main.store_product.sku",
+      "symbol": {
+        "qualifiedName": "main.store_product.sku",
+        "usr": "main.store_product.sku"
+      }
+    },
+    {
+      "id": "main.store_product.title",
+      "symbol": {
+        "qualifiedName": "main.store_product.title",
+        "usr": "main.store_product.title"
+      }
+    }
+  ],
+  "tool": {
+    "name": "schemagraph",
+    "version": "0.6.0"
+  },
+  "truncated": false,
+  "version": 1
+}

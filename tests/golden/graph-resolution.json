@@ -1,0 +1,1056 @@
+{
+  "edges": [
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Base.create",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Base.__init__"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/models.py#Base.create",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Diamond.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Base.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Base.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.suffix"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/models.py#Base.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Left.label"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/models.py#Base.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Right.suffix"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/models.py#Base.render",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Left.template"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Base.title",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.label"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/models.py#Base.title",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Left.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Left"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Right"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.__init__",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.describe",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base.describe"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Diamond.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Diamond.suffix"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.label",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Left.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Diamond.suffix",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Right.suffix"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Left",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Left.label",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.__init__",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.describe",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base.describe"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Plain.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.describe",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Plain.suffix"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.label",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Plain.suffix",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base.suffix"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#Right",
+      "kinds": [
+        "inherit"
+      ],
+      "to": "app/core/models.py#Base"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/models.py#build",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Plain.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#<module>",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/services.py#Registry.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#<module>",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/helpers.py#cached"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#<module>",
+      "kinds": [
+        "reference"
+      ],
+      "to": "app/helpers.py#traced"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#callbacks_and_references",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/services.py#Registry.register"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#callbacks_and_references",
+      "kinds": [
+        "callback"
+      ],
+      "to": "app/core/services.py#exact_calls"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#callbacks_and_references",
+      "kinds": [
+        "reference"
+      ],
+      "to": "app/core/services.py#inexact_calls"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#callbacks_and_references",
+      "kinds": [
+        "reference"
+      ],
+      "to": "app/helpers.py#dump"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#callbacks_and_references",
+      "kinds": [
+        "callback",
+        "reference"
+      ],
+      "to": "app/helpers.py#slugify"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#dynamic_calls",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Plain.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#dynamic_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/services.py#Registry.fire"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.normalize"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Diamond.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Diamond.describe"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "new"
+      ],
+      "to": "app/core/models.py#Plain.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Plain.describe"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#exact_calls",
+      "kinds": [
+        "decorator"
+      ],
+      "to": "app/helpers.py#traced"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.describe"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.render"
+    },
+    {
+      "evidence": "candidate",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Left.label"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#build"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "decorator"
+      ],
+      "to": "app/helpers.py#cached"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#nested",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/services.py#nested.inner"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#nested.inner",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/services.py#exact_calls"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/core/services.py#property_use",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Base.title"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/helpers.py#cached",
+      "kinds": [
+        "reference"
+      ],
+      "to": "app/helpers.py#cached.decorate"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/helpers.py#traced",
+      "kinds": [
+        "reference"
+      ],
+      "to": "app/helpers.py#traced.wrapper"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/plugins/extra.py#Counter.bump",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/plugins/extra.py#Counter.total"
+    },
+    {
+      "evidence": "direct",
+      "from": "app/plugins/extra.py#use_star",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/helpers.py#slugify"
+    }
+  ],
+  "format": "pythograph-graph",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "sha256:eb0d80a4f67ce543e38abc08759743dd4fb4cfe7b64d3ad5857104ead156cb5a",
+  "limitations": [
+    "unresolved-calls: 17 call sites have no complete project target in direct mode (dynamic-callee 2, getattr 1, local-value 1, overridden-method 5, parameter 2, subclass-method 1, unresolved-import 1, unresolved-name 1, untyped-receiver 3); each symbol's unresolvedCalls counts its own",
+    "overridden-methods: 6 calls through self, cls, or annotated receivers may reach methods of project subclasses; they count as unresolved here and are linked with --dispatch candidates",
+    "external-calls: 16 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed"
+  ],
+  "nodes": [
+    {
+      "id": "app/__init__.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/__init__.py"
+      }
+    },
+    {
+      "id": "app/core/__init__.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/core/__init__.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.__init__",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.create",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 42,
+        "path": "app/core/models.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 0,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "overridden-method": 1
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.describe",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 15,
+        "path": "app/core/models.py"
+      },
+      "unresolvedCalls": {
+        "bound": 2,
+        "candidates": 0,
+        "direct": 2
+      },
+      "unresolvedReasons": {
+        "overridden-method": 2
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.label",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 19,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.normalize",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 47,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.render",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 27,
+        "path": "app/core/models.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 0,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "subclass-method": 1
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.suffix",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 23,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Base.title",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 32,
+        "path": "app/core/models.py"
+      },
+      "unresolvedCalls": {
+        "bound": 2,
+        "candidates": 1,
+        "direct": 2
+      },
+      "unresolvedReasons": {
+        "overridden-method": 1,
+        "untyped-receiver": 1
+      }
+    },
+    {
+      "id": "app/core/models.py#Diamond",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 72,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Diamond.__init__",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 75,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Diamond.describe",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 72,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Diamond.label",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 72,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Diamond.suffix",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 72,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Left",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 52,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Left.label",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 55,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Left.template",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 59,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Plain",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 81,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Plain.__init__",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 81,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Plain.describe",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 81,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Plain.label",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 81,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Plain.suffix",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 81,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Right",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 64,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#Right.suffix",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 67,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/models.py#build",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 85,
+        "path": "app/core/models.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#Registry",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 11,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#Registry.__init__",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 14,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#Registry.fire",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 22,
+        "path": "app/core/services.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "local-value": 1
+      }
+    },
+    {
+      "id": "app/core/services.py#Registry.register",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 18,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#callbacks_and_references",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 50,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#dynamic_calls",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 59,
+        "path": "app/core/services.py"
+      },
+      "unresolvedCalls": {
+        "bound": 8,
+        "candidates": 8,
+        "direct": 8
+      },
+      "unresolvedReasons": {
+        "dynamic-callee": 2,
+        "getattr": 1,
+        "parameter": 1,
+        "unresolved-import": 1,
+        "unresolved-name": 1,
+        "untyped-receiver": 2
+      }
+    },
+    {
+      "id": "app/core/services.py#exact_calls",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 32,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#inexact_calls",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 42,
+        "path": "app/core/services.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 0,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "overridden-method": 1
+      }
+    },
+    {
+      "id": "app/core/services.py#nested",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 79,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#nested.inner",
+      "kind": "function",
+      "location": {
+        "column": 5,
+        "line": 82,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/core/services.py#property_use",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 73,
+        "path": "app/core/services.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#cached",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 23,
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#cached.decorate",
+      "kind": "function",
+      "location": {
+        "column": 5,
+        "line": 26,
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#dump",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 33,
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#slugify",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#traced",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "app/helpers.py"
+      }
+    },
+    {
+      "id": "app/helpers.py#traced.wrapper",
+      "kind": "function",
+      "location": {
+        "column": 5,
+        "line": 16,
+        "path": "app/helpers.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "parameter": 1
+      }
+    },
+    {
+      "id": "app/plugins/__init__.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/plugins/__init__.py"
+      }
+    },
+    {
+      "id": "app/plugins/extra.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "app/plugins/extra.py"
+      }
+    },
+    {
+      "id": "app/plugins/extra.py#Counter",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "app/plugins/extra.py"
+      }
+    },
+    {
+      "id": "app/plugins/extra.py#Counter.bump",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "app/plugins/extra.py"
+      }
+    },
+    {
+      "id": "app/plugins/extra.py#Counter.total",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 16,
+        "path": "app/plugins/extra.py"
+      }
+    },
+    {
+      "id": "app/plugins/extra.py#use_star",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 21,
+        "path": "app/plugins/extra.py"
+      }
+    }
+  ],
+  "project": "<project>",
+  "revision": "golden",
+  "statistics": {
+    "callSites": {
+      "external": 16,
+      "partial": 6,
+      "resolved": 21,
+      "unresolved": 11
+    },
+    "dynamicAttributeWrites": 0,
+    "edges": {
+      "call": 29,
+      "callback": 2,
+      "decorator": 2,
+      "inherit": 12,
+      "new": 7,
+      "reference": 6
+    },
+    "edgesByEvidence": {
+      "candidate": 6,
+      "direct": 51
+    },
+    "frameworkUnresolved": {},
+    "mroApproximated": 0,
+    "nodes": {
+      "class": 7,
+      "function": 15,
+      "inherited-method": 7,
+      "method": 17,
+      "module": 7
+    },
+    "partialCalls": {
+      "overridden-method": 5,
+      "subclass-method": 1
+    },
+    "unparsedFiles": 0,
+    "unresolvedCalls": {
+      "dynamic-callee": 2,
+      "getattr": 1,
+      "local-value": 1,
+      "parameter": 2,
+      "unresolved-import": 1,
+      "unresolved-name": 1,
+      "untyped-receiver": 3
+    },
+    "viewHandlers": 0
+  },
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

@@ -28,7 +28,8 @@ pythograph schema --project <root> [--include-tests] [--settings <module>] [--ge
   isthmus는 이것을 직접 세어 `unjoined-dynamic-relations`로 `relation-decl-without-use`를 `-unverified`로 내린다.
 - `symbol`: 사실을 담은 가장 안쪽 함수·클래스의 id(`<프로젝트 상대 경로>#<어휘적 점 경로>`, routes와 같은
   규칙)를 `qualifiedName`과 `usr`에 싣는다. 모델 선언 사실은 모델 클래스 id다. 모듈 수준 사실에는 symbol이 없고
-  `missing-relation-usrs:`로 센다. 다음 단계의 호출 그래프가 같은 id를 쓰므로 isthmus `trace`가 문자열로 잇는다.
+  `missing-relation-usrs:`로 센다. 호출 그래프(`pythograph graph`, [GRAPH.md](GRAPH.md))가 같은 id를 쓰므로 isthmus `trace`가
+  문자열로 잇는다.
 - 종료 코드는 routes와 같다(0 성공·2 입력 오류·64 사용법 오류, 1 예약). 사실 0건도 성공이며 완전성의 증거가
   아니다.
 
@@ -227,7 +228,7 @@ HackSoftware/Django-Styleguide-Example `a70ef43`(MIT, 스크래치에 복제, �
 
 ## 다음 단계
 
-- `pythograph graph`·`reach`·`impact`: 같은 심볼 id로 호출 그래프를 만들어 isthmus `trace`가 route → 핸들러 →
-  `relation-use` → schemagraph 순으로 잇게 한다.
+- 호출 그래프(`pythograph graph`·`reach`·`impact`, [GRAPH.md](GRAPH.md))는 구현됐다. isthmus `trace`가 route → 핸들러 →
+  `relation-use` → schemagraph 순으로 잇는 것을 `experiments/e2e/`로 확인했다.
 - 인스턴스 출처 확장(클래스 속성 `self.model`, 반환 형 주석), SQLAlchemy 인스턴스 관계 로딩, Alembic 모델 비교는
   아직 없다.

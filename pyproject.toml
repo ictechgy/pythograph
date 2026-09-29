@@ -64,7 +64,7 @@ exclude_also = ["if TYPE_CHECKING:", "raise AssertionError"]
 line-length = 120
 target-version = "py310"
 src = ["src", "tests"]
-extend-exclude = ["fixtures", "experiments"]
+extend-exclude = ["fixtures", "experiments", "src/pythograph/graph/framework_table.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PL", "C4", "PIE", "RET"]

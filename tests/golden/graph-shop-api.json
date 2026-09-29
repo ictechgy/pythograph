@@ -1,0 +1,775 @@
+{
+  "edges": [
+    {
+      "evidence": "direct",
+      "from": "store/models.py#Order",
+      "kinds": [
+        "callback"
+      ],
+      "to": "store/models.py#Customer"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/models.py#OrderLine",
+      "kinds": [
+        "callback"
+      ],
+      "to": "store/models.py#Order"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/models.py#OrderLine",
+      "kinds": [
+        "callback"
+      ],
+      "to": "store/models.py#Product"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/serializers.py#OrderSerializer.Meta",
+      "kinds": [
+        "reference"
+      ],
+      "to": "store/models.py#Order"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/serializers.py#ProductSerializer.Meta",
+      "kinds": [
+        "reference"
+      ],
+      "to": "store/models.py#Product"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/services.py#<module>",
+      "kinds": [
+        "new"
+      ],
+      "to": "store/services.py#OrderService"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/services.py#OrderService.cancel",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/audit.py#record"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/urls.py#<module>",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/views.py#CheckoutView.as_view"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/urls.py#<module>",
+      "kinds": [
+        "callback"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/urls.py#<module>",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/views.py#ProductListView.as_view"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/urls.py#<module>",
+      "kinds": [
+        "callback"
+      ],
+      "to": "store/views.py#customer_summary"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#CheckoutView.post",
+      "kinds": [
+        "new"
+      ],
+      "to": "store/serializers.py#OrderSerializer.__init__"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#CheckoutView.post",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/serializers.py#OrderSerializer.data"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#CheckoutView.post",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/services.py#OrderService.place"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet",
+      "kinds": [
+        "reference"
+      ],
+      "to": "store/serializers.py#OrderSerializer"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.cancel",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/services.py#OrderService.cancel"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.create",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.destroy",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#OrderViewSet.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.get_queryset",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/selectors.py#orders_for_customer"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.list",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.list",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#OrderViewSet.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.partial_update",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.partial_update",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#OrderViewSet.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.retrieve",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.retrieve",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#OrderViewSet.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.update",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#OrderViewSet"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#OrderViewSet.update",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#OrderViewSet.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#ProductListView",
+      "kinds": [
+        "reference"
+      ],
+      "to": "store/serializers.py#ProductSerializer"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#ProductListView.get",
+      "kinds": [
+        "attribute"
+      ],
+      "to": "store/views.py#ProductListView"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#ProductListView.get",
+      "kinds": [
+        "framework"
+      ],
+      "to": "store/views.py#ProductListView.get_queryset"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#ProductListView.get_queryset",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/selectors.py#active_products"
+    },
+    {
+      "evidence": "direct",
+      "from": "store/views.py#customer_summary",
+      "kinds": [
+        "call"
+      ],
+      "to": "store/selectors.py#orders_for_customer"
+    }
+  ],
+  "format": "pythograph-graph",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "sha256:4891167f4103f2fe8f5712f65d9cdaa409765882369852bbe7372b02f38321b7",
+  "limitations": [
+    "unresolved-calls: 6 call sites have no complete project target in direct mode (framework-callback 6); each symbol's unresolvedCalls counts its own",
+    "external-calls: 40 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed",
+    "framework-dispatch: 12 class-based view handler symbols are linked to the project hooks their framework dispatch path calls (Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3 sources); objects the framework builds from class attributes (serializers, permissions, pagination) count as framework-callback unresolved calls, and signals, middleware, and classes named in settings are not modeled"
+  ],
+  "nodes": [
+    {
+      "id": "config/__init__.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "config/__init__.py"
+      }
+    },
+    {
+      "id": "config/settings.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "config/settings.py"
+      }
+    },
+    {
+      "id": "config/urls.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "config/urls.py"
+      }
+    },
+    {
+      "id": "manage.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "manage.py"
+      }
+    },
+    {
+      "id": "store/__init__.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/__init__.py"
+      }
+    },
+    {
+      "id": "store/audit.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/audit.py"
+      }
+    },
+    {
+      "id": "store/audit.py#record",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "store/audit.py"
+      }
+    },
+    {
+      "id": "store/models.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/models.py#AuditEntry",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 38,
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/models.py#Customer",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/models.py#Order",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 22,
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/models.py#OrderLine",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 30,
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/models.py#Product",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 13,
+        "path": "store/models.py"
+      }
+    },
+    {
+      "id": "store/selectors.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/selectors.py"
+      }
+    },
+    {
+      "id": "store/selectors.py#active_products",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 15,
+        "path": "store/selectors.py"
+      }
+    },
+    {
+      "id": "store/selectors.py#orders_for_customer",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "store/selectors.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#OrderSerializer",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#OrderSerializer.Meta",
+      "kind": "class",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#OrderSerializer.__init__",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#OrderSerializer.data",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#ProductSerializer",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 18,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/serializers.py#ProductSerializer.Meta",
+      "kind": "class",
+      "location": {
+        "column": 5,
+        "line": 21,
+        "path": "store/serializers.py"
+      }
+    },
+    {
+      "id": "store/services.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/services.py"
+      }
+    },
+    {
+      "id": "store/services.py#OrderService",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "store/services.py"
+      }
+    },
+    {
+      "id": "store/services.py#OrderService.cancel",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 22,
+        "path": "store/services.py"
+      }
+    },
+    {
+      "id": "store/services.py#OrderService.place",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "store/services.py"
+      }
+    },
+    {
+      "id": "store/urls.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/urls.py"
+      }
+    },
+    {
+      "id": "store/views.py#<module>",
+      "kind": "module",
+      "location": {
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#CheckoutView",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 38,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#CheckoutView.as_view",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 38,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#CheckoutView.options",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 38,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#CheckoutView.post",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 41,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.cancel",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 22,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.create",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.destroy",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.get_queryset",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 17,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.list",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.options",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.partial_update",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.retrieve",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.update",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView",
+      "kind": "class",
+      "location": {
+        "column": 1,
+        "line": 28,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView.as_view",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 28,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView.get",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 28,
+        "path": "store/views.py"
+      },
+      "unresolvedCalls": {
+        "bound": 1,
+        "candidates": 1,
+        "direct": 1
+      },
+      "unresolvedReasons": {
+        "framework-callback": 1
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView.get_queryset",
+      "kind": "method",
+      "location": {
+        "column": 5,
+        "line": 33,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView.options",
+      "kind": "inherited-method",
+      "location": {
+        "column": 1,
+        "line": 28,
+        "path": "store/views.py"
+      }
+    },
+    {
+      "id": "store/views.py#customer_summary",
+      "kind": "function",
+      "location": {
+        "column": 1,
+        "line": 48,
+        "path": "store/views.py"
+      }
+    }
+  ],
+  "project": "<project>",
+  "revision": "golden",
+  "statistics": {
+    "callSites": {
+      "external": 40,
+      "resolved": 10
+    },
+    "dynamicAttributeWrites": 0,
+    "edges": {
+      "attribute": 6,
+      "call": 9,
+      "callback": 5,
+      "framework": 6,
+      "new": 2,
+      "reference": 4
+    },
+    "edgesByEvidence": {
+      "direct": 32
+    },
+    "frameworkUnresolved": {
+      "framework-callback": 6
+    },
+    "mroApproximated": 0,
+    "nodes": {
+      "class": 13,
+      "function": 4,
+      "inherited-method": 14,
+      "method": 6,
+      "module": 12
+    },
+    "partialCalls": {},
+    "unparsedFiles": 0,
+    "unresolvedCalls": {},
+    "viewHandlers": 12
+  },
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}
