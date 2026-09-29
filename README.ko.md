@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Python 서비스(Django, Django REST framework, Flask)의 정적 사실을
+Python 서비스(Django, Django REST framework, Flask, SQLAlchemy)의 정적 사실을
 [isthmus](https://github.com/ictechgy/isthmus) bridge-facts 교환 형식으로 낸다.
 
 pythograph는 정적 분석 CLI 가족(TypeScript/JavaScript의 tsograph, Swift의 cartograph, Kotlin의 kartograph,
@@ -17,7 +17,7 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 | 영역 | 상태 |
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework 라우터·뷰, Flask/Werkzeug 규칙 → `route-decl` 사실 | 구현됨 |
-| persistence `relation-use`(Django 모델 `app_label`·`db_table`, SQLAlchemy, Flask-SQLAlchemy) | 계획 |
+| `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
 | `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1 | 계획 |
 | 클라이언트 route-call(requests, httpx) | 계획 |
 
@@ -117,6 +117,36 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 - **가려진 패턴도 선언이다.** 가림 판정은 소비자가 `order`로 한다.
 - **조건부 등록은 선언이 아니라 스코프 있는 한계다.**
 
+## `pythograph schema`
+
+```sh
+pythograph schema --project <root> [--include-tests] [--settings <module>] [--generated-at <timestamp>] [--format json]
+```
+
+bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 없으면 `null`)와 관찰한 관계·컬럼 참조마다
+`relation-use` 사실 하나를 표준 출력에 쓴다. isthmus가 `docs/GRAPH-EXCHANGE.md`의 persistence 규칙으로
+`platform: "sql"` 문서(schemagraph `facts --document <catalog>`)와 조인한다. 출처를 붙인 전체 규칙은
+[docs/PERSISTENCE.md](docs/PERSISTENCE.md)에 있다.
+
+- **Django**: 모델 클래스(추상·프록시·다중 테이블 상속·`Meta` 상속) → 테이블(`<app_label>_<모델>`을 백엔드
+  `max_name_length`로 `truncate_name`한 것, 또는 `Meta.db_table`), 필드 → 컬럼(`db_column`, 외래 키 `<이름>_id`,
+  M2M 중간 테이블과 컬럼), `INSTALLED_APPS`·`AppConfig`의 앱 라벨, `DATABASES` 백엔드, django.contrib 모델. 사용:
+  매니저·QuerySet 사슬, 조회식(`author__profile__city`, 역관계, `attname`, `pk`), `values`·`order_by`·`F`·`Q`·집계,
+  `create`·`update` 키워드, 증명한 인스턴스의 관계 매니저·정방향 관계, `raw()`, `RawSQL`, `extra(tables=)`, 커서 SQL.
+- **SQLAlchemy 2.x·Flask-SQLAlchemy 3**: Declarative 클래스(`DeclarativeBase`, `declarative_base()`, snake_case 자동
+  이름의 `db.Model`), 믹스인, 단일·조인 테이블 상속, `__table_args__`·`MetaData` 스키마, Core `Table`,
+  `ForeignKey("t.c")`, `relationship(secondary=)`. 사용: 문장 엔터티(`select`·`insert`·`update`·`delete`·
+  `session.query`·`session.get`·`join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`, 생성자,
+  `table.c.name`, `text()`.
+- **SQL 텍스트**: 가족 공유 어휘 추출기(tsograph·dartograph·cartograph·kartograph와 같은 벡터)로 명시 SQL 인자를,
+  그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외).
+- **channel**은 코드·매핑이 쓴 관계 이름(한정했을 때만 `schema.table`, 기본 스키마는 추측하지 않음), **method**는
+  컬럼, **symbol.usr**는 감싸는 함수·메서드·모델 클래스이며 `routes`와 같은 id다. 백엔드·앱 라벨·Flask-SQLAlchemy
+  버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 실행 중에 만든 SQL은 추측하지 않고 `dynamic` 사실과
+  `dynamic-relation-names:` 한계로 낸다.
+- 테스트 소스(`--include-tests`가 없을 때)와 마이그레이션(Django `migrations/`, Alembic `versions/`)은 읽지 않는다.
+  마이그레이션은 과거 스키마를 기술한다.
+
 ## 검증
 
 `experiments/oracle/`의 하네스가 스크래치 가상 환경에서 합성 fixture를 import해 pythograph 사실을 Django resolver
@@ -131,12 +161,22 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 isthmus 공유 적합성 벡터(`conformance/`, `conformance.lock`으로 고정)의 해당 생산자 사례 60건
 (`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`)을 100% 통과한다.
 
+persistence 명명 벡터(`fixtures/persistence-naming/vectors.json`)는 스크래치 환경에서 합성 모델을 실제 ORM으로 import해
+기록한다(`experiments/persistence/run_naming.py`): Django 5.2.17 `_meta` 이름을 백엔드별 `connection.ops`(sqlite3·
+postgresql·mysql·oracle)로 인용한 것과 SQLAlchemy 2.0.54·Flask-SQLAlchemy 3.1.1 매퍼다. pythograph는 100% 일치한다
+(Django 모델×백엔드 136/136, SQLAlchemy 9/9·Flask-SQLAlchemy 10/10 클래스, 모든 테이블·컬럼). 두 persistence
+fixture의 `pythograph schema` 출력을 ORM이 만든 DDL의 schemagraph 카탈로그와 조인하면(`experiments/persistence/run_e2e.py`)
+isthmus error가 없다(매치 41·20).
+
 ## isthmus 호환
 
 isthmus `main`(`78d3dee`)은 `platform: "python"` 문서를 거부한다. `src/exchange/parse.ts`의 플랫폼 유니온 타입,
 `bridgePlatforms`, `httpPlatforms`, `routeKindPlatforms`의 `route-decl` 항목에 `python`을 더하면 Flask 문서와
 `--dispatch specificity`로 만든 Django 문서를 받는다. 기본 Django 문서는 isthmus가 `registration-order`도 구현해야
 받는다.
+
+persistence도 isthmus `main`(`578e852`)은 `platform: "python"`을 거부한다. 같은 파일의 플랫폼 유니온 타입과
+`bridgePlatforms`에 `python`을 더하면 `schema` 문서가 schemagraph 문서와 그대로 조인된다.
 
 ## 개발
 

@@ -12,8 +12,9 @@
   [isthmus](https://github.com/ictechgy/isthmus)가 하고, pythograph는 **자기 언어에서 본 사실만** 낸다.
 - 출력 계약은 isthmus `docs/GRAPH-EXCHANGE.md`(bridge-facts v1)다. http 절은 아직 "개발 중" 초안이므로
   계약 관련 변경 전에 그 문서를 먼저 읽고, 초안과 다르게 결정한 부분은 README·`docs/HTTP-ROUTES.md`·CHANGELOG에 남긴다.
-- 구현: `pythograph routes --role server`(Django URLconf·Django REST framework·Flask/Werkzeug → http `route-decl`).
-  장기 범위: persistence `relation-use`(Django 모델·SQLAlchemy·Flask-SQLAlchemy), `graph`·`reach`·`impact`(호출 그래프 →
+- 구현: `pythograph routes --role server`(Django URLconf·Django REST framework·Flask/Werkzeug → http `route-decl`),
+  `pythograph schema`(Django 모델·QuerySet·SQLAlchemy·Flask-SQLAlchemy·SQL 텍스트 → persistence `relation-use`,
+  규칙은 `docs/PERSISTENCE.md`). 장기 범위: `graph`·`reach`·`impact`(호출 그래프 →
   isthmus `language-traversal` v1, id는 routes `symbol.usr`와 같은 문자열), 클라이언트 route-call.
   구현된 것과 계획을 구분해 적는다.
 - 런타임 의존성 없음. 분석은 표준 라이브러리 `ast`로만 한다. 분석 대상 프로젝트를 import·실행하지 않고
@@ -52,4 +53,6 @@
   의미 있는 회귀 테스트를 둔다.
 - 라우트 출력이 바뀌면 golden(`PYTHOGRAPH_UPDATE_GOLDEN=1 uv run pytest tests/test_fixtures.py`)과 오라클 기록
   (스크래치 가상 환경에서 `python experiments/oracle/run_all.py`)을 함께 갱신하고 정밀도 100%를 확인한다.
+  persistence 출력이 바뀌면 golden(`tests/test_persistence_fixtures.py`)을, 이름 규칙이 바뀌면 명명 벡터
+  (`python experiments/persistence/run_naming.py`)를 갱신하고 100% 일치를 확인한다.
 - 문서만 바꾸면 링크·명령 일치를 확인한다. 실행하지 못한 검사는 명시한다.

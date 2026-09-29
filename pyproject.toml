@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "pythograph"
 version = "0.1.0"
-description = "Static facts for Python (Django, Django REST framework, Flask) services for the isthmus bridge-facts exchange: HTTP route declarations from the standard-library ast, without importing the analyzed project."
+description = "Static facts for Python (Django, Django REST framework, Flask, SQLAlchemy) services for the isthmus bridge-facts exchange: HTTP route declarations and persistence relation uses from the standard-library ast, without importing the analyzed project."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "ictechgy" }]
-keywords = ["static-analysis", "http", "routes", "django", "django-rest-framework", "flask", "isthmus"]
+keywords = ["static-analysis", "http", "routes", "persistence", "django", "django-rest-framework", "flask", "sqlalchemy", "isthmus"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

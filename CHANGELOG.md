@@ -22,5 +22,16 @@
 - `--dispatch specificity`: registration-order를 아직 받지 않는 isthmus용 근사(거짓 match만 가능, 거짓 error 없음).
 - isthmus 공유 적합성 벡터를 `78d3dee`에서 벤더링하고 `conformance.lock`으로 고정했다. 해당 생산자 사례 60건을
   100% 통과한다.
+- `pythograph schema`: Django 모델(추상·프록시·다중 테이블 상속, `INSTALLED_APPS`·`AppConfig` 앱 라벨, 백엔드별
+  `truncate_name` 절단, M2M 중간 테이블, django.contrib 모델)과 QuerySet 사용(조회식 조인·역관계·관계 매니저·
+  `values`·`F`·`Q`·집계·`raw()`·`RawSQL`·`extra(tables=)`), SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑(Declarative·
+  믹스인·상속·스키마·Core `Table`·자동 snake_case 이름, 버전 미상이면 2·3 규칙이 같은 이름만)과 질의
+  (`select`·`session.query`·`Model.query`·`filter_by`·`text()`), SQL 텍스트(가족 공유 추출기 포트와 공유 벡터)를
+  isthmus persistence `relation-use`(platform `python`)로 낸다. 확정하지 못한 이름은 dynamic 사실과 한계다. 테스트·
+  마이그레이션은 기본으로 읽지 않는다. 규칙은 Django 5.2.17·SQLAlchemy 2.0.54·Flask-SQLAlchemy 3.1.1(2.5.1 비교)
+  소스로 확인했다(`docs/PERSISTENCE.md`).
+- persistence 명명 벡터(`fixtures/persistence-naming/`)와 오라클(`experiments/persistence/`): 실제 ORM(Django 백엔드 4개,
+  SQLAlchemy, Flask-SQLAlchemy) 이름과 100% 일치, 기록을 오프라인 테스트로 다시 확인한다. 사용 fixture 두 개의 ORM DDL로
+  schemagraph·isthmus 종단 조인에서 error 0을 확인했다.
 - 합성 fixture(`fixtures/django/drf-shop`, `fixtures/flask/blog-app`)와 오라클 하네스(`experiments/oracle/`):
   resolver 순회·DRF 라우터·Flask `url_map` 대비 정밀도 100%, 기록을 오프라인 테스트로 다시 확인한다.
