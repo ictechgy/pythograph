@@ -33,9 +33,9 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
 | Flask `View`(`methods` 선언) | `blog/views.py#SettingsView.dispatch_request` |
 
 클래스 핸들러 id는 **URL에 등록한 클래스** 기준이다. 메서드를 상속했어도(프로젝트 기반 클래스, DRF
-`ModelViewSet.list` 같은 프레임워크 구현) `<등록 클래스 파일>#<등록 클래스>.<메서드>`다. 다음 단계의 호출
-그래프(`pythograph graph`)는 같은 id의 "상속 멤버" 정점을 만들고 정의한 메서드(또는 프레임워크 구현이 부르는
-프로젝트 훅)로 잇는다. tsograph가 재수출 이름을 `<파일>#<export 이름>`으로 두고 그래프에 alias 간선을 두는 것과
+`ModelViewSet.list` 같은 프레임워크 구현) `<등록 클래스 파일>#<등록 클래스>.<메서드>`다. 호출
+그래프(`pythograph graph`, [GRAPH.md](GRAPH.md))는 같은 id의 "상속 멤버" 정점을 만들고 정의한 메서드(또는 프레임워크
+구현이 부르는 프로젝트 훅)로 잇는다. tsograph가 재수출 이름을 `<파일>#<export 이름>`으로 두고 그래프에 alias 간선을 두는 것과
 같은 방식이다. 프로젝트 밖 클래스를 직접 쓴 뷰(`TemplateView.as_view()`)와 API 루트는 usr가 없고
 `missing-route-usrs:`(체인 전용)로 센다.
 

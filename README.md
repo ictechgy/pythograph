@@ -11,7 +11,8 @@ Go, rustograph for Rust, schemagraph for SQL). Each tool reports only what it ob
 isthmus joins the documents.
 
 The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
-and pythograph has no runtime dependencies and uses no network.
+and pythograph has no runtime dependencies and uses no network (`graph`, `reach`, and `impact` run only the project
+root's git to read `revision`).
 
 ## Status
 
@@ -19,11 +20,11 @@ and pythograph has no runtime dependencies and uses no network.
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework routers and views, Flask/Werkzeug rules → `route-decl` facts | Implemented |
 | `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
-| `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 | Planned |
+| `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
 | Client route-calls (requests, httpx) | Planned |
 
-The isthmus `http` target is still a draft in isthmus `docs/GRAPH-EXCHANGE.md`, and isthmus does not accept
-`platform: "python"` yet (see [isthmus compatibility](#isthmus-compatibility)).
+isthmus `main` (`f9dcd1d`) accepts `platform: "python"` http documents (including `registration-order`), persistence
+documents, and python `language-traversal` analyses (see [isthmus compatibility](#isthmus-compatibility)).
 
 ## Requirements and installation
 
@@ -133,8 +134,8 @@ Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-
 `symbol.usr` is `<project-relative POSIX path>#<lexical dotted name>`, outermost declaration first and
 without `<locals>`: `catalog/views.py#item_list`, `blog/__init__.py#create_app.index`,
 `catalog/views.py#ItemEditView.get`, `orders/views.py#OrderViewSet.list`. Class handlers are named after the
-class registered in the URL even when the method is inherited; the planned call graph will use the same ids
-with an inherited-member node. Views defined outside the project have no usr and are counted under
+class registered in the URL even when the method is inherited; the call graph (`pythograph graph`) has an
+inherited-member node with the same id. Views defined outside the project have no usr and are counted under
 `missing-route-usrs:`.
 
 ### Limitations
@@ -150,8 +151,8 @@ Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
 
 ### Decisions
 
-- **Django is `registration-order`, Flask is `specificity`**, as verified from the sources. Current isthmus
-  releases reject `registration-order`; `--dispatch specificity` declares specificity for Django and omits
+- **Django is `registration-order`, Flask is `specificity`**, as verified from the sources. isthmus releases
+  before `f9dcd1d` reject `registration-order`; `--dispatch specificity` declares specificity for Django and omits
   `order`. That approximation can only produce false matches (a shadowed pattern matched), never false errors,
   because isthmus filters by method first and reports a method mismatch only when no candidate accepts the
   method, which is also when Django answers 405.
@@ -192,6 +193,46 @@ facts), and one `relation-use` fact per observed relation or column reference. i
 - Test sources (unless `--include-tests`) and migrations (Django `migrations/`, Alembic `versions/`) are not scanned;
   migrations describe past schemas.
 
+## `pythograph graph` / `reach` / `impact`
+
+```sh
+pythograph graph  --project <root> [--include-tests] [--revision <id>] [--generated-at <timestamp>]
+pythograph reach  --project <root> [--dispatch direct|bound|candidates] [--max-depth <n>] [--max-reached <n>]
+                  [--roots-from <file|->] [--include-tests] [--revision <id>] [--generated-at <timestamp>] [--] <id>...
+pythograph impact (same options as reach)
+```
+
+Builds the project's Python call graph with the standard-library `ast`. `graph` writes pythograph's own snapshot
+(`pythograph-graph` v1); `reach` writes the symbols the roots depend on (`dependencies`) and `impact` the symbols that
+depend on them (`dependents`) as isthmus
+[`language-traversal` v1](https://github.com/ictechgy/isthmus/blob/main/docs/LANGUAGE-TRAVERSAL.md). Ids are the same
+strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GRAPH.md](docs/GRAPH.md) (Korean).
+
+- **Nodes**: modules (`<path>#<module>`), functions, methods, classes, nested definitions, and inherited members
+  (`<registered class>.<member>`, for view handlers and for inherited members called on exact receivers).
+- **Edges**: `call`, `new` (the project `__init__`, else the class), `callback`, `reference`, `decorator`, `attribute`
+  (class-body attributes), `inherit`, and `dispatch`/`framework` (framework dispatch). Resolution follows imports
+  (absolute, relative, aliases, `__init__` re-exports, `*`), module attributes, constructors, `self` and `super()`
+  through the C3 MRO of project classes, annotated and return-annotated receivers, module-level instances, and
+  properties.
+- **Evidence tiers**: statically resolved edges are `direct`; overrides in project subclasses for `self`, `cls`, and
+  annotated receivers are `candidate`. `bound` edges are not produced yet, so `--dispatch bound` follows the `direct`
+  graph.
+- **No guessing**: calls without a known target are counted by reason (`parameter`, `untyped-receiver`,
+  `dynamic-attribute`, `getattr`, `dynamic-callee`, `unresolved-import`, `framework-callback`, …) as each symbol's
+  `unresolvedCalls`. A method call on an untyped receiver is proven external only when no project class, module, or
+  attribute write defines that name.
+- **Framework dispatch**: a table read with `ast` from the installed Django 5.2.17, DRF 3.18.1, and Flask 3.1.3
+  sources links the project hooks that the `as_view()` dispatch path (`dispatch`, `initial`, permission checks,
+  `__init__`) and framework implementations (`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
+  `ModelSerializer.save` → `create`) call. Objects the framework builds from class attributes (`serializer_class`,
+  `permission_classes`) count as `framework-callback` unresolved calls.
+- **Traversal documents**: a `dispatch` declaration, per-root lower-bound `evidence`, `unresolvedCalls`, one
+  multi-root pass (compared with a per-root oracle on random graphs), `--max-depth`/`--max-reached` truncation, and
+  `rootsTruncated`. Roots that are not graph nodes are listed without `symbol`; the document is written and the
+  command exits `64`. `revision` is `--revision` or git `HEAD` when the work tree is clean; `graphRevision` is a
+  SHA-256 of the graph content.
+
 ## Validation
 
 The oracle harness in `experiments/oracle/` imports the synthetic fixtures in a scratch virtual environment
@@ -204,8 +245,17 @@ and compares pythograph's facts with Django's resolver traversal, DRF routers, a
 | `fixtures/flask/blog-app` | 28/28 | 27/27 |
 | HackSoftware/Django-Styleguide-Example `a70ef43` (MIT, scratch clone) | 21/21 | 21/22 (the DEBUG-only `static()` route) |
 
-The isthmus shared conformance vectors (`conformance/`, locked in `conformance.lock`) pass 100% of the
-applicable producer cases (60: `template.grammar`, `template.normalize`, `scope.validate`, `scope.applies`).
+The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `f9dcd1d` and locked in
+`conformance.lock`) pass 100% of the applicable producer cases (78: `template.grammar`, `template.normalize`,
+`scope.validate`, `scope.applies`, `dispatch.validate`); the `dispatch.validate` checker also runs on the routes
+golden output.
+
+**Phase 6 exit criterion (Django backend × iOS/Android chain).** `experiments/e2e/` joins a synthetic Django + DRF
+server (`fixtures/e2e/shop-api`), a schemagraph catalog of its Django DDL, and route-calls plus reverse traversals of
+synthetic iOS (cartograph) and Android (kartograph) clients with isthmus `trace` (workspace). The expected paths of the
+three questions match: (a) API → DB tables + DB dependents, (b) API → client call sites → affected client symbols, and
+(c) table → API → client. `tests/test_e2e_trace.py` re-checks the recorded inputs and outputs offline (the table is in
+[docs/GRAPH.md](docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
 
 Persistence naming vectors (`fixtures/persistence-naming/vectors.json`) are recorded by importing synthetic models
 with the real ORMs in a scratch environment (`experiments/persistence/run_naming.py`): Django 5.2.17 `_meta` names
@@ -217,13 +267,9 @@ errors (41 and 20 matches).
 
 ## isthmus compatibility
 
-isthmus `main` (`78d3dee`) rejects `platform: "python"` documents. Adding `python` to the platform union,
-`bridgePlatforms`, `httpPlatforms`, and the `route-decl` entry of `routeKindPlatforms` in
-`src/exchange/parse.ts` makes it accept Flask documents and Django documents produced with
-`--dispatch specificity`. Default Django documents also need isthmus to implement `registration-order`.
-
-For persistence, isthmus `main` (`578e852`) also rejects `platform: "python"`; with `python` added to the platform
-union and `bridgePlatforms` in the same file, `schema` documents join with schemagraph documents unchanged.
+isthmus `main` (`f9dcd1d`, #128) accepts `platform: "python"`: http `route-decl` facts (Django's `registration-order`
+and `order`, with shadowing diagnostics), persistence `relation-use` facts, and python `forward`/`reverse` analyses
+(`language-traversal` v1) in `trace`. `--dispatch specificity` remains for older isthmus releases.
 
 ## Development
 
@@ -234,6 +280,10 @@ uv run mypy
 uv run pytest --cov          # line and branch coverage gate: 90%
 uv run python scripts/verify_cli_contract.py
 ```
+
+The framework hook table is regenerated from a scratch virtual environment with Django 5.2.17, DRF 3.18.1, and
+Flask 3.1.3 installed: `python experiments/graph/dump_framework_hooks.py --site-packages <path>` (`--check` compares
+only).
 
 ## License
 

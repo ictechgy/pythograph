@@ -10,7 +10,7 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 언어에서 본 것만 보고하고, 조인은 isthmus가 한다.
 
 분석 대상 프로젝트는 표준 라이브러리 `ast`로만 파싱한다. import하거나 실행하지 않으며, pythograph는 런타임
-의존성이 없고 네트워크를 쓰지 않는다.
+의존성이 없고 네트워크를 쓰지 않는다(`graph`·`reach`·`impact`는 `revision`을 읽으려고 프로젝트 루트의 git만 실행한다).
 
 ## 상태
 
@@ -18,11 +18,11 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework 라우터·뷰, Flask/Werkzeug 규칙 → `route-decl` 사실 | 구현됨 |
 | `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
-| `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1 | 계획 |
+| `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
 | 클라이언트 route-call(requests, httpx) | 계획 |
 
-isthmus의 `http` target은 아직 isthmus `docs/GRAPH-EXCHANGE.md`의 초안이고, isthmus는 아직
-`platform: "python"`을 받지 않는다([isthmus 호환](#isthmus-호환) 참고).
+isthmus `main`(`f9dcd1d`)은 `platform: "python"`의 http(`registration-order` 포함)·persistence 문서와 python
+`language-traversal` 분석을 받는다([isthmus 호환](#isthmus-호환) 참고).
 
 ## 요구 사항과 설치
 
@@ -94,8 +94,8 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 
 `symbol.usr`는 `<프로젝트 상대 POSIX 경로>#<어휘적 점 경로>`다. 바깥 선언부터 잇고 `<locals>`는 넣지 않는다:
 `catalog/views.py#item_list`, `blog/__init__.py#create_app.index`, `catalog/views.py#ItemEditView.get`,
-`orders/views.py#OrderViewSet.list`. 클래스 핸들러는 메서드를 상속했어도 URL에 등록한 클래스 이름을 쓰고, 계획한
-호출 그래프가 같은 id의 상속 멤버 정점을 만든다. 프로젝트 밖에서 정의한 뷰는 usr가 없고 `missing-route-usrs:`로
+`orders/views.py#OrderViewSet.list`. 클래스 핸들러는 메서드를 상속했어도 URL에 등록한 클래스 이름을 쓰고, 호출
+그래프(`pythograph graph`)가 같은 id의 상속 멤버 정점을 만든다. 프로젝트 밖에서 정의한 뷰는 usr가 없고 `missing-route-usrs:`로
 센다.
 
 ### 한계
@@ -110,7 +110,7 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 
 ### 결정 사항
 
-- **Django는 `registration-order`, Flask는 `specificity`**다(소스로 확인). 현재 isthmus는 `registration-order`를
+- **Django는 `registration-order`, Flask는 `specificity`**다(소스로 확인). isthmus `f9dcd1d` 이전 판은 `registration-order`를
   거부하므로 `--dispatch specificity`로 Django를 specificity로 선언하고 `order`를 뺄 수 있다. 이 근사는 가려진
   패턴이 match되는 거짓 match만 만들 수 있고 거짓 error는 만들지 않는다. isthmus는 method를 먼저 거르고 method
   불일치를 어떤 후보도 그 method를 받지 않을 때만 내는데, 그때는 Django도 405를 낸다.
@@ -147,6 +147,38 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
 - 테스트 소스(`--include-tests`가 없을 때)와 마이그레이션(Django `migrations/`, Alembic `versions/`)은 읽지 않는다.
   마이그레이션은 과거 스키마를 기술한다.
 
+## `pythograph graph`·`reach`·`impact`
+
+```sh
+pythograph graph  --project <root> [--include-tests] [--revision <id>] [--generated-at <timestamp>]
+pythograph reach  --project <root> [--dispatch direct|bound|candidates] [--max-depth <n>] [--max-reached <n>]
+                  [--roots-from <file|->] [--include-tests] [--revision <id>] [--generated-at <timestamp>] [--] <id>...
+pythograph impact (reach와 같은 옵션)
+```
+
+프로젝트의 파이썬 호출 그래프를 표준 라이브러리 `ast`로 만든다. `graph`는 pythograph 자체 스냅샷(`pythograph-graph` v1),
+`reach`는 root가 기대는 심볼(`dependencies`), `impact`는 root에 기대는 심볼(`dependents`)을 isthmus
+[`language-traversal` v1](https://github.com/ictechgy/isthmus/blob/main/docs/LANGUAGE-TRAVERSAL.md)로 낸다. id는 `routes`·
+`schema`의 `symbol.usr`와 같은 문자열이다. 전체 규칙은 [docs/GRAPH.md](docs/GRAPH.md)에 있다.
+
+- **정점**: 모듈(`<경로>#<module>`), 함수·메서드·클래스·중첩 정의, 상속 멤버(`<등록 클래스>.<멤버>`, 뷰 핸들러와 정확한
+  수신자의 물려받은 멤버).
+- **간선**: `call`, `new`(프로젝트 `__init__` 또는 클래스), `callback`, `reference`, `decorator`, `attribute`(클래스 본문
+  속성), `inherit`, `dispatch`·`framework`(프레임워크 디스패치). import(절대·상대·별칭·`__init__` 재수출·`*`), 모듈 속성, 생성자,
+  프로젝트 클래스의 C3 MRO로 푼 `self`·`super()`, 주석·반환 주석 수신자, 모듈 수준 인스턴스, property를 따라간다.
+- **근거 등급**: 정적으로 푼 간선은 `direct`, `self`·`cls`·주석 수신자의 프로젝트 하위 클래스 재정의는 `candidate`다.
+  `bound`는 아직 만들지 않는다 — `--dispatch bound`는 `direct` 그래프와 같다.
+- **추측 없음**: 대상을 모르는 호출은 이유별(`parameter`, `untyped-receiver`, `dynamic-attribute`, `getattr`,
+  `dynamic-callee`, `unresolved-import`, `framework-callback` 등)로 세어 정점마다 `unresolvedCalls`로 싣는다. 타입 모르는
+  수신자의 호출은 프로젝트가 그 이름을 정의·대입하지 않을 때만 외부로 확정한다.
+- **프레임워크 디스패치**: Django 5.2.17·DRF 3.18.1·Flask 3.1.3 설치본 소스를 ast로 읽어 만든 표로 `as_view()` 디스패치 경로
+  (`dispatch`·`initial`·권한·`__init__`)와 프레임워크 구현(`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
+  `ModelSerializer.save` → `create`)이 부르는 프로젝트 훅을 잇는다. 프레임워크가 클래스 속성으로 만드는 객체
+  (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다.
+- **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),
+  `--max-depth`·`--max-reached` 잘림, `rootsTruncated`. 정점이 아닌 root는 `symbol` 없이 싣고 문서를 쓴 뒤 64로 끝난다.
+  `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD, `graphRevision`은 그래프 내용 SHA-256이다.
+
 ## 검증
 
 `experiments/oracle/`의 하네스가 스크래치 가상 환경에서 합성 fixture를 import해 pythograph 사실을 Django resolver
@@ -158,8 +190,15 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
 | `fixtures/flask/blog-app` | 28/28 | 27/27 |
 | HackSoftware/Django-Styleguide-Example `a70ef43`(MIT, 스크래치 복제) | 21/21 | 21/22(DEBUG 전용 `static()` 경로) |
 
-isthmus 공유 적합성 벡터(`conformance/`, `conformance.lock`으로 고정)의 해당 생산자 사례 60건
-(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`)을 100% 통과한다.
+isthmus 공유 적합성 벡터(`conformance/`, isthmus `f9dcd1d`에서 벤더링해 `conformance.lock`으로 고정)의 해당 생산자
+사례 78건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`)을 100% 통과하고,
+`dispatch.validate` 검증기는 routes 출력 golden에도 적용한다.
+
+**Phase 6 종료 조건(Django 백엔드 × iOS/Android 체인).** `experiments/e2e/`가 합성 Django+DRF 서버(`fixtures/e2e/shop-api`),
+Django DDL의 schemagraph 카탈로그, 합성 iOS(cartograph)·Android(kartograph) 클라이언트의 route-call·역방향 순회를 isthmus
+`trace`(workspace)로 잇고, 세 질문 — (a) API → DB 테이블 + DB 의존자, (b) API → 클라이언트 호출부 → 영향 심볼, (c) 테이블 → API →
+클라이언트 — 의 기대 경로가 일치한다. 기록한 입력·출력을 `tests/test_e2e_trace.py`가 오프라인으로 다시 확인한다(표는
+[docs/GRAPH.md](docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
 
 persistence 명명 벡터(`fixtures/persistence-naming/vectors.json`)는 스크래치 환경에서 합성 모델을 실제 ORM으로 import해
 기록한다(`experiments/persistence/run_naming.py`): Django 5.2.17 `_meta` 이름을 백엔드별 `connection.ops`(sqlite3·
@@ -170,13 +209,9 @@ isthmus error가 없다(매치 41·20).
 
 ## isthmus 호환
 
-isthmus `main`(`78d3dee`)은 `platform: "python"` 문서를 거부한다. `src/exchange/parse.ts`의 플랫폼 유니온 타입,
-`bridgePlatforms`, `httpPlatforms`, `routeKindPlatforms`의 `route-decl` 항목에 `python`을 더하면 Flask 문서와
-`--dispatch specificity`로 만든 Django 문서를 받는다. 기본 Django 문서는 isthmus가 `registration-order`도 구현해야
-받는다.
-
-persistence도 isthmus `main`(`578e852`)은 `platform: "python"`을 거부한다. 같은 파일의 플랫폼 유니온 타입과
-`bridgePlatforms`에 `python`을 더하면 `schema` 문서가 schemagraph 문서와 그대로 조인된다.
+isthmus `main`(`f9dcd1d`, #128)은 `platform: "python"`을 받는다: http `route-decl`(Django의 `registration-order`와 `order`,
+가림 진단 포함), persistence `relation-use`, trace의 python `forward`·`reverse` 분석(`language-traversal` v1). 옛 isthmus용
+`--dispatch specificity`는 그대로 남아 있다.
 
 ## 개발
 
@@ -187,6 +222,9 @@ uv run mypy
 uv run pytest --cov          # 라인·분기 커버리지 게이트 90%
 uv run python scripts/verify_cli_contract.py
 ```
+
+프레임워크 훅 표는 스크래치 가상 환경(Django 5.2.17·DRF 3.18.1·Flask 3.1.3 설치)의 site-packages로
+`python experiments/graph/dump_framework_hooks.py --site-packages <경로>`가 다시 만든다(`--check`는 비교만).
 
 ## 라이선스
 
