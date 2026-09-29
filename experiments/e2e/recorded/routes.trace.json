@@ -1,0 +1,1661 @@
+{
+  "analyses": [
+    {
+      "direction": "dependents",
+      "dispatch": "candidates",
+      "evidenceReported": true,
+      "graphRevision": "sha256:e29919d09b5f5e200ac81163a7939955f43130671ace23ba4e269ac945e00533",
+      "id": "android-reverse",
+      "member": "android",
+      "platform": "kotlin",
+      "reached": 1,
+      "revision": "a11d000000000000000000000000000000000e2e",
+      "role": "reverse",
+      "rootProvenance": "complete",
+      "roots": 1,
+      "rootsTruncated": false,
+      "source": "language-traversal",
+      "tool": {
+        "name": "kartograph",
+        "version": "0.17.0"
+      },
+      "truncated": false,
+      "unresolvedCallsReported": true
+    },
+    {
+      "direction": "dependents",
+      "evidenceReported": true,
+      "graphRevision": "sha256:6d1c7010064303185f665643b79fec61b81e8908f925e834b4126b8d474e284a",
+      "id": "ios-reverse",
+      "member": "ios",
+      "platform": "swift",
+      "reached": 5,
+      "revision": "e2e-ios-client",
+      "role": "reverse",
+      "rootProvenance": "complete",
+      "roots": 3,
+      "rootsTruncated": false,
+      "source": "language-traversal",
+      "tool": {
+        "name": "cartograph",
+        "version": "0.22.0"
+      },
+      "truncated": false,
+      "unresolvedCallsReported": false
+    },
+    {
+      "direction": "dependents",
+      "evidenceReported": false,
+      "graphRevision": "4b796775d97d824278d3246dde0404aef2db0532c31ab07ef224d2fc60303c8b",
+      "id": "server-db",
+      "member": "server",
+      "platform": "sql",
+      "reached": 20,
+      "revision": "e2e-shop-api",
+      "role": "db-dependents",
+      "rootProvenance": "complete",
+      "roots": 64,
+      "rootsTruncated": false,
+      "source": "language-traversal",
+      "tool": {
+        "name": "schemagraph",
+        "version": "0.6.0"
+      },
+      "truncated": false,
+      "unresolvedCallsReported": false
+    },
+    {
+      "direction": "dependencies",
+      "dispatch": "direct",
+      "evidenceReported": true,
+      "graphRevision": "sha256:4891167f4103f2fe8f5712f65d9cdaa409765882369852bbe7372b02f38321b7",
+      "id": "server-forward",
+      "member": "server",
+      "platform": "python",
+      "reached": 13,
+      "revision": "e2e-shop-api",
+      "role": "forward",
+      "rootProvenance": "complete",
+      "roots": 10,
+      "rootsTruncated": false,
+      "source": "language-traversal",
+      "tool": {
+        "name": "pythograph",
+        "version": "0.1.0"
+      },
+      "truncated": false,
+      "unresolvedCallsReported": true
+    },
+    {
+      "direction": "dependents",
+      "dispatch": "direct",
+      "evidenceReported": true,
+      "graphRevision": "sha256:4891167f4103f2fe8f5712f65d9cdaa409765882369852bbe7372b02f38321b7",
+      "id": "server-reverse",
+      "member": "server",
+      "platform": "python",
+      "reached": 17,
+      "revision": "e2e-shop-api",
+      "role": "reverse",
+      "rootProvenance": "complete",
+      "roots": 10,
+      "rootsTruncated": false,
+      "source": "language-traversal",
+      "tool": {
+        "name": "pythograph",
+        "version": "0.1.0"
+      },
+      "truncated": false,
+      "unresolvedCallsReported": true
+    }
+  ],
+  "analysisLimitations": [
+    {
+      "analysis": "android-reverse",
+      "message": "bound-dispatch-closed-world: bound dispatch assumes the analyzed classes contain every implementation of project types; runtime proxies, mocks and classes outside the snapshot are not modeled"
+    },
+    {
+      "analysis": "android-reverse",
+      "message": "graph-file-freshness-unverified: build-scope-mismatch;missing-build-witness;unwitnessed-class-root"
+    },
+    {
+      "analysis": "android-reverse",
+      "message": "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites"
+    },
+    {
+      "analysis": "android-reverse",
+      "message": "unresolved-calls: counts unresolved external virtual dispatch, runtime-modeled reflective calls without resolved values and invokedynamic sites with unmodeled bootstraps"
+    },
+    {
+      "analysis": "ios-reverse",
+      "message": "public-api-not-retained: this package exports 1 library product(s) and retain_public is off, so a public declaration whose only callers live outside this repository is reported unreachable"
+    },
+    {
+      "analysis": "server-db",
+      "message": "DDL 인라인 UNIQUE/CHECK 제약은 카탈로그에 없어 수집하지 못함 (인라인 제약 파싱 미지원)"
+    },
+    {
+      "analysis": "server-forward",
+      "message": "unresolved-calls: 6 call sites have no complete project target in direct mode (framework-callback 6); each symbol's unresolvedCalls counts its own"
+    },
+    {
+      "analysis": "server-forward",
+      "message": "external-calls: 40 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed"
+    },
+    {
+      "analysis": "server-forward",
+      "message": "framework-dispatch: 12 class-based view handler symbols are linked to the project hooks their framework dispatch path calls (Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3 sources); objects the framework builds from class attributes (serializers, permissions, pagination) count as framework-callback unresolved calls, and signals, middleware, and classes named in settings are not modeled"
+    },
+    {
+      "analysis": "server-reverse",
+      "message": "unresolved-calls: 6 call sites have no complete project target in direct mode (framework-callback 6); each symbol's unresolvedCalls counts its own"
+    },
+    {
+      "analysis": "server-reverse",
+      "message": "external-calls: 40 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed"
+    },
+    {
+      "analysis": "server-reverse",
+      "message": "framework-dispatch: 12 class-based view handler symbols are linked to the project hooks their framework dispatch path calls (Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3 sources); objects the framework builds from class attributes (serializers, permissions, pagination) count as framework-callback unresolved calls, and signals, middleware, and classes named in settings are not modeled"
+    }
+  ],
+  "chains": [
+    {
+      "database": [
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_open_orders"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders",
+              "relationships": [
+                "reads"
+              ],
+              "usr": "main.store_open_orders"
+            },
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_orderline"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_orderline",
+              "relationships": [
+                "references"
+              ],
+              "usr": "main.store_orderline"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_order"
+        },
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_open_orders"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders",
+              "relationships": [
+                "reads"
+              ],
+              "usr": "main.store_open_orders",
+              "witnessRoot": "main.store_order"
+            },
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order.customer_id",
+                "main.store_open_orders.customer_id"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders.customer_id",
+              "relationships": [
+                "derives-from"
+              ],
+              "usr": "main.store_open_orders.customer_id"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_order.customer_id"
+        }
+      ],
+      "handlers": [
+        {
+          "member": "server",
+          "platform": "python",
+          "qualifiedName": "store/views.py#OrderViewSet.retrieve",
+          "reachedFrom": [],
+          "routes": [
+            {
+              "method": "GET",
+              "scope": "android->api",
+              "template": "/api/orders/{}/"
+            },
+            {
+              "method": "GET",
+              "scope": "ios->api",
+              "template": "/api/orders/{}/"
+            }
+          ],
+          "usr": "store/views.py#OrderViewSet.retrieve"
+        }
+      ],
+      "relationUses": [
+        {
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order",
+                "usr": "main.store_order"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.retrieve",
+              "path": [
+                "store/views.py#customer_summary",
+                "store/selectors.py#orders_for_customer"
+              ],
+              "witnessRoot": "store/views.py#customer_summary"
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 12,
+              "line": 12,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#orders_for_customer",
+              "usr": "store/selectors.py#orders_for_customer"
+            }
+          }
+        },
+        {
+          "column": "customer_id",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order.customer_id",
+                "usr": "main.store_order.customer_id"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.retrieve",
+              "path": [
+                "store/views.py#customer_summary",
+                "store/selectors.py#orders_for_customer"
+              ],
+              "witnessRoot": "store/views.py#customer_summary"
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "column": "customer_id",
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 33,
+              "line": 12,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#orders_for_customer",
+              "usr": "store/selectors.py#orders_for_customer"
+            }
+          }
+        },
+        {
+          "column": "customer_id",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order.customer_id",
+                "usr": "main.store_order.customer_id"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.retrieve",
+              "path": [
+                "store/views.py#customer_summary",
+                "store/selectors.py#orders_for_customer"
+              ],
+              "witnessRoot": "store/views.py#customer_summary"
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "column": "customer_id",
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 73,
+              "line": 12,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#orders_for_customer",
+              "usr": "store/selectors.py#orders_for_customer"
+            }
+          }
+        }
+      ],
+      "routes": [
+        {
+          "calls": [
+            {
+              "affected": [
+                {
+                  "analysis": "ios-reverse",
+                  "depth": 1,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "column": 17,
+                    "line": 17,
+                    "path": "Sources/ShopClient/OrderDetailViewModel.swift"
+                  },
+                  "member": "ios",
+                  "path": [
+                    "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF",
+                    "s:10ShopClient20OrderDetailViewModelC4load2idySi_tYaKF"
+                  ],
+                  "platform": "swift",
+                  "qualifiedName": "OrderDetailViewModel.load",
+                  "relationships": [
+                    "call",
+                    "dependent"
+                  ],
+                  "usr": "s:10ShopClient20OrderDetailViewModelC4load2idySi_tYaKF"
+                },
+                {
+                  "analysis": "ios-reverse",
+                  "depth": 2,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "column": 17,
+                    "line": 19,
+                    "path": "Sources/ShopClient/OrderDetailScreen.swift"
+                  },
+                  "member": "ios",
+                  "path": [
+                    "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF",
+                    "s:10ShopClient20OrderDetailViewModelC4load2idySi_tYaKF",
+                    "s:10ShopClient17OrderDetailScreenC6appearyyYaKF"
+                  ],
+                  "platform": "swift",
+                  "qualifiedName": "OrderDetailScreen.appear",
+                  "relationships": [
+                    "call",
+                    "dependent"
+                  ],
+                  "usr": "s:10ShopClient17OrderDetailScreenC6appearyyYaKF"
+                }
+              ],
+              "call": {
+                "location": {
+                  "column": 23,
+                  "line": 18,
+                  "path": "Sources/ShopClient/OrdersAPI.swift"
+                },
+                "member": "ios",
+                "platform": "swift",
+                "route": {
+                  "kind": "route-call",
+                  "method": "GET",
+                  "pathAnchor": "root",
+                  "template": "/api/orders/{}/"
+                },
+                "symbol": {
+                  "qualifiedName": "OrdersAPI.fetchOrder",
+                  "usr": "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF"
+                }
+              },
+              "quality": "exact",
+              "side": "decl"
+            }
+          ],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 17,
+                "line": 10,
+                "path": "store/urls.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "GET",
+                "pathAnchor": "root",
+                "template": "/api/orders/{}/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#OrderViewSet.retrieve",
+                "usr": "store/views.py#OrderViewSet.retrieve"
+              }
+            }
+          ],
+          "method": "GET",
+          "scope": "ios->api",
+          "template": "/api/orders/{}/"
+        },
+        {
+          "calls": [],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 17,
+                "line": 10,
+                "path": "store/urls.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "GET",
+                "pathAnchor": "root",
+                "template": "/api/orders/{}/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#OrderViewSet.retrieve",
+                "usr": "store/views.py#OrderViewSet.retrieve"
+              }
+            }
+          ],
+          "method": "GET",
+          "scope": "android->api",
+          "template": "/api/orders/{}/"
+        }
+      ],
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/orders/{}/"
+        }
+      }
+    },
+    {
+      "database": [
+        {
+          "dependents": [],
+          "member": "server",
+          "vertex": "main.store_auditentry"
+        },
+        {
+          "dependents": [],
+          "member": "server",
+          "vertex": "main.store_auditentry.action"
+        },
+        {
+          "dependents": [],
+          "member": "server",
+          "vertex": "main.store_auditentry.order_id"
+        },
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_open_orders"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders",
+              "relationships": [
+                "reads"
+              ],
+              "usr": "main.store_open_orders"
+            },
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_orderline"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_orderline",
+              "relationships": [
+                "references"
+              ],
+              "usr": "main.store_orderline"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_order"
+        },
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_open_orders"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders",
+              "relationships": [
+                "reads"
+              ],
+              "usr": "main.store_open_orders",
+              "witnessRoot": "main.store_order"
+            },
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order.id",
+                "main.store_open_orders.id"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders.id",
+              "relationships": [
+                "derives-from"
+              ],
+              "usr": "main.store_open_orders.id"
+            },
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order.id",
+                "main.store_orderline.order_id"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_orderline.order_id",
+              "relationships": [
+                "references"
+              ],
+              "usr": "main.store_orderline.order_id"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_order.id"
+        },
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_open_orders"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_open_orders",
+              "relationships": [
+                "reads"
+              ],
+              "usr": "main.store_open_orders",
+              "witnessRoot": "main.store_order"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_order.status"
+        }
+      ],
+      "handlers": [
+        {
+          "member": "server",
+          "platform": "python",
+          "qualifiedName": "store/views.py#OrderViewSet.cancel",
+          "reachedFrom": [],
+          "routes": [
+            {
+              "method": "POST",
+              "scope": "android->api",
+              "template": "/api/orders/{}/cancel/"
+            },
+            {
+              "method": "POST",
+              "scope": "ios->api",
+              "template": "/api/orders/{}/cancel/"
+            }
+          ],
+          "usr": "store/views.py#OrderViewSet.cancel"
+        }
+      ],
+      "relationUses": [
+        {
+          "column": "id",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order.id",
+                "usr": "main.store_order.id"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel"
+              ]
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "column": "id",
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 30,
+              "line": 27,
+              "path": "store/services.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/services.py#OrderService.cancel",
+              "usr": "store/services.py#OrderService.cancel"
+            }
+          }
+        },
+        {
+          "column": "action",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_auditentry.action",
+                "usr": "main.store_auditentry.action"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel",
+                "store/audit.py#record"
+              ]
+            }
+          ],
+          "relation": "store_auditentry",
+          "resolved": {
+            "column": "action",
+            "relation": "main.store_auditentry"
+          },
+          "use": {
+            "location": {
+              "column": 31,
+              "line": 12,
+              "path": "store/audit.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/audit.py#record",
+              "usr": "store/audit.py#record"
+            }
+          }
+        },
+        {
+          "column": "order_id",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_auditentry.order_id",
+                "usr": "main.store_auditentry.order_id"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel",
+                "store/audit.py#record"
+              ]
+            }
+          ],
+          "relation": "store_auditentry",
+          "resolved": {
+            "column": "order_id",
+            "relation": "main.store_auditentry"
+          },
+          "use": {
+            "location": {
+              "column": 46,
+              "line": 12,
+              "path": "store/audit.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/audit.py#record",
+              "usr": "store/audit.py#record"
+            }
+          }
+        },
+        {
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_auditentry",
+                "usr": "main.store_auditentry"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel",
+                "store/audit.py#record"
+              ]
+            }
+          ],
+          "relation": "store_auditentry",
+          "resolved": {
+            "relation": "main.store_auditentry"
+          },
+          "use": {
+            "location": {
+              "column": 5,
+              "line": 12,
+              "path": "store/audit.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/audit.py#record",
+              "usr": "store/audit.py#record"
+            }
+          }
+        },
+        {
+          "column": "status",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order.status",
+                "usr": "main.store_order.status"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel"
+              ]
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "column": "status",
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 50,
+              "line": 27,
+              "path": "store/services.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/services.py#OrderService.cancel",
+              "usr": "store/services.py#OrderService.cancel"
+            }
+          }
+        },
+        {
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_order",
+                "usr": "main.store_order"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 1,
+              "evidence": "direct",
+              "from": "store/views.py#OrderViewSet.cancel",
+              "path": [
+                "store/views.py#OrderViewSet.cancel",
+                "store/services.py#OrderService.cancel"
+              ]
+            }
+          ],
+          "relation": "store_order",
+          "resolved": {
+            "relation": "main.store_order"
+          },
+          "use": {
+            "location": {
+              "column": 9,
+              "line": 27,
+              "path": "store/services.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/services.py#OrderService.cancel",
+              "usr": "store/services.py#OrderService.cancel"
+            }
+          }
+        }
+      ],
+      "routes": [
+        {
+          "calls": [
+            {
+              "affected": [
+                {
+                  "analysis": "ios-reverse",
+                  "depth": 1,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "column": 17,
+                    "line": 23,
+                    "path": "Sources/ShopClient/OrderDetailViewModel.swift"
+                  },
+                  "member": "ios",
+                  "path": [
+                    "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF",
+                    "s:10ShopClient20OrderDetailViewModelC6cancel2idySi_tYaKF"
+                  ],
+                  "platform": "swift",
+                  "qualifiedName": "OrderDetailViewModel.cancel",
+                  "relationships": [
+                    "call",
+                    "dependent"
+                  ],
+                  "usr": "s:10ShopClient20OrderDetailViewModelC6cancel2idySi_tYaKF"
+                },
+                {
+                  "analysis": "ios-reverse",
+                  "depth": 2,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "column": 17,
+                    "line": 24,
+                    "path": "Sources/ShopClient/OrderDetailScreen.swift"
+                  },
+                  "member": "ios",
+                  "path": [
+                    "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF",
+                    "s:10ShopClient20OrderDetailViewModelC6cancel2idySi_tYaKF",
+                    "s:10ShopClient17OrderDetailScreenC9tapCancelyyYaKF"
+                  ],
+                  "platform": "swift",
+                  "qualifiedName": "OrderDetailScreen.tapCancel",
+                  "relationships": [
+                    "call",
+                    "dependent"
+                  ],
+                  "usr": "s:10ShopClient17OrderDetailScreenC9tapCancelyyYaKF"
+                }
+              ],
+              "call": {
+                "location": {
+                  "column": 23,
+                  "line": 27,
+                  "path": "Sources/ShopClient/OrdersAPI.swift"
+                },
+                "member": "ios",
+                "platform": "swift",
+                "route": {
+                  "kind": "route-call",
+                  "method": "POST",
+                  "pathAnchor": "root",
+                  "template": "/api/orders/{}/cancel/"
+                },
+                "symbol": {
+                  "qualifiedName": "OrdersAPI.cancelOrder",
+                  "usr": "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF"
+                }
+              },
+              "quality": "exact",
+              "side": "decl"
+            }
+          ],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 6,
+                "line": 21,
+                "path": "store/views.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "POST",
+                "pathAnchor": "root",
+                "template": "/api/orders/{}/cancel/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#OrderViewSet.cancel",
+                "usr": "store/views.py#OrderViewSet.cancel"
+              }
+            }
+          ],
+          "method": "POST",
+          "scope": "ios->api",
+          "template": "/api/orders/{}/cancel/"
+        },
+        {
+          "calls": [],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 6,
+                "line": 21,
+                "path": "store/views.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "POST",
+                "pathAnchor": "root",
+                "template": "/api/orders/{}/cancel/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#OrderViewSet.cancel",
+                "usr": "store/views.py#OrderViewSet.cancel"
+              }
+            }
+          ],
+          "method": "POST",
+          "scope": "android->api",
+          "template": "/api/orders/{}/cancel/"
+        }
+      ],
+      "selector": {
+        "route": {
+          "method": "POST",
+          "template": "/api/orders/{}/cancel/"
+        }
+      }
+    },
+    {
+      "database": [
+        {
+          "dependents": [
+            {
+              "analysis": "server-db",
+              "depth": 1,
+              "evidence": "direct",
+              "member": "server",
+              "path": [
+                "main.store_order",
+                "main.store_orderline"
+              ],
+              "platform": "sql",
+              "qualifiedName": "main.store_orderline",
+              "relationships": [
+                "references"
+              ],
+              "usr": "main.store_orderline",
+              "witnessRoot": "main.store_order"
+            }
+          ],
+          "member": "server",
+          "vertex": "main.store_product"
+        },
+        {
+          "dependents": [],
+          "member": "server",
+          "vertex": "main.store_product.active"
+        },
+        {
+          "dependents": [],
+          "member": "server",
+          "vertex": "main.store_product.title"
+        }
+      ],
+      "handlers": [
+        {
+          "member": "server",
+          "platform": "python",
+          "qualifiedName": "store/views.py#ProductListView.get",
+          "reachedFrom": [],
+          "routes": [
+            {
+              "method": "GET",
+              "scope": "android->api",
+              "template": "/api/products/"
+            },
+            {
+              "method": "GET",
+              "scope": "ios->api",
+              "template": "/api/products/"
+            }
+          ],
+          "usr": "store/views.py#ProductListView.get"
+        }
+      ],
+      "relationUses": [
+        {
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_product",
+                "usr": "main.store_product"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#ProductListView.get",
+              "path": [
+                "store/views.py#ProductListView.get",
+                "store/views.py#ProductListView.get_queryset",
+                "store/selectors.py#active_products"
+              ]
+            }
+          ],
+          "relation": "store_product",
+          "resolved": {
+            "relation": "main.store_product"
+          },
+          "use": {
+            "location": {
+              "column": 12,
+              "line": 20,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#active_products",
+              "usr": "store/selectors.py#active_products"
+            }
+          }
+        },
+        {
+          "column": "active",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_product.active",
+                "usr": "main.store_product.active"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#ProductListView.get",
+              "path": [
+                "store/views.py#ProductListView.get",
+                "store/views.py#ProductListView.get_queryset",
+                "store/selectors.py#active_products"
+              ]
+            }
+          ],
+          "relation": "store_product",
+          "resolved": {
+            "column": "active",
+            "relation": "main.store_product"
+          },
+          "use": {
+            "location": {
+              "column": 35,
+              "line": 20,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#active_products",
+              "usr": "store/selectors.py#active_products"
+            }
+          }
+        },
+        {
+          "column": "title",
+          "decls": [
+            {
+              "member": "server",
+              "platform": "sql",
+              "symbol": {
+                "qualifiedName": "main.store_product.title",
+                "usr": "main.store_product.title"
+              }
+            }
+          ],
+          "reachedFrom": [
+            {
+              "analysis": "server-forward",
+              "depth": 2,
+              "evidence": "direct",
+              "from": "store/views.py#ProductListView.get",
+              "path": [
+                "store/views.py#ProductListView.get",
+                "store/views.py#ProductListView.get_queryset",
+                "store/selectors.py#active_products"
+              ]
+            }
+          ],
+          "relation": "store_product",
+          "resolved": {
+            "column": "title",
+            "relation": "main.store_product"
+          },
+          "use": {
+            "location": {
+              "column": 57,
+              "line": 20,
+              "path": "store/selectors.py"
+            },
+            "member": "server",
+            "platform": "python",
+            "symbol": {
+              "qualifiedName": "store/selectors.py#active_products",
+              "usr": "store/selectors.py#active_products"
+            }
+          }
+        }
+      ],
+      "routes": [
+        {
+          "calls": [
+            {
+              "affected": [
+                {
+                  "analysis": "ios-reverse",
+                  "depth": 1,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "column": 17,
+                    "line": 16,
+                    "path": "Sources/ShopClient/CatalogViewModel.swift"
+                  },
+                  "member": "ios",
+                  "path": [
+                    "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF",
+                    "s:10ShopClient16CatalogViewModelC7refreshyyYaKF"
+                  ],
+                  "platform": "swift",
+                  "qualifiedName": "CatalogViewModel.refresh",
+                  "relationships": [
+                    "call",
+                    "dependent"
+                  ],
+                  "usr": "s:10ShopClient16CatalogViewModelC7refreshyyYaKF"
+                }
+              ],
+              "call": {
+                "location": {
+                  "column": 23,
+                  "line": 16,
+                  "path": "Sources/ShopClient/ProductsAPI.swift"
+                },
+                "member": "ios",
+                "platform": "swift",
+                "route": {
+                  "kind": "route-call",
+                  "method": "GET",
+                  "pathAnchor": "root",
+                  "template": "/api/products/"
+                },
+                "symbol": {
+                  "qualifiedName": "ProductsAPI.list",
+                  "usr": "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF"
+                }
+              },
+              "quality": "exact",
+              "side": "decl"
+            }
+          ],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 10,
+                "line": 14,
+                "path": "store/urls.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "GET",
+                "pathAnchor": "root",
+                "template": "/api/products/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#ProductListView.get",
+                "usr": "store/views.py#ProductListView.get"
+              }
+            }
+          ],
+          "method": "GET",
+          "scope": "ios->api",
+          "template": "/api/products/"
+        },
+        {
+          "calls": [
+            {
+              "affected": [
+                {
+                  "analysis": "android-reverse",
+                  "depth": 1,
+                  "evidence": "direct",
+                  "kind": "method",
+                  "location": {
+                    "line": 27,
+                    "path": "src/main/kotlin/com/example/shop/ProductsClient.kt"
+                  },
+                  "member": "android",
+                  "path": [
+                    "method:com/example/shop/ProductsClient#list()Ljava/lang/String;",
+                    "method:com/example/shop/CatalogViewModel#refresh()V"
+                  ],
+                  "platform": "kotlin",
+                  "qualifiedName": "com.example.shop.CatalogViewModel.refresh",
+                  "relationships": [
+                    "call"
+                  ],
+                  "usr": "method:com/example/shop/CatalogViewModel#refresh()V"
+                }
+              ],
+              "call": {
+                "location": {
+                  "column": 16,
+                  "line": 15,
+                  "path": "src/main/kotlin/com/example/shop/ProductsClient.kt"
+                },
+                "member": "android",
+                "platform": "kotlin",
+                "route": {
+                  "kind": "route-call",
+                  "method": "GET",
+                  "pathAnchor": "root",
+                  "template": "/api/products/"
+                },
+                "symbol": {
+                  "qualifiedName": "com.example.shop.ProductsClient.list",
+                  "usr": "method:com/example/shop/ProductsClient#list()Ljava/lang/String;"
+                }
+              },
+              "quality": "exact",
+              "side": "decl"
+            }
+          ],
+          "contracts": [],
+          "declarations": [
+            {
+              "location": {
+                "column": 10,
+                "line": 14,
+                "path": "store/urls.py"
+              },
+              "member": "server",
+              "platform": "python",
+              "route": {
+                "kind": "route-decl",
+                "method": "GET",
+                "pathAnchor": "root",
+                "template": "/api/products/"
+              },
+              "symbol": {
+                "qualifiedName": "store/views.py#ProductListView.get",
+                "usr": "store/views.py#ProductListView.get"
+              }
+            }
+          ],
+          "method": "GET",
+          "scope": "android->api",
+          "template": "/api/products/"
+        }
+      ],
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/products/"
+        }
+      }
+    }
+  ],
+  "complete": false,
+  "format": "isthmus-trace",
+  "gaps": [
+    {
+      "analysis": "server-forward",
+      "code": "reach-possibly-incomplete",
+      "detail": "1 outgoing call site(s) in 1 symbol(s) reachable from this handler could not be linked by the producer, so relation uses behind them may be missing (e.g. store/views.py#OrderViewSet.retrieve).",
+      "member": "server",
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/orders/{}/"
+        }
+      },
+      "symbol": {
+        "platform": "python",
+        "usr": "store/views.py#OrderViewSet.retrieve"
+      }
+    },
+    {
+      "analysis": "server-forward",
+      "code": "reach-possibly-incomplete",
+      "detail": "1 outgoing call site(s) in 1 symbol(s) reachable from this handler could not be linked by the producer, so relation uses behind them may be missing (e.g. store/views.py#ProductListView.get).",
+      "member": "server",
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/products/"
+        }
+      },
+      "symbol": {
+        "platform": "python",
+        "usr": "store/views.py#ProductListView.get"
+      }
+    },
+    {
+      "code": "unattributed-calls-omitted",
+      "detail": "2 route call(s) could not be attributed to a declaration side and may call this scope; their paths and hosts are not reported.",
+      "route": {
+        "method": "GET",
+        "scope": "android->api",
+        "template": "/api/orders/{}/"
+      },
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/orders/{}/"
+        }
+      }
+    },
+    {
+      "code": "unattributed-calls-omitted",
+      "detail": "2 route call(s) could not be attributed to a declaration side and may call this scope; their paths and hosts are not reported.",
+      "route": {
+        "method": "GET",
+        "scope": "android->api",
+        "template": "/api/products/"
+      },
+      "selector": {
+        "route": {
+          "method": "GET",
+          "template": "/api/products/"
+        }
+      }
+    },
+    {
+      "code": "unattributed-calls-omitted",
+      "detail": "2 route call(s) could not be attributed to a declaration side and may call this scope; their paths and hosts are not reported.",
+      "route": {
+        "method": "POST",
+        "scope": "android->api",
+        "template": "/api/orders/{}/cancel/"
+      },
+      "selector": {
+        "route": {
+          "method": "POST",
+          "template": "/api/orders/{}/cancel/"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "link": "android->api",
+      "message": "input-freshness: bridge documents differ by 6513 hours",
+      "origin": "consumer",
+      "platform": "cross-platform",
+      "target": null,
+      "tool": "isthmus"
+    },
+    {
+      "link": "android->api",
+      "message": "unjoined-unbound-route-calls: 2 route call facts without an attributed declaration side (paths and hosts are not reported) were not joined",
+      "origin": "consumer",
+      "platform": "kotlin",
+      "target": "http",
+      "tool": "isthmus"
+    },
+    {
+      "link": "android->api",
+      "message": "graph-file-freshness-unverified: build-scope-mismatch;missing-build-witness;unwitnessed-class-root",
+      "platform": "kotlin",
+      "target": "http",
+      "tool": "kartograph"
+    },
+    {
+      "link": "android->api",
+      "message": "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites",
+      "platform": "kotlin",
+      "target": "http",
+      "tool": "kartograph"
+    },
+    {
+      "link": "android->api",
+      "message": "missing-route-usrs: 2 route-call fact(s) lack JVM symbol identities; no compiled declaration in the snapshot matched the enclosing source declaration",
+      "platform": "kotlin",
+      "target": "http",
+      "tool": "kartograph"
+    },
+    {
+      "link": "ios->api",
+      "message": "input-freshness: bridge documents differ by 6513 hours",
+      "origin": "consumer",
+      "platform": "cross-platform",
+      "target": null,
+      "tool": "isthmus"
+    },
+    {
+      "member": "server",
+      "message": "DDL 인라인 UNIQUE/CHECK 제약은 카탈로그에 없어 수집하지 못함 (인라인 제약 파싱 미지원)",
+      "platform": "sql",
+      "target": "persistence",
+      "tool": "schemagraph"
+    },
+    {
+      "member": "server",
+      "message": "catalog-coverage: the collector declared an incomplete catalog; unreported relations may exist",
+      "platform": "sql",
+      "target": "persistence",
+      "tool": "schemagraph"
+    }
+  ],
+  "notices": [],
+  "scope": {
+    "fieldCompatibility": "not-assessed",
+    "granularity": "route",
+    "queryAndHeaders": "not-assessed"
+  },
+  "selection": {
+    "routes": [
+      {
+        "method": "GET",
+        "template": "/api/orders/{}/"
+      },
+      {
+        "method": "POST",
+        "template": "/api/orders/{}/cancel/"
+      },
+      {
+        "method": "GET",
+        "template": "/api/products/"
+      }
+    ]
+  },
+  "summary": {
+    "calls": 4,
+    "chains": 3,
+    "clientSymbols": 6,
+    "databaseDependents": 11,
+    "databaseVertices": 11,
+    "evidence": {
+      "bound": 0,
+      "candidate": 0,
+      "direct": 29,
+      "unassessed": 0
+    },
+    "gaps": 5,
+    "handlers": 3,
+    "notices": 0,
+    "relationUses": 12,
+    "routes": 6
+  },
+  "version": 1,
+  "workspace": {
+    "links": [
+      {
+        "client": "ios",
+        "match": {
+          "hosts": [
+            "api.example.com"
+          ]
+        },
+        "name": "ios->api",
+        "server": "server"
+      },
+      {
+        "client": "android",
+        "match": {
+          "hosts": [
+            "api.example.com"
+          ]
+        },
+        "name": "android->api",
+        "server": "server"
+      }
+    ],
+    "members": [
+      {
+        "name": "server",
+        "project": "/e2e/shop-api",
+        "revision": "e2e-shop-api"
+      },
+      {
+        "name": "ios",
+        "project": "/e2e/clients/ios",
+        "revision": "e2e-ios-client"
+      },
+      {
+        "name": "android",
+        "project": "/e2e/clients/android",
+        "revision": "a11d000000000000000000000000000000000e2e"
+      }
+    ]
+  }
+}

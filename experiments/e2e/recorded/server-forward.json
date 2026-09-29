@@ -1,0 +1,391 @@
+{
+  "direction": "dependencies",
+  "dispatch": "direct",
+  "format": "language-traversal",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "sha256:4891167f4103f2fe8f5712f65d9cdaa409765882369852bbe7372b02f38321b7",
+  "limitations": [
+    "unresolved-calls: 6 call sites have no complete project target in direct mode (framework-callback 6); each symbol's unresolvedCalls counts its own",
+    "external-calls: 40 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed",
+    "framework-dispatch: 12 class-based view handler symbols are linked to the project hooks their framework dispatch path calls (Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3 sources); objects the framework builds from class attributes (serializers, permissions, pagination) count as framework-callback unresolved calls, and signals, middleware, and classes named in settings are not modeled"
+  ],
+  "platform": "python",
+  "project": "/e2e/shop-api",
+  "reached": [
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        1,
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "symbol": {
+        "kind": "function",
+        "location": {
+          "column": 1,
+          "line": 6,
+          "path": "store/selectors.py"
+        },
+        "qualifiedName": "store/selectors.py#orders_for_customer",
+        "usr": "store/selectors.py#orders_for_customer"
+      },
+      "via": "store/views.py#customer_summary"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "new"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "inherited-method",
+        "location": {
+          "column": 1,
+          "line": 8,
+          "path": "store/serializers.py"
+        },
+        "qualifiedName": "store/serializers.py#OrderSerializer.__init__",
+        "usr": "store/serializers.py#OrderSerializer.__init__"
+      },
+      "via": "store/views.py#CheckoutView.post"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "inherited-method",
+        "location": {
+          "column": 1,
+          "line": 8,
+          "path": "store/serializers.py"
+        },
+        "qualifiedName": "store/serializers.py#OrderSerializer.data",
+        "usr": "store/serializers.py#OrderSerializer.data"
+      },
+      "via": "store/views.py#CheckoutView.post"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        8
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 22,
+          "path": "store/services.py"
+        },
+        "qualifiedName": "store/services.py#OrderService.cancel",
+        "usr": "store/services.py#OrderService.cancel"
+      },
+      "via": "store/views.py#OrderViewSet.cancel"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 10,
+          "path": "store/services.py"
+        },
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      },
+      "via": "store/views.py#CheckoutView.post"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "attribute"
+      ],
+      "roots": [
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "symbol": {
+        "kind": "class",
+        "location": {
+          "column": 1,
+          "line": 12,
+          "path": "store/views.py"
+        },
+        "qualifiedName": "store/views.py#OrderViewSet",
+        "usr": "store/views.py#OrderViewSet"
+      },
+      "via": "store/views.py#OrderViewSet.list"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "framework"
+      ],
+      "roots": [
+        2,
+        4,
+        5,
+        6,
+        7
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 17,
+          "path": "store/views.py"
+        },
+        "qualifiedName": "store/views.py#OrderViewSet.get_queryset",
+        "usr": "store/views.py#OrderViewSet.get_queryset"
+      },
+      "via": "store/views.py#OrderViewSet.list"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "attribute"
+      ],
+      "roots": [
+        9
+      ],
+      "symbol": {
+        "kind": "class",
+        "location": {
+          "column": 1,
+          "line": 28,
+          "path": "store/views.py"
+        },
+        "qualifiedName": "store/views.py#ProductListView",
+        "usr": "store/views.py#ProductListView"
+      },
+      "via": "store/views.py#ProductListView.get"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "framework"
+      ],
+      "roots": [
+        9
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 33,
+          "path": "store/views.py"
+        },
+        "qualifiedName": "store/views.py#ProductListView.get_queryset",
+        "usr": "store/views.py#ProductListView.get_queryset"
+      },
+      "via": "store/views.py#ProductListView.get"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        8
+      ],
+      "symbol": {
+        "kind": "function",
+        "location": {
+          "column": 1,
+          "line": 6,
+          "path": "store/audit.py"
+        },
+        "qualifiedName": "store/audit.py#record",
+        "usr": "store/audit.py#record"
+      },
+      "via": "store/services.py#OrderService.cancel"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        9
+      ],
+      "symbol": {
+        "kind": "function",
+        "location": {
+          "column": 1,
+          "line": 15,
+          "path": "store/selectors.py"
+        },
+        "qualifiedName": "store/selectors.py#active_products",
+        "usr": "store/selectors.py#active_products"
+      },
+      "via": "store/views.py#ProductListView.get_queryset"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "reference"
+      ],
+      "roots": [
+        2,
+        3,
+        5,
+        6,
+        7
+      ],
+      "symbol": {
+        "kind": "class",
+        "location": {
+          "column": 1,
+          "line": 8,
+          "path": "store/serializers.py"
+        },
+        "qualifiedName": "store/serializers.py#OrderSerializer",
+        "usr": "store/serializers.py#OrderSerializer"
+      },
+      "via": "store/views.py#OrderViewSet"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "reference"
+      ],
+      "roots": [
+        9
+      ],
+      "symbol": {
+        "kind": "class",
+        "location": {
+          "column": 1,
+          "line": 18,
+          "path": "store/serializers.py"
+        },
+        "qualifiedName": "store/serializers.py#ProductSerializer",
+        "usr": "store/serializers.py#ProductSerializer"
+      },
+      "via": "store/views.py#ProductListView"
+    }
+  ],
+  "revision": "e2e-shop-api",
+  "roots": [
+    {
+      "id": "store/views.py#CheckoutView.post",
+      "symbol": {
+        "qualifiedName": "store/views.py#CheckoutView.post",
+        "usr": "store/views.py#CheckoutView.post"
+      }
+    },
+    {
+      "id": "store/views.py#customer_summary",
+      "symbol": {
+        "qualifiedName": "store/views.py#customer_summary",
+        "usr": "store/views.py#customer_summary"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.list",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.list",
+        "usr": "store/views.py#OrderViewSet.list"
+      },
+      "unresolvedCalls": 1
+    },
+    {
+      "id": "store/views.py#OrderViewSet.create",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.create",
+        "usr": "store/views.py#OrderViewSet.create"
+      },
+      "unresolvedCalls": 1
+    },
+    {
+      "id": "store/views.py#OrderViewSet.destroy",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.destroy",
+        "usr": "store/views.py#OrderViewSet.destroy"
+      }
+    },
+    {
+      "id": "store/views.py#OrderViewSet.retrieve",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.retrieve",
+        "usr": "store/views.py#OrderViewSet.retrieve"
+      },
+      "unresolvedCalls": 1
+    },
+    {
+      "id": "store/views.py#OrderViewSet.partial_update",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.partial_update",
+        "usr": "store/views.py#OrderViewSet.partial_update"
+      },
+      "unresolvedCalls": 1
+    },
+    {
+      "id": "store/views.py#OrderViewSet.update",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.update",
+        "usr": "store/views.py#OrderViewSet.update"
+      },
+      "unresolvedCalls": 1
+    },
+    {
+      "id": "store/views.py#OrderViewSet.cancel",
+      "symbol": {
+        "qualifiedName": "store/views.py#OrderViewSet.cancel",
+        "usr": "store/views.py#OrderViewSet.cancel"
+      }
+    },
+    {
+      "id": "store/views.py#ProductListView.get",
+      "symbol": {
+        "qualifiedName": "store/views.py#ProductListView.get",
+        "usr": "store/views.py#ProductListView.get"
+      },
+      "unresolvedCalls": 1
+    }
+  ],
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "truncated": false,
+  "version": 1
+}

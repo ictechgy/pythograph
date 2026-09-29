@@ -1,0 +1,171 @@
+{
+  "direction": "dependents",
+  "format": "language-traversal",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "sha256:6d1c7010064303185f665643b79fec61b81e8908f925e834b4126b8d474e284a",
+  "limitations": [
+    "public-api-not-retained: this package exports 1 library product(s) and retain_public is off, so a public declaration whose only callers live outside this repository is reported unreachable"
+  ],
+  "platform": "swift",
+  "project": "/e2e/clients/ios",
+  "reached": [
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call",
+        "dependent"
+      ],
+      "roots": [
+        2
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 16,
+          "path": "Sources/ShopClient/CatalogViewModel.swift"
+        },
+        "qualifiedName": "CatalogViewModel.refresh",
+        "usr": "s:10ShopClient16CatalogViewModelC7refreshyyYaKF"
+      },
+      "via": "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call",
+        "dependent"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 17,
+          "path": "Sources/ShopClient/OrderDetailViewModel.swift"
+        },
+        "qualifiedName": "OrderDetailViewModel.load",
+        "usr": "s:10ShopClient20OrderDetailViewModelC4load2idySi_tYaKF"
+      },
+      "via": "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call",
+        "dependent"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 23,
+          "path": "Sources/ShopClient/OrderDetailViewModel.swift"
+        },
+        "qualifiedName": "OrderDetailViewModel.cancel",
+        "usr": "s:10ShopClient20OrderDetailViewModelC6cancel2idySi_tYaKF"
+      },
+      "via": "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call",
+        "dependent"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 19,
+          "path": "Sources/ShopClient/OrderDetailScreen.swift"
+        },
+        "qualifiedName": "OrderDetailScreen.appear",
+        "usr": "s:10ShopClient17OrderDetailScreenC6appearyyYaKF"
+      },
+      "via": "s:10ShopClient20OrderDetailViewModelC4load2idySi_tYaKF"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call",
+        "dependent"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 24,
+          "path": "Sources/ShopClient/OrderDetailScreen.swift"
+        },
+        "qualifiedName": "OrderDetailScreen.tapCancel",
+        "usr": "s:10ShopClient17OrderDetailScreenC9tapCancelyyYaKF"
+      },
+      "via": "s:10ShopClient20OrderDetailViewModelC6cancel2idySi_tYaKF"
+    }
+  ],
+  "revision": "e2e-ios-client",
+  "roots": [
+    {
+      "id": "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF",
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 17,
+          "path": "Sources/ShopClient/OrdersAPI.swift"
+        },
+        "qualifiedName": "OrdersAPI.fetchOrder",
+        "usr": "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF"
+      }
+    },
+    {
+      "id": "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF",
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 26,
+          "path": "Sources/ShopClient/OrdersAPI.swift"
+        },
+        "qualifiedName": "OrdersAPI.cancelOrder",
+        "usr": "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF"
+      }
+    },
+    {
+      "id": "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF",
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 17,
+          "line": 15,
+          "path": "Sources/ShopClient/ProductsAPI.swift"
+        },
+        "qualifiedName": "ProductsAPI.list",
+        "usr": "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF"
+      }
+    }
+  ],
+  "tool": {
+    "name": "cartograph",
+    "version": "0.22.0"
+  },
+  "truncated": false,
+  "version": 1
+}

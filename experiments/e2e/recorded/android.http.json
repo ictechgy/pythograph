@@ -1,0 +1,73 @@
+{
+  "facts": [
+    {
+      "channel": "/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 5,
+        "line": 19,
+        "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "com.example.shop.OrdersService.getOrder"
+      }
+    },
+    {
+      "channel": "/api/checkout/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 5,
+        "line": 23,
+        "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
+      },
+      "method": "POST",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "com.example.shop.OrdersService.checkout"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/products/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 15,
+        "path": "src/main/kotlin/com/example/shop/ProductsClient.kt"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "com.example.shop.ProductsClient.list",
+        "usr": "method:com/example/shop/ProductsClient#list()Ljava/lang/String;"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-09-29T08:46:45.180Z",
+  "limitations": [
+    "graph-file-freshness-unverified: build-scope-mismatch;missing-build-witness;unwitnessed-class-root",
+    "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites",
+    "missing-route-usrs: 2 route-call fact(s) lack JVM symbol identities; no compiled declaration in the snapshot matched the enclosing source declaration"
+  ],
+  "platform": "kotlin",
+  "project": "/e2e/clients/android",
+  "roles": [
+    "client"
+  ],
+  "sourceModifiedAt": "2026-09-29T08:18:38.000Z",
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "kartograph",
+    "version": "0.17.0"
+  },
+  "version": 1
+}

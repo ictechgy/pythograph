@@ -1,0 +1,72 @@
+{
+  "facts": [
+    {
+      "authority": "api.example.com",
+      "channel": "/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 23,
+        "line": 18,
+        "path": "Sources/ShopClient/OrdersAPI.swift"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "OrdersAPI.fetchOrder",
+        "usr": "s:10ShopClient9OrdersAPIC10fetchOrder2id10Foundation4DataVSi_tYaKF"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/orders/{}/cancel/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 23,
+        "line": 27,
+        "path": "Sources/ShopClient/OrdersAPI.swift"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "OrdersAPI.cancelOrder",
+        "usr": "s:10ShopClient9OrdersAPIC11cancelOrder2id10Foundation4DataVSi_tYaKF"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/products/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 23,
+        "line": 16,
+        "path": "Sources/ShopClient/ProductsAPI.swift"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "ProductsAPI.list",
+        "usr": "s:10ShopClient11ProductsAPIC4list10Foundation4DataVyYaKF"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-09-29T08:46:38.884Z",
+  "limitations": [],
+  "platform": "swift",
+  "project": "/e2e/clients/ios",
+  "roles": [
+    "client"
+  ],
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "cartograph",
+    "version": "0.22.0"
+  },
+  "version": 1
+}
