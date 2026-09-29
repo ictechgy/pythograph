@@ -29,20 +29,19 @@ isthmus `main`(`f9dcd1d`)은 `platform: "python"`의 http(`registration-order` �
 - Python 3.10 이상(Django 5.x가 3.10 이상을 요구하고, pythograph는 실행 중인 인터프리터로 분석 대상을
   파싱하므로 프로젝트와 같거나 새 파이썬으로 실행한다).
 
-pythograph는 아직 PyPI에 없다. 첫 릴리스 전까지는 GitHub에서 설치한다(`main` 브랜치, 또는 태그가 생긴 뒤에는
-`@v0.1.0` 같은 릴리스 태그).
+[PyPI](https://pypi.org/project/pythograph/)에서 설치한다.
 
 ```sh
-uv tool install git+https://github.com/ictechgy/pythograph
+uv tool install pythograph
 # 또는
-pipx install git+https://github.com/ictechgy/pythograph
+pipx install pythograph
 
 pythograph --version
 ```
 
-체크아웃에서 빌드한 wheel(`uv build`)도 같은 방식이다: `uv tool install dist/pythograph-<버전>-py3-none-any.whl` 또는
-`pipx install dist/pythograph-<버전>-py3-none-any.whl`. PyPI 릴리스 뒤에는 `uv tool install pythograph`·
-`pipx install pythograph`로 설치한다. 릴리스 절차는 [RELEASING.md](RELEASING.md)에 있다.
+아직 릴리스되지 않은 변경을 써 보려면 GitHub에서 설치한다(`uv tool install git+https://github.com/ictechgy/pythograph`, 또는
+`@v0.1.0` 같은 릴리스 태그로 고정). 체크아웃에서 빌드한 wheel(`uv build`)도 같은 방식이다:
+`uv tool install dist/pythograph-<버전>-py3-none-any.whl`. 릴리스 절차는 [RELEASING.md](RELEASING.md)에 있다.
 
 ## `pythograph routes --role server`
 

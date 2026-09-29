@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- README 설치 절을 PyPI(`uv tool install pythograph`·`pipx install pythograph`) 기준으로 바꿨다.
+
 ## [0.1.0] - 2026-09-30
 
 ### Changed
