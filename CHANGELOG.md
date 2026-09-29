@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-30
+
 ### Changed
 
 - Phase 6 종료 조건 기록(`experiments/e2e/recorded/`)의 Android 문서를 kartograph `4c09d91`(#122 Retrofit route-call usr·상속
