@@ -160,6 +160,7 @@ class _ClassBody:
     """클래스 본문에서 읽은 매핑 재료."""
 
     tablename: object = None
+    tablename_none: bool = False
     table: ast.expr | None = None
     table_args: ast.expr | None = None
     abstract: bool = False
@@ -619,6 +620,10 @@ class SqlAlchemyCatalog:
                 body.tablename = ...  # @declared_attr로 계산하는 이름이다.
             return
         if target == "__tablename__":
+            if isinstance(value, ast.Constant) and value.value is None:
+                # `__tablename__ = None`은 "자기 테이블 없음"이다. 자동 이름도 붙지 않는다(단일 테이블 상속).
+                body.tablename_none = True
+                return
             body.tablename = self.evaluator.string(symbol.path, value) if value is not None else None
             if body.tablename is None:
                 body.tablename = ...
@@ -729,6 +734,11 @@ class SqlAlchemyCatalog:
             return
         name = body.tablename if body.tablename is not None else self._inherited_tablename(parents, mixins)
         mapped = [parent for parent in parents if not parent.abstract]
+        if body.tablename_none:
+            if mapped:
+                model.table_owner = mapped[0].table_owner
+                return
+            name = ...
         if name is None and mapped:
             if model.base.autonaming and self._own_primary_key(model, body):
                 name = self._auto_name(model.name)

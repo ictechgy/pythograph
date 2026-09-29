@@ -242,6 +242,8 @@ class SqlAlchemyQueries:
                 self._entity(node.args[0], unresolved_dynamic=False)
             elif function.attr == "filter_by":
                 self._filter_by(function.value, node)
+            elif function.attr == "values":
+                self._statement_values(function.value, node)
             elif function.attr == "exec_driver_sql" and node.args:
                 self.sql.sink(node.args[0], explicit=True)
             elif function.attr in _TABLE_METHODS:
@@ -328,6 +330,27 @@ class SqlAlchemyQueries:
         if model is None:
             return
         self._keyword_columns(model, node)
+
+    def _statement_values(self, receiver: ast.expr, node: ast.Call) -> None:
+        """`insert(M).values(k=...)`·`update(M).where(...).values(k=...)`의 키를 M의 컬럼 사실로 낸다.
+
+        Args:
+            receiver: `.values` 수신 식.
+            node: `.values(...)` 호출.
+        """
+        current = receiver
+        for _ in range(MAX_DEPTH):
+            if not isinstance(current, ast.Call):
+                return
+            name = self.catalog.sqlalchemy_name(self.scopes.path, current.func)
+            if name in ("insert", "update") and current.args:
+                model = self.model_of(current.args[0])
+                if model is not None:
+                    self._keyword_columns(model, node)
+                return
+            if not isinstance(current.func, ast.Attribute):
+                return
+            current = current.func.value
 
     def _query_entity(self, receiver: ast.expr, depth: int) -> str | None:
         """질의 사슬의 `filter_by` 대상 엔터티(마지막 조인 대상, 없으면 첫 엔터티)를 찾는다.

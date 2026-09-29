@@ -341,3 +341,43 @@ class Hero(SQLModel, table=True):
     limitations = document["limitations"]
     assert isinstance(limitations, list)
     assert any(item.startswith("unsupported-db-packages:") for item in limitations)
+
+
+def test_statement_values_and_explicit_none_tablename(make_project: MakeProject) -> None:
+    """`update(M).values(k=)` 키는 컬럼 사실이고, `__tablename__ = None`은 부모 테이블(단일 테이블 상속)이다."""
+    models = """
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+
+class Employee(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column("name", db.String(20))
+
+
+class Contractor(Employee):
+    __tablename__ = None
+    rate = db.Column(db.Integer)
+"""
+    document = schema_document(
+        _project(
+            make_project,
+            """
+from sqlalchemy import insert, update
+
+from app.models import Contractor, Employee
+
+
+def run(session):
+    session.execute(update(Employee).where(Employee.id == 1).values(full_name="x"))
+    session.execute(insert(Employee).values(id=2))
+    session.query(Contractor).filter_by(rate=3)
+""",
+            models=models,
+            extra={"requirements.txt": "flask-sqlalchemy==3.1.1\n"},
+        )
+    )
+    rows = _rows(document)
+    assert {("employee", "name", False), ("employee", "id", False), ("employee", "rate", False)} <= rows
+    assert not any(row[0] == "contractor" for row in rows)

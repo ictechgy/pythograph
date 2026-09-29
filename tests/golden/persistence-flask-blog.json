@@ -270,6 +270,21 @@
       }
     },
     {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 78,
+        "line": 54,
+        "path": "blog/views.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "blog/views.py#retitle",
+        "usr": "blog/views.py#retitle"
+      }
+    },
+    {
       "channel": "post_comments",
       "dynamic": false,
       "kind": "relation-use",
