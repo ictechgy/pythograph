@@ -83,14 +83,16 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 |---|---|
 | `Model.objects`(매니저 접근), 인스턴스 `save`·`delete`·`refresh_from_db`, 생성자 | 모델 테이블(다중 테이블 상속이면 조상 테이블도) 관계 사실 |
 | `filter`·`exclude`·`get`·`get_or_create`·`update_or_create` 키워드, `Q(...)` | 조회식을 `Query.names_to_path`처럼 푼다: 조각마다 필드(이름·`attname`·`pk`)나 역관계, 관계면 대상 모델로 넘어가 조인 테이블 관계 사실과 조인 컬럼 사실. 컬럼 필드에 닿거나 관계 뒤에 조회 이름(`in`·`isnull`·`year` 등)이 오면 끝 |
-| `create`·`update` 키워드, `defaults`·`create_defaults` 사전 키, `update_fields`·`bulk_update` 필드 목록, `in_bulk(field_name=)` | 컬럼 사실(조인 없음) |
-| `values`·`values_list`·`order_by`(`-` 제거, `?` 무시)·`only`·`defer`·`distinct`·`select_related`·`prefetch_related`·`latest`·`earliest`·`dates`·`datetimes` 문자열 | 필드 경로 |
+| `create`·`update` 키워드, `defaults`·`create_defaults` 사전 키, `update_fields`·`bulk_update` 필드 목록, `in_bulk(field_name=)` | 컬럼 사실(조인 없음). 관계를 건너는 이름(`blog__name`)은 Django가 거부하므로 dynamic |
+| `values`·`values_list`·`order_by`(`-` 제거, `?` 무시)·`only`·`defer`·`distinct`·`select_related`·`prefetch_related`(`Prefetch` 첫 인자 포함)·`latest`·`earliest`·`dates`·`datetimes` 문자열 | 필드 경로. 마지막 조각이 M2M이면 중간·대상 테이블도 |
 | `F`·`Count`·`Sum` 등 `django.db.models` 식의 문자열 인자(`Extract`·`Trunc` 등은 첫 인자만, `Value`·`RawSQL`·`OuterRef`·`Subquery`는 제외), `When(then=)`·`Case(default=)`·`Window(order_by=, partition_by=)` | 필드 경로 |
 | `annotate`·`alias`·`values` 키워드 이름 | 뒤따르는 조회식의 주석 이름(사실 없음) |
 | 인스턴스 관계 매니저(`article.tags`, `article.comment_set`), 정방향 관계(`comment.article`) | 대상(과 M2M 중간) 테이블과 외래 키 컬럼 사실 |
-| `raw(sql)`, `RawSQL(sql)`, `extra(tables=[...])` | SQL 텍스트, 테이블 관계 사실. `extra`의 `where`·`select` 조각은 읽지 않고 `skipped-sql-fragments:` |
+| `raw(sql)`, `RawSQL(sql)`, `extra(tables=[...])`, `extra(order_by=[...])` | SQL 텍스트, 테이블 관계 사실, 필드 경로(`select` 별칭 제외). `extra`의 `where`·`select`·`table.column` 조각은 읽지 않고 `skipped-sql-fragments:` |
 
-풀지 못한 매니저 수신자(`model.objects`, django를 import한 모듈만)·조회식·`**` 인자는 dynamic 사실이다.
+풀지 못한 매니저 수신자(`model.objects`, django를 import한 모듈만)·조회식·`**` 인자, 컬럼 규칙을 확인하지 않은
+외부 필드 클래스(`django.` 밖의 `…Field`)의 선언·사용은 dynamic 사실이다. 모르는 외부 기반 클래스를 상속한 클래스는
+`django.` 필드를 선언했을 때만 모델로 본다(DRF 직렬화기의 `CharField`를 모델 필드로 오인하지 않는다).
 
 ## SQLAlchemy·Flask-SQLAlchemy
 
@@ -199,6 +201,14 @@ DB에 적용하고 schemagraph(`scan --emit-document`·`facts`)와 `pythograph s
 isthmus `main`은 `platform: "python"`을 `Unsupported bridge platform.`(종료 코드 2)으로 거부한다.
 `src/exchange/parse.ts`의 플랫폼 유니온 타입과 `bridgePlatforms`에 `python`을 더하면 persistence 문서가 그대로
 조인된다(persistence 도메인의 kind·플랫폼 규칙은 비sql 플랫폼을 모두 호출 측으로 본다).
+
+## 공개 샘플 점검
+
+HackSoftware/Django-Styleguide-Example `a70ef43`(MIT, 스크래치에 복제, 저장소에 넣지 않음)에서 사실 163건을 냈다.
+이 점검으로 `INSTALLED_APPS = [*THIRD_PARTY_APPS, *LOCAL_APPS]` 펼침과 `INSTALLED_APPS, MIDDLEWARE = setup(...)` 구조
+분해 재대입, DRF 직렬화기 오인을 고쳤다. 남은 dynamic은 `DATABASES = env.db(...)`로 백엔드를 모르는 30자 초과 이름
+(Oracle 절단 여부가 갈린다), 불완전한 앱 목록에서 `models` 모듈 밖에 정의한 모델 2개, 프로젝트 밖
+(`django_celery_beat`) 모델의 매니저 5건이다.
 
 ## 결정 사항
 
