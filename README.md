@@ -1,6 +1,6 @@
 # pythograph
 
-[한국어](README.ko.md)
+[한국어](https://github.com/ictechgy/pythograph/blob/main/README.ko.md)
 
 Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy), emitted in the
 [isthmus](https://github.com/ictechgy/isthmus) bridge-facts exchange format.
@@ -31,11 +31,21 @@ documents, and python `language-traversal` analyses (see [isthmus compatibility]
 - Python 3.10 or newer (Django 5.x needs 3.10+, and pythograph parses the analyzed code with the running
   interpreter, so run it with the same or a newer Python than the project).
 
+pythograph is not on PyPI yet. Until the first release, install it from GitHub (the `main` branch, or a release tag
+such as `@v0.1.0` once it exists):
+
 ```sh
 uv tool install git+https://github.com/ictechgy/pythograph
 # or
 pipx install git+https://github.com/ictechgy/pythograph
+
+pythograph --version
 ```
+
+A wheel built from a checkout (`uv build`) installs the same way: `uv tool install dist/pythograph-<version>-py3-none-any.whl`
+or `pipx install dist/pythograph-<version>-py3-none-any.whl`. After the PyPI release, `uv tool install pythograph` and
+`pipx install pythograph` will work. The release steps are in [RELEASING.md](https://github.com/ictechgy/pythograph/blob/main/RELEASING.md)
+(Korean).
 
 ## `pythograph routes --role server`
 
@@ -94,7 +104,7 @@ Example (synthetic, compacted; the real output is key-sorted JSON with two-space
 ### What is modeled
 
 Every rule was checked against the installed package sources (Django 5.2.17, djangorestframework 3.18.1,
-Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-ROUTES.md](docs/HTTP-ROUTES.md)
+Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-ROUTES.md](https://github.com/ictechgy/pythograph/blob/main/docs/HTTP-ROUTES.md)
 (Korean).
 
 - **Django**: `ROOT_URLCONF` from the settings module (star imports of project settings modules are
@@ -168,7 +178,7 @@ pythograph schema --project <root> [--include-tests] [--settings <module>] [--ge
 Writes a bridge-facts v1 document with `platform: "python"`, `target: "persistence"` (or `null` when there are no
 facts), and one `relation-use` fact per observed relation or column reference. isthmus joins it with a
 `platform: "sql"` document (schemagraph `facts --document <catalog>`) under the persistence rules of
-`docs/GRAPH-EXCHANGE.md`. The full rule table with source files is in [docs/PERSISTENCE.md](docs/PERSISTENCE.md)
+`docs/GRAPH-EXCHANGE.md`. The full rule table with source files is in [docs/PERSISTENCE.md](https://github.com/ictechgy/pythograph/blob/main/docs/PERSISTENCE.md)
 (Korean).
 
 - **Django**: model classes (abstract, proxy, multi-table inheritance, `Meta` inheritance) → tables
@@ -206,7 +216,7 @@ Builds the project's Python call graph with the standard-library `ast`. `graph` 
 (`pythograph-graph` v1); `reach` writes the symbols the roots depend on (`dependencies`) and `impact` the symbols that
 depend on them (`dependents`) as isthmus
 [`language-traversal` v1](https://github.com/ictechgy/isthmus/blob/main/docs/LANGUAGE-TRAVERSAL.md). Ids are the same
-strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GRAPH.md](docs/GRAPH.md) (Korean).
+strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GRAPH.md](https://github.com/ictechgy/pythograph/blob/main/docs/GRAPH.md) (Korean).
 
 - **Nodes**: modules (`<path>#<module>`), functions, methods, classes, nested definitions, and inherited members
   (`<registered class>.<member>`, for view handlers and for inherited members called on exact receivers).
@@ -245,6 +255,11 @@ and compares pythograph's facts with Django's resolver traversal, DRF routers, a
 | `fixtures/flask/blog-app` | 28/28 | 27/27 |
 | HackSoftware/Django-Styleguide-Example `a70ef43` (MIT, scratch clone) | 21/21 | 21/22 (the DEBUG-only `static()` route) |
 
+Dogfooding on four public apps (Django-Styleguide-Example, babybuddy, microblog, and netbox, cloned only into a scratch
+directory) measured route precision against each framework's resolver, relation-use join rates through schemagraph and
+isthmus, handler-to-relation reachability, unresolved-call reasons, and runtime; the results and the fixed issues are in
+[DOGFOOD.md](https://github.com/ictechgy/pythograph/blob/main/DOGFOOD.md) (Korean).
+
 The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `f9dcd1d` and locked in
 `conformance.lock`) pass 100% of the applicable producer cases (78: `template.grammar`, `template.normalize`,
 `scope.validate`, `scope.applies`, `dispatch.validate`); the `dispatch.validate` checker also runs on the routes
@@ -255,7 +270,7 @@ server (`fixtures/e2e/shop-api`), a schemagraph catalog of its Django DDL, and r
 synthetic iOS (cartograph) and Android (kartograph) clients with isthmus `trace` (workspace). The expected paths of the
 three questions match: (a) API → DB tables + DB dependents, (b) API → client call sites → affected client symbols, and
 (c) table → API → client. `tests/test_e2e_trace.py` re-checks the recorded inputs and outputs offline (the table is in
-[docs/GRAPH.md](docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
+[docs/GRAPH.md](https://github.com/ictechgy/pythograph/blob/main/docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
 
 Persistence naming vectors (`fixtures/persistence-naming/vectors.json`) are recorded by importing synthetic models
 with the real ORMs in a scratch environment (`experiments/persistence/run_naming.py`): Django 5.2.17 `_meta` names

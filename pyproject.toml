@@ -19,14 +19,23 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: Django",
+    "Framework :: Flask",
     "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 # 런타임 의존성은 없다. 분석은 표준 라이브러리 ast만 쓴다.
 dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/ictechgy/pythograph"
+Repository = "https://github.com/ictechgy/pythograph"
 Issues = "https://github.com/ictechgy/pythograph/issues"
+Changelog = "https://github.com/ictechgy/pythograph/blob/main/CHANGELOG.md"
 
 [project.scripts]
 pythograph = "pythograph.cli.main:main"

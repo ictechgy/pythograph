@@ -29,11 +29,20 @@ isthmus `main`(`f9dcd1d`)은 `platform: "python"`의 http(`registration-order` �
 - Python 3.10 이상(Django 5.x가 3.10 이상을 요구하고, pythograph는 실행 중인 인터프리터로 분석 대상을
   파싱하므로 프로젝트와 같거나 새 파이썬으로 실행한다).
 
+pythograph는 아직 PyPI에 없다. 첫 릴리스 전까지는 GitHub에서 설치한다(`main` 브랜치, 또는 태그가 생긴 뒤에는
+`@v0.1.0` 같은 릴리스 태그).
+
 ```sh
 uv tool install git+https://github.com/ictechgy/pythograph
 # 또는
 pipx install git+https://github.com/ictechgy/pythograph
+
+pythograph --version
 ```
+
+체크아웃에서 빌드한 wheel(`uv build`)도 같은 방식이다: `uv tool install dist/pythograph-<버전>-py3-none-any.whl` 또는
+`pipx install dist/pythograph-<버전>-py3-none-any.whl`. PyPI 릴리스 뒤에는 `uv tool install pythograph`·
+`pipx install pythograph`로 설치한다. 릴리스 절차는 [RELEASING.md](RELEASING.md)에 있다.
 
 ## `pythograph routes --role server`
 
@@ -189,6 +198,10 @@ pythograph impact (reach와 같은 옵션)
 | `fixtures/django/drf-shop` | 69/69 | 58/59(의도한 dynamic 전방 탐색 패턴 1건) |
 | `fixtures/flask/blog-app` | 28/28 | 27/27 |
 | HackSoftware/Django-Styleguide-Example `a70ef43`(MIT, 스크래치 복제) | 21/21 | 21/22(DEBUG 전용 `static()` 경로) |
+
+공개 앱 네 개(Django-Styleguide-Example, babybuddy, microblog, netbox — 스크래치에만 복제)에서 프레임워크 resolver 대비
+route 정밀도, schemagraph·isthmus 조인율, 핸들러 → relation-use 도달률, 미해석 호출 이유, 실행 시간을 잰 도그푸딩 결과와 고친
+문제는 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
 isthmus 공유 적합성 벡터(`conformance/`, isthmus `f9dcd1d`에서 벤더링해 `conformance.lock`으로 고정)의 해당 생산자
 사례 78건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`)을 100% 통과하고,

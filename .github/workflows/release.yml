@@ -1,0 +1,101 @@
+# 릴리스 워크플로(초안): `v<버전>` 태그를 push하면 검증 → 빌드 → PyPI 게시(Trusted Publishing)를 차례로 실행한다.
+# 게시 단계는 PyPI에 이 저장소·워크플로·환경(`pypi`)을 신뢰할 수 있는 게시자로 등록한 뒤에만 성공한다.
+# 수동 준비 절차는 RELEASING.md에 있다. API 토큰이나 비밀값은 쓰지 않는다(OIDC `id-token`만 게시 작업에 준다).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.10', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Format
+        run: uv run ruff format --check src tests
+      - name: Typecheck
+        run: uv run mypy
+      - name: Tests and coverage gate
+        run: uv run pytest --cov --cov-report=term-missing
+      - name: CLI contract (development install)
+        run: uv run python scripts/verify_cli_contract.py
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Tag matches project version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "$TAG" != "v$version" ]; then
+            echo "태그 $TAG가 pyproject.toml 버전 v$version과 다르다. 버전을 올리고 같은 이름으로 태그를 다시 만든다." >&2
+            exit 1
+          fi
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Built wheel in a clean environment
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" dist/*.whl
+          installed="$("$RUNNER_TEMP/wheel-venv/bin/pythograph" --version)"
+          if [ "v$installed" != "$TAG" ]; then
+            echo "설치한 wheel의 --version($installed)이 태그 $TAG와 다르다. src/pythograph/__init__.py의 __version__을 맞춘다." >&2
+            exit 1
+          fi
+          uv run --no-project python scripts/verify_cli_contract.py --executable "$RUNNER_TEMP/wheel-venv/bin/pythograph"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pythograph/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
