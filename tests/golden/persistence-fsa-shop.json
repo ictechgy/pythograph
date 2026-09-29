@@ -1,0 +1,575 @@
+{
+  "facts": [
+    {
+      "channel": "catalog_item",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 40,
+        "line": 8,
+        "path": "shopapp/models.py"
+      }
+    },
+    {
+      "channel": "catalog_item",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 20,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CatalogItem",
+        "usr": "shopapp/models.py#CatalogItem"
+      }
+    },
+    {
+      "channel": "catalog_item",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 40,
+        "line": 8,
+        "path": "shopapp/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "catalog_item",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 23,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CatalogItem",
+        "usr": "shopapp/models.py#CatalogItem"
+      }
+    },
+    {
+      "channel": "catalog_item",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 24,
+        "path": "shopapp/models.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CatalogItem",
+        "usr": "shopapp/models.py#CatalogItem"
+      }
+    },
+    {
+      "channel": "coupon",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 77,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Coupon",
+        "usr": "shopapp/models.py#Coupon"
+      }
+    },
+    {
+      "channel": "coupon",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 81,
+        "path": "shopapp/models.py"
+      },
+      "method": "code",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Coupon",
+        "usr": "shopapp/models.py#Coupon"
+      }
+    },
+    {
+      "channel": "coupon",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 77,
+        "path": "shopapp/models.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Coupon",
+        "usr": "shopapp/models.py#Coupon"
+      }
+    },
+    {
+      "channel": "coupon",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 80,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Coupon",
+        "usr": "shopapp/models.py#Coupon"
+      }
+    },
+    {
+      "channel": "customer_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 7,
+        "path": "shopapp/models.py"
+      }
+    },
+    {
+      "channel": "customer_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 12,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CustomerOrder",
+        "usr": "shopapp/models.py#CustomerOrder"
+      }
+    },
+    {
+      "channel": "customer_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 7,
+        "path": "shopapp/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "customer_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 15,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CustomerOrder",
+        "usr": "shopapp/models.py#CustomerOrder"
+      }
+    },
+    {
+      "channel": "customer_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 16,
+        "path": "shopapp/models.py"
+      },
+      "method": "placed_on",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#CustomerOrder",
+        "usr": "shopapp/models.py#CustomerOrder"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 48,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Employee",
+        "usr": "shopapp/models.py#Employee"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 56,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Manager",
+        "usr": "shopapp/models.py#Manager"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 46,
+        "line": 66,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 51,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Employee",
+        "usr": "shopapp/models.py#Employee"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 56,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Manager",
+        "usr": "shopapp/models.py#Manager"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 46,
+        "line": 66,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 59,
+        "path": "shopapp/models.py"
+      },
+      "method": "level",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Manager",
+        "usr": "shopapp/models.py#Manager"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 52,
+        "path": "shopapp/models.py"
+      },
+      "method": "type",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Employee",
+        "usr": "shopapp/models.py#Employee"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 56,
+        "path": "shopapp/models.py"
+      },
+      "method": "type",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Manager",
+        "usr": "shopapp/models.py#Manager"
+      }
+    },
+    {
+      "channel": "employee",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 63,
+        "path": "shopapp/models.py"
+      },
+      "method": "type",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "engineer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 63,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "engineer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 66,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "engineer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 67,
+        "path": "shopapp/models.py"
+      },
+      "method": "language",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Engineer",
+        "usr": "shopapp/models.py#Engineer"
+      }
+    },
+    {
+      "channel": "gift_card",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 91,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#GiftCard",
+        "usr": "shopapp/models.py#GiftCard"
+      }
+    },
+    {
+      "channel": "gift_card",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 94,
+        "path": "shopapp/models.py"
+      },
+      "method": "balance",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#GiftCard",
+        "usr": "shopapp/models.py#GiftCard"
+      }
+    },
+    {
+      "channel": "gift_card",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 91,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#GiftCard",
+        "usr": "shopapp/models.py#GiftCard"
+      }
+    },
+    {
+      "channel": "http_request_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 27,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#HTTPRequestLog",
+        "usr": "shopapp/models.py#HTTPRequestLog"
+      }
+    },
+    {
+      "channel": "http_request_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 30,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#HTTPRequestLog",
+        "usr": "shopapp/models.py#HTTPRequestLog"
+      }
+    },
+    {
+      "channel": "http_request_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 31,
+        "path": "shopapp/models.py"
+      },
+      "method": "path",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#HTTPRequestLog",
+        "usr": "shopapp/models.py#HTTPRequestLog"
+      }
+    },
+    {
+      "channel": "legacy_records",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 40,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Legacy",
+        "usr": "shopapp/models.py#Legacy"
+      }
+    },
+    {
+      "channel": "legacy_records",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 45,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#Legacy",
+        "usr": "shopapp/models.py#Legacy"
+      }
+    },
+    {
+      "channel": "o_auth2_token",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 34,
+        "path": "shopapp/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#OAuth2Token",
+        "usr": "shopapp/models.py#OAuth2Token"
+      }
+    },
+    {
+      "channel": "o_auth2_token",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 37,
+        "path": "shopapp/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "shopapp/models.py#OAuth2Token",
+        "usr": "shopapp/models.py#OAuth2Token"
+      }
+    },
+    {
+      "channel": "order_items",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 6,
+        "path": "shopapp/models.py"
+      }
+    },
+    {
+      "channel": "order_items",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 15,
+        "line": 8,
+        "path": "shopapp/models.py"
+      },
+      "method": "item_id"
+    },
+    {
+      "channel": "order_items",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 15,
+        "line": 7,
+        "path": "shopapp/models.py"
+      },
+      "method": "order_id"
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [
+    "missing-relation-usrs: 7 facts are outside any function or class"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "target": "persistence",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

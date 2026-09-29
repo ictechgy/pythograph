@@ -27,6 +27,12 @@ FIXTURES = (
     (REPOSITORY / "fixtures" / "flask" / "blog-app", "specificity"),
 )
 
+#: schema 명령 fixture다.
+SCHEMA_FIXTURES = (
+    REPOSITORY / "fixtures" / "persistence" / "django-shop",
+    REPOSITORY / "fixtures" / "persistence" / "flask-blog",
+)
+
 
 def run(executable: str, arguments: list[str]) -> subprocess.CompletedProcess[str]:
     """CLI를 실행한다.
@@ -66,9 +72,11 @@ def verify_basics(executable: str) -> None:
     verify(result.returncode == 0 and result.stdout == f"{version.group(1)}\n", "version")
     verify(run(executable, ["--help"]).stdout.startswith("Usage: pythograph"), "help")
     verify(run(executable, ["help", "routes"]).stdout.startswith("Usage: pythograph routes"), "routes help")
+    verify(run(executable, ["help", "schema"]).stdout.startswith("Usage: pythograph schema"), "schema help")
     for arguments in ([], ["no-such-command"], ["routes", "--project", "."], ["routes", "--role", "client"],
                       ["routes", "--role", "server"], ["routes", "--role", "server", "--project", ".", "--format",
-                                                        "yaml"]):
+                                                        "yaml"],
+                      ["schema"], ["schema", "--project", ".", "--format", "yaml"], ["schema", "--project", ".", "x"]):
         verify(run(executable, arguments).returncode == 64, f"usage error {arguments}")
 
 
@@ -92,6 +100,23 @@ def verify_routes(executable: str) -> None:
         verify(first.stdout == run(executable, arguments).stdout, f"{fixture.name} determinism")
 
 
+def verify_schema(executable: str) -> None:
+    """schema 문서가 결정적이고 persistence 계약 모양인지 확인한다.
+
+    Args:
+        executable: 실행 파일.
+    """
+    for fixture in SCHEMA_FIXTURES:
+        arguments = ["schema", "--project", str(fixture), "--generated-at", GENERATED_AT, "--format", "json"]
+        first = run(executable, arguments)
+        verify(first.returncode == 0, f"{fixture.name} schema exit code")
+        document = json.loads(first.stdout)
+        verify(document["platform"] == "python" and document["target"] == "persistence", f"{fixture.name} target")
+        verify(document["facts"] and all(fact["kind"] == "relation-use" for fact in document["facts"]),
+               f"{fixture.name} relation-use facts")
+        verify(first.stdout == run(executable, arguments).stdout, f"{fixture.name} schema determinism")
+
+
 def verify_input_errors(executable: str) -> None:
     """읽을 수 없는 프로젝트는 2로 끝나는지 확인한다.
 
@@ -105,6 +130,8 @@ def verify_input_errors(executable: str) -> None:
         (directory / "file.txt").write_text("x")
         verify(run(executable, ["routes", "--role", "server", "--project", str(directory / "file.txt")])
                .returncode == 2, "project is a file")
+        missing_schema = run(executable, ["schema", "--project", str(directory / "missing")])
+        verify(missing_schema.returncode == 2 and str(directory) not in missing_schema.stderr, "schema missing project")
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -120,6 +147,7 @@ def main(argv: list[str]) -> None:
     assert executable is not None
     verify_basics(executable)
     verify_routes(executable)
+    verify_schema(executable)
     verify_input_errors(executable)
     sys.stdout.write("CLI contract verified: 0/2/64 (1 reserved)\n")
 

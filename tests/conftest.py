@@ -54,6 +54,36 @@ def routes_document(project: Path, *extra: str) -> dict[str, object]:
     return document
 
 
+def schema_document(project: Path, *extra: str) -> dict[str, object]:
+    """schema 명령을 실행해 문서를 돌려준다. 실패하면 테스트를 실패시킨다.
+
+    Args:
+        project: 프로젝트 경로.
+        extra: 추가 인자.
+
+    Returns:
+        문서.
+    """
+    code, out, err = run_cli(["schema", "--project", str(project), "--generated-at", GENERATED_AT, *extra])
+    assert code == 0, err
+    document: dict[str, object] = json.loads(out)
+    return document
+
+
+def relation_rows(document: dict[str, object]) -> set[tuple[object, ...]]:
+    """relation-use 사실을 (channel, method, dynamic, usr) 튜플 집합으로 요약한다.
+
+    Args:
+        document: 문서.
+
+    Returns:
+        요약 집합.
+    """
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    return {(fact["channel"], fact.get("method"), fact["dynamic"], fact.get("symbol", {}).get("usr")) for fact in facts}
+
+
 def fact_rows(document: dict[str, object]) -> set[tuple[object, ...]]:
     """사실을 (method, channel, dynamic, usr) 튜플 집합으로 요약한다.
 

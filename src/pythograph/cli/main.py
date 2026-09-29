@@ -19,6 +19,8 @@ from typing import TextIO
 
 from pythograph import __version__
 from pythograph.exchange.document import DocumentHeader, DocumentLimitError, build_document, encode_document
+from pythograph.exchange.persistence import build_persistence_document
+from pythograph.persistence.command import SchemaOptions, extract_persistence
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
 
@@ -40,12 +42,13 @@ _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
 
 MAIN_USAGE = """Usage: pythograph <command> [options]
 
-Static facts for Python services (Django, Django REST framework, Flask) in the isthmus
+Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy) in the isthmus
 bridge-facts exchange format. The analyzed project is parsed with the standard-library
 ast only; it is never imported or executed.
 
 Commands:
   routes     Server route declarations (route-decl facts)
+  schema     Relation and column references (persistence relation-use facts)
   help       Show help for a command
 
 Options:
@@ -77,6 +80,27 @@ Options:
 
 Exit codes: 0 success, 2 unreadable project or oversized output, 64 usage error.
 """
+
+SCHEMA_USAGE = """Usage: pythograph schema --project <root> [--include-tests] [--settings <module>]
+                         [--generated-at <timestamp>] [--format json]
+
+Scan Django models and QuerySets, SQLAlchemy / Flask-SQLAlchemy mappings and queries, and SQL text,
+and write an isthmus bridge-facts v1 document (platform "python", target "persistence",
+relation-use facts) to stdout. isthmus joins it with a schemagraph catalog document.
+
+Options:
+  --project <root>           Project root; location paths are relative to it
+  --include-tests            Also scan test sources
+  --settings <module>        Django settings module (default: the DJANGO_SETTINGS_MODULE default
+                             in manage.py, wsgi.py, or asgi.py)
+  --generated-at <timestamp> Fixed generatedAt (YYYY-MM-DDTHH:MM:SS.sssZ) for byte-identical output
+  --format json              Output format (json is the only format)
+
+Exit codes: 0 success, 2 unreadable project or oversized output, 64 usage error.
+"""
+
+#: schema 명령의 값 옵션이다.
+_SCHEMA_VALUE_FLAGS = ("--project", "--format", "--settings", "--generated-at")
 
 #: routes 명령의 값 옵션이다.
 _VALUE_FLAGS = (
@@ -187,6 +211,8 @@ def run(arguments: list[str]) -> str:
         return _help(rest)
     if command == "routes":
         return _routes(rest)
+    if command == "schema":
+        return _schema(rest)
     raise UsageError("unknown command.\n" + MAIN_USAGE)
 
 
@@ -206,6 +232,8 @@ def _help(rest: list[str]) -> str:
         return MAIN_USAGE
     if rest == ["routes"]:
         return ROUTES_USAGE
+    if rest == ["schema"]:
+        return SCHEMA_USAGE
     raise UsageError("unknown command for help.\n" + MAIN_USAGE)
 
 
@@ -246,13 +274,55 @@ def _routes(rest: list[str]) -> str:
         raise InputError(str(error)) from error
 
 
-def parse_flags(arguments: list[str]) -> tuple[dict[str, str], set[str]]:
+def _schema(rest: list[str]) -> str:
+    """schema 명령을 실행한다.
+
+    Args:
+        rest: schema 뒤 인자.
+
+    Returns:
+        JSON 문서.
+
+    Raises:
+        UsageError: 사용법 오류.
+        InputError: 입력 오류.
+    """
+    values, flags = parse_flags(rest, _SCHEMA_VALUE_FLAGS, SCHEMA_USAGE)
+    if "--help" in flags:
+        return SCHEMA_USAGE
+    if values.get("--format", "json") != "json":
+        raise UsageError("--format supports only json.")
+    project_argument = values.get("--project")
+    if project_argument is None:
+        raise UsageError("--project <root> is required.\n" + SCHEMA_USAGE)
+    settings_module = _settings_module(values.get("--settings"))
+    generated_at = _timestamp(values.get("--generated-at"))
+    root = resolve_project(project_argument)
+    extraction = extract_persistence(Project.open(root), SchemaOptions("--include-tests" in flags, settings_module))
+    header = DocumentHeader(
+        tool_version=__version__,
+        generated_at=generated_at or datetime.now(timezone.utc),
+        project=root.as_posix(),
+        service=None,
+        include_tests="--include-tests" in flags,
+    )
+    try:
+        return encode_document(build_persistence_document(header, extraction))
+    except DocumentLimitError as error:
+        raise InputError(str(error)) from error
+
+
+def parse_flags(
+    arguments: list[str], value_flags: tuple[str, ...] = _VALUE_FLAGS, usage: str = ROUTES_USAGE
+) -> tuple[dict[str, str], set[str]]:
     """옵션을 값 옵션과 불리언 옵션으로 나눈다. 모르는·반복·빈 옵션과 위치 인자는 사용법 오류다.
 
     `--flag=value` 형식도 받는다.
 
     Args:
         arguments: 인자 목록.
+        value_flags: 허용하는 값 옵션.
+        usage: 오류 문구에 붙일 사용법.
 
     Returns:
         (값 옵션, 불리언 옵션).
@@ -269,11 +339,11 @@ def parse_flags(arguments: list[str]) -> tuple[dict[str, str], set[str]]:
             flags.add(name)
             index += 1
             continue
-        if name not in _VALUE_FLAGS or name in values:
-            raise UsageError("unknown, repeated, or positional argument.\n" + ROUTES_USAGE)
+        if name not in value_flags or name in values:
+            raise UsageError("unknown, repeated, or positional argument.\n" + usage)
         value = inline if inline else (arguments[index + 1] if index + 1 < len(arguments) else "")
         if not value or (not inline and value.startswith("--")):
-            raise UsageError(f"{name} needs a value.\n" + ROUTES_USAGE)
+            raise UsageError(f"{name} needs a value.\n" + usage)
         values[name] = value
         index += 1 if inline else 2
     return values, flags

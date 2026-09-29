@@ -1,0 +1,611 @@
+{
+  "facts": [
+    {
+      "channel": "audit.audit_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 19,
+        "line": 17,
+        "path": "catalog/models.py"
+      }
+    },
+    {
+      "channel": "audit.audit_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 105,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#AuditEntry",
+        "usr": "catalog/models.py#AuditEntry"
+      }
+    },
+    {
+      "channel": "audit.audit_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 54,
+        "line": 17,
+        "path": "catalog/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "audit.audit_log",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 105,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#AuditEntry",
+        "usr": "catalog/models.py#AuditEntry"
+      }
+    },
+    {
+      "channel": "billing.invoices",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 86,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Invoice",
+        "usr": "catalog/models.py#Invoice"
+      }
+    },
+    {
+      "channel": "billing.invoices",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 92,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Invoice",
+        "usr": "catalog/models.py#Invoice"
+      }
+    },
+    {
+      "channel": "billing.invoices",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 93,
+        "path": "catalog/models.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Invoice",
+        "usr": "catalog/models.py#Invoice"
+      }
+    },
+    {
+      "channel": "cars",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 76,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "cars",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 81,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "cars",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 82,
+        "path": "catalog/models.py"
+      },
+      "method": "seats",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "named_things",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 53,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#NamedThing",
+        "usr": "catalog/models.py#NamedThing"
+      }
+    },
+    {
+      "channel": "named_things",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 56,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#NamedThing",
+        "usr": "catalog/models.py#NamedThing"
+      }
+    },
+    {
+      "channel": "product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "catalog/models.py"
+      }
+    },
+    {
+      "channel": "product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 12,
+        "line": 13,
+        "path": "catalog/models.py"
+      },
+      "method": "product_id"
+    },
+    {
+      "channel": "product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 12,
+        "line": 14,
+        "path": "catalog/models.py"
+      },
+      "method": "tag_label"
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 37,
+        "line": 13,
+        "path": "catalog/models.py"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 26,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 56,
+        "line": 93,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Invoice",
+        "usr": "catalog/models.py#Invoice"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 26,
+        "path": "catalog/models.py"
+      },
+      "method": "created_by_user",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 37,
+        "line": 13,
+        "path": "catalog/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 31,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 56,
+        "line": 93,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Invoice",
+        "usr": "catalog/models.py#Invoice"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 35,
+        "path": "catalog/models.py"
+      },
+      "method": "note",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 32,
+        "path": "catalog/models.py"
+      },
+      "method": "stock_keeping_unit",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 33,
+        "path": "catalog/models.py"
+      },
+      "method": "unit_price",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "products",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 34,
+        "path": "catalog/models.py"
+      },
+      "method": "weight_grams",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Product",
+        "usr": "catalog/models.py#Product"
+      }
+    },
+    {
+      "channel": "reporting.reports",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 96,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Report",
+        "usr": "catalog/models.py#Report"
+      }
+    },
+    {
+      "channel": "reporting.reports",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 101,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Report",
+        "usr": "catalog/models.py#Report"
+      }
+    },
+    {
+      "channel": "reporting.reports",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 102,
+        "path": "catalog/models.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Report",
+        "usr": "catalog/models.py#Report"
+      }
+    },
+    {
+      "channel": "tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 44,
+        "line": 14,
+        "path": "catalog/models.py"
+      }
+    },
+    {
+      "channel": "tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 39,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Tag",
+        "usr": "catalog/models.py#Tag"
+      }
+    },
+    {
+      "channel": "tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 44,
+        "line": 14,
+        "path": "catalog/models.py"
+      },
+      "method": "label"
+    },
+    {
+      "channel": "tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 44,
+        "path": "catalog/models.py"
+      },
+      "method": "label",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Tag",
+        "usr": "catalog/models.py#Tag"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 59,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Vehicle",
+        "usr": "catalog/models.py#Vehicle"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 69,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Truck",
+        "usr": "catalog/models.py#Truck"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 48,
+        "line": 81,
+        "path": "catalog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 64,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Vehicle",
+        "usr": "catalog/models.py#Vehicle"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 69,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Truck",
+        "usr": "catalog/models.py#Truck"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 48,
+        "line": 81,
+        "path": "catalog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 65,
+        "path": "catalog/models.py"
+      },
+      "method": "kind",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Vehicle",
+        "usr": "catalog/models.py#Vehicle"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 69,
+        "path": "catalog/models.py"
+      },
+      "method": "kind",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Truck",
+        "usr": "catalog/models.py#Truck"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 76,
+        "path": "catalog/models.py"
+      },
+      "method": "kind",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Car",
+        "usr": "catalog/models.py#Car"
+      }
+    },
+    {
+      "channel": "vehicles",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 72,
+        "path": "catalog/models.py"
+      },
+      "method": "payload",
+      "symbol": {
+        "qualifiedName": "catalog/models.py#Truck",
+        "usr": "catalog/models.py#Truck"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [
+    "missing-relation-usrs: 9 facts are outside any function or class"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "target": "persistence",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

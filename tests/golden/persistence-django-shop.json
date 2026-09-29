@@ -1,0 +1,1684 @@
+{
+  "facts": [
+    {
+      "channel": "SELECT COUNT(*) FROM {}",
+      "dynamic": true,
+      "kind": "relation-use",
+      "location": {
+        "column": 24,
+        "line": 72,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#count_rows",
+        "usr": "store/services.py#count_rows"
+      }
+    },
+    {
+      "channel": "auth_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "reviews/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "auth_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 40,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Customer",
+        "usr": "store/models.py#Customer"
+      }
+    },
+    {
+      "channel": "auth_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 13,
+        "line": 51,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "auth_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 33,
+        "line": 51,
+        "path": "store/services.py"
+      },
+      "method": "is_staff",
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "model.objects",
+      "dynamic": true,
+      "kind": "relation-use",
+      "location": {
+        "column": 18,
+        "line": 78,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#everything",
+        "usr": "store/services.py#everything"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "reviews/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 23,
+        "line": 26,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 12,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "reviews/models.py"
+      },
+      "method": "author_id",
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 34,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "method": "author_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 13,
+        "path": "reviews/models.py"
+      },
+      "method": "body",
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "reviews/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "reviews/models.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 23,
+        "line": 26,
+        "path": "store/services.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 52,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 12,
+        "path": "reviews/models.py"
+      },
+      "method": "rating",
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "reviews_review",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 26,
+        "path": "store/services.py"
+      },
+      "method": "rating",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Category",
+        "usr": "store/models.py#Category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 12,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Category",
+        "usr": "store/models.py#Category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 26,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 21,
+        "line": 34,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Product.in_category",
+        "usr": "store/models.py#Product.in_category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 32,
+        "line": 15,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 19,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 52,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 8,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Category",
+        "usr": "store/models.py#Category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 11,
+        "path": "store/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/models.py#Category",
+        "usr": "store/models.py#Category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 32,
+        "line": 15,
+        "path": "store/services.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 19,
+        "path": "store/services.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 12,
+        "path": "store/models.py"
+      },
+      "method": "parent_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Category",
+        "usr": "store/models.py#Category"
+      }
+    },
+    {
+      "channel": "store_category",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 52,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "method": "parent_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 37,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Customer",
+        "usr": "store/models.py#Customer"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 47,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 9,
+        "line": 33,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#best_customers",
+        "usr": "store/services.py#best_customers"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 41,
+        "path": "store/models.py"
+      },
+      "method": "email",
+      "symbol": {
+        "qualifiedName": "store/models.py#Customer",
+        "usr": "store/models.py#Customer"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 17,
+        "line": 35,
+        "path": "store/services.py"
+      },
+      "method": "email",
+      "symbol": {
+        "qualifiedName": "store/services.py#best_customers",
+        "usr": "store/services.py#best_customers"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 37,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Customer",
+        "usr": "store/models.py#Customer"
+      }
+    },
+    {
+      "channel": "store_customer",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 40,
+        "path": "store/models.py"
+      },
+      "method": "user_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Customer",
+        "usr": "store/models.py#Customer"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 44,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 59,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 53,
+        "line": 33,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#best_customers",
+        "usr": "store/services.py#best_customers"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 13,
+        "line": 59,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#order_report",
+        "usr": "store/services.py#order_report"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 17,
+        "line": 86,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 15,
+        "line": 90,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 47,
+        "path": "store/models.py"
+      },
+      "method": "customer_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 53,
+        "line": 33,
+        "path": "store/services.py"
+      },
+      "method": "customer_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#best_customers",
+        "usr": "store/services.py#best_customers"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 38,
+        "line": 86,
+        "path": "store/services.py"
+      },
+      "method": "customer_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 44,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 49,
+        "path": "store/models.py"
+      },
+      "method": "placed_at",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 48,
+        "path": "store/models.py"
+      },
+      "method": "status",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order",
+        "usr": "store/models.py#Order"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 57,
+        "line": 86,
+        "path": "store/services.py"
+      },
+      "method": "status",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_order",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 35,
+        "line": 90,
+        "path": "store/services.py"
+      },
+      "method": "status",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 21,
+        "line": 53,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Order.quantity",
+        "usr": "store/models.py#Order.quantity"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 56,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 13,
+        "line": 59,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#order_report",
+        "usr": "store/services.py#order_report"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 13,
+        "line": 88,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 22,
+        "line": 91,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 56,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 21,
+        "line": 53,
+        "path": "store/models.py"
+      },
+      "method": "order_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order.quantity",
+        "usr": "store/models.py#Order.quantity"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 59,
+        "path": "store/models.py"
+      },
+      "method": "order_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 38,
+        "line": 88,
+        "path": "store/services.py"
+      },
+      "method": "order_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 22,
+        "line": 91,
+        "path": "store/services.py"
+      },
+      "method": "order_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 60,
+        "path": "store/models.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 51,
+        "line": 88,
+        "path": "store/services.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 47,
+        "line": 53,
+        "path": "store/models.py"
+      },
+      "method": "quantity",
+      "symbol": {
+        "qualifiedName": "store/models.py#Order.quantity",
+        "usr": "store/models.py#Order.quantity"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 61,
+        "path": "store/models.py"
+      },
+      "method": "quantity",
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 68,
+        "line": 88,
+        "path": "store/services.py"
+      },
+      "method": "quantity",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 62,
+        "path": "store/models.py"
+      },
+      "method": "unit_price",
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_orderitem",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 87,
+        "line": 88,
+        "path": "store/services.py"
+      },
+      "method": "unit_price",
+      "symbol": {
+        "qualifiedName": "store/services.py#OrderService.place",
+        "usr": "store/services.py#OrderService.place"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "reviews/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "reviews/models.py#Review",
+        "usr": "reviews/models.py#Review"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 21,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 60,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#OrderItem",
+        "usr": "store/models.py#OrderItem"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 9,
+        "line": 15,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 33,
+        "line": 24,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 41,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#restock",
+        "usr": "store/services.py#restock"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 12,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 52,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 12,
+        "line": 66,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#legacy_lookup",
+        "usr": "store/services.py#legacy_lookup"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 32,
+        "line": 66,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#legacy_lookup",
+        "usr": "store/services.py#legacy_lookup"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 26,
+        "path": "store/models.py"
+      },
+      "method": "category_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 32,
+        "line": 15,
+        "path": "store/services.py"
+      },
+      "method": "category_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 25,
+        "line": 16,
+        "path": "store/services.py"
+      },
+      "method": "category_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 19,
+        "path": "store/services.py"
+      },
+      "method": "category_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 52,
+        "line": 52,
+        "path": "store/services.py"
+      },
+      "method": "category_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#staff_reviews",
+        "usr": "store/services.py#staff_reviews"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 30,
+        "path": "store/models.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 19,
+        "line": 17,
+        "path": "store/services.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 21,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 42,
+        "line": 24,
+        "path": "store/services.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 28,
+        "line": 41,
+        "path": "store/services.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/services.py#restock",
+        "usr": "store/services.py#restock"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 24,
+        "path": "store/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 33,
+        "line": 19,
+        "path": "store/services.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 37,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 27,
+        "path": "store/models.py"
+      },
+      "method": "price",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 56,
+        "line": 15,
+        "path": "store/services.py"
+      },
+      "method": "price",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_list",
+        "usr": "store/services.py#product_list"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 25,
+        "path": "store/models.py"
+      },
+      "method": "sku_code",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 28,
+        "path": "store/models.py"
+      },
+      "method": "stock",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 50,
+        "line": 41,
+        "path": "store/services.py"
+      },
+      "method": "stock",
+      "symbol": {
+        "qualifiedName": "store/services.py#restock",
+        "usr": "store/services.py#restock"
+      }
+    },
+    {
+      "channel": "store_product",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 58,
+        "line": 41,
+        "path": "store/services.py"
+      },
+      "method": "stock",
+      "symbol": {
+        "qualifiedName": "store/services.py#restock",
+        "usr": "store/services.py#restock"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 29,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 20,
+        "line": 25,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 63,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 29,
+        "path": "store/models.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 20,
+        "line": 25,
+        "path": "store/services.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 63,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "method": "product_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 29,
+        "path": "store/models.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 20,
+        "line": 25,
+        "path": "store/services.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_product_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 63,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 15,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Tag",
+        "usr": "store/models.py#Tag"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 29,
+        "path": "store/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/models.py#Product",
+        "usr": "store/models.py#Product"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 20,
+        "line": 25,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#product_detail",
+        "usr": "store/services.py#product_detail"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 63,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 15,
+        "path": "store/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "store/models.py#Tag",
+        "usr": "store/models.py#Tag"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 18,
+        "path": "store/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/models.py#Tag",
+        "usr": "store/models.py#Tag"
+      }
+    },
+    {
+      "channel": "store_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 63,
+        "line": 46,
+        "path": "store/services.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "store/services.py#search",
+        "usr": "store/services.py#search"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [
+    "dynamic-relation-names: 1 Django manager receivers could not be resolved to a model",
+    "dynamic-relation-names: 1 SQL relation operands are not literal names",
+    "skipped-migration-sources: 2 migration files were not scanned; they describe past schemas",
+    "test-sources-excluded: 2 test files were not scanned (pass --include-tests)"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "target": "persistence",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

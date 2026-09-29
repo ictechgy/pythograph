@@ -2,7 +2,7 @@
 
 [한국어](README.ko.md)
 
-Static facts for Python services (Django, Django REST framework, Flask), emitted in the
+Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy), emitted in the
 [isthmus](https://github.com/ictechgy/isthmus) bridge-facts exchange format.
 
 pythograph is the Python member of a family of static-analysis CLIs (tsograph for
@@ -18,7 +18,7 @@ and pythograph has no runtime dependencies and uses no network.
 | Area | State |
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework routers and views, Flask/Werkzeug rules → `route-decl` facts | Implemented |
-| Persistence `relation-use` facts (Django models with `app_label`/`db_table`, SQLAlchemy, Flask-SQLAlchemy) | Planned |
+| `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
 | `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 | Planned |
 | Client route-calls (requests, httpx) | Planned |
 
@@ -158,6 +158,40 @@ Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
 - **Shadowed patterns are still declarations**; shadowing is the consumer's judgement from `order`.
 - **Conditional registrations are scoped limitations**, not declarations.
 
+## `pythograph schema`
+
+```sh
+pythograph schema --project <root> [--include-tests] [--settings <module>] [--generated-at <timestamp>] [--format json]
+```
+
+Writes a bridge-facts v1 document with `platform: "python"`, `target: "persistence"` (or `null` when there are no
+facts), and one `relation-use` fact per observed relation or column reference. isthmus joins it with a
+`platform: "sql"` document (schemagraph `facts --document <catalog>`) under the persistence rules of
+`docs/GRAPH-EXCHANGE.md`. The full rule table with source files is in [docs/PERSISTENCE.md](docs/PERSISTENCE.md)
+(Korean).
+
+- **Django**: model classes (abstract, proxy, multi-table inheritance, `Meta` inheritance) → tables
+  (`<app_label>_<model>` truncated by `truncate_name` for the backend's `max_name_length`, or `Meta.db_table`), fields →
+  columns (`db_column`, `<name>_id` for foreign keys, many-to-many tables and their columns), app labels from
+  `INSTALLED_APPS`/`AppConfig`, the `DATABASES` backend, and django.contrib models. Uses: managers and QuerySet chains,
+  lookups (`author__profile__city`, reverse relations, `attname`, `pk`), `values`/`order_by`/`F`/`Q`/aggregates,
+  `create`/`update` keywords, related managers and forward relations on proven instances, `raw()`, `RawSQL`,
+  `extra(tables=)`, and cursor SQL.
+- **SQLAlchemy 2.x / Flask-SQLAlchemy 3**: Declarative classes (`DeclarativeBase`, `declarative_base()`, `db.Model`
+  with its snake_case names), mixins, single- and joined-table inheritance, `__table_args__`/`MetaData` schemas, Core
+  `Table`, `ForeignKey("t.c")`, `relationship(secondary=)`. Uses: statement entities (`select`, `insert`, `update`,
+  `delete`, `session.query`, `session.get`, `join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`,
+  constructors, `table.c.name`, and `text()`.
+- **SQL text**: the family's shared lexical extractor (the same vectors as tsograph, dartograph, cartograph, and
+  kartograph) for explicit SQL arguments, and uppercase SQL literals elsewhere (docstrings are skipped).
+- **channel** is the relation name as written or mapped (`schema.table` only when qualified; no default schema is
+  guessed), **method** is the column, and **symbol.usr** is the enclosing function, method, or model class with the
+  same ids as `routes`. A name that depends on an unknown backend, app label, or Flask-SQLAlchemy version, an
+  unresolved model or lookup, and SQL built at runtime become `dynamic` facts with a `dynamic-relation-names:`
+  limitation instead of guesses.
+- Test sources (unless `--include-tests`) and migrations (Django `migrations/`, Alembic `versions/`) are not scanned;
+  migrations describe past schemas.
+
 ## Validation
 
 The oracle harness in `experiments/oracle/` imports the synthetic fixtures in a scratch virtual environment
@@ -173,12 +207,23 @@ and compares pythograph's facts with Django's resolver traversal, DRF routers, a
 The isthmus shared conformance vectors (`conformance/`, locked in `conformance.lock`) pass 100% of the
 applicable producer cases (60: `template.grammar`, `template.normalize`, `scope.validate`, `scope.applies`).
 
+Persistence naming vectors (`fixtures/persistence-naming/vectors.json`) are recorded by importing synthetic models
+with the real ORMs in a scratch environment (`experiments/persistence/run_naming.py`): Django 5.2.17 `_meta` names
+quoted by each backend's `connection.ops` (sqlite3, postgresql, mysql, oracle), and SQLAlchemy 2.0.54 /
+Flask-SQLAlchemy 3.1.1 mappers. pythograph matches 100% (Django 136/136 model-backend pairs, SQLAlchemy 9/9 and
+Flask-SQLAlchemy 10/10 classes, all tables and columns). Joining `pythograph schema` output for the two persistence
+fixtures with schemagraph catalogs of the DDL the ORMs create (`experiments/persistence/run_e2e.py`) gives no isthmus
+errors (41 and 20 matches).
+
 ## isthmus compatibility
 
 isthmus `main` (`78d3dee`) rejects `platform: "python"` documents. Adding `python` to the platform union,
 `bridgePlatforms`, `httpPlatforms`, and the `route-decl` entry of `routeKindPlatforms` in
 `src/exchange/parse.ts` makes it accept Flask documents and Django documents produced with
 `--dispatch specificity`. Default Django documents also need isthmus to implement `registration-order`.
+
+For persistence, isthmus `main` (`578e852`) also rejects `platform: "python"`; with `python` added to the platform
+union and `bridgePlatforms` in the same file, `schema` documents join with schemagraph documents unchanged.
 
 ## Development
 
