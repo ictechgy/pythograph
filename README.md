@@ -31,21 +31,20 @@ documents, and python `language-traversal` analyses (see [isthmus compatibility]
 - Python 3.10 or newer (Django 5.x needs 3.10+, and pythograph parses the analyzed code with the running
   interpreter, so run it with the same or a newer Python than the project).
 
-pythograph is not on PyPI yet. Until the first release, install it from GitHub (the `main` branch, or a release tag
-such as `@v0.1.0` once it exists):
+Install from [PyPI](https://pypi.org/project/pythograph/):
 
 ```sh
-uv tool install git+https://github.com/ictechgy/pythograph
+uv tool install pythograph
 # or
-pipx install git+https://github.com/ictechgy/pythograph
+pipx install pythograph
 
 pythograph --version
 ```
 
-A wheel built from a checkout (`uv build`) installs the same way: `uv tool install dist/pythograph-<version>-py3-none-any.whl`
-or `pipx install dist/pythograph-<version>-py3-none-any.whl`. After the PyPI release, `uv tool install pythograph` and
-`pipx install pythograph` will work. The release steps are in [RELEASING.md](https://github.com/ictechgy/pythograph/blob/main/RELEASING.md)
-(Korean).
+To try unreleased changes, install from GitHub (`uv tool install git+https://github.com/ictechgy/pythograph`, or pin a
+release tag such as `@v0.1.0`). A wheel built from a checkout (`uv build`) installs the same way:
+`uv tool install dist/pythograph-<version>-py3-none-any.whl`. The release steps are in
+[RELEASING.md](https://github.com/ictechgy/pythograph/blob/main/RELEASING.md) (Korean).
 
 ## `pythograph routes --role server`
 
