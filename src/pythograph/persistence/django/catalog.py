@@ -40,6 +40,7 @@ from pythograph.persistence.names import (
     django_generated_name,
     django_strip_quotes,
 )
+from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import SourceModule
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable
 
@@ -206,6 +207,7 @@ class DjangoCatalog:
         """
         self.symbols = symbols
         self.settings = settings
+        self.evaluator = Evaluator(symbols)
         self.apps = DjangoApps(symbols, settings)
         self.backends: tuple[DjangoBackend, ...] = settings.backends
         self.models: dict[str, DjangoModel] = {}
@@ -483,7 +485,10 @@ class DjangoCatalog:
             elif not (isinstance(resolved, ExternalSymbol) and resolved.dotted in ("builtins.object", "object")):
                 unknown_base = True
         specs = [spec for statement in node.body if (spec := read_field(self.symbols, symbol.path, statement))]
-        if not proven and not (unknown_base and specs):
+        # 모르는 외부 기반이면 Django 필드(`django.` 모듈)를 선언했을 때만 모델로 본다. DRF 직렬화기처럼 `…Field`를
+        # 쓰는 다른 클래스를 모델로 오인하지 않기 위해서다.
+        django_fields = any(spec.kind != "unknown" for spec in specs)
+        if not proven and not (unknown_base and django_fields):
             return None
         return _ModelClass(
             symbol, module, specs, self._meta(symbol), project_bases, external_fields, unknown_base,
@@ -603,8 +608,24 @@ class DjangoCatalog:
             if isinstance(statement, ast.Assign):
                 for target in statement.targets:
                     if isinstance(target, ast.Name) and target.id in _META_OPTIONS:
-                        values[target.id] = _literal(statement.value)
+                        values[target.id] = self._meta_value(path, statement.value)
         return values
+
+    def _meta_value(self, path: str, node: ast.expr) -> object:
+        """Meta 속성 값을 리터럴 또는 모듈 상수(`TABLE_PREFIX + "users"`)로 읽는다.
+
+        Args:
+            path: 모듈 경로.
+            node: 값 식.
+
+        Returns:
+            값, 읽지 못하면 `...`.
+        """
+        literal = _literal(node)
+        if literal is not ...:
+            return literal
+        value = self.evaluator.value(path, node)
+        return ... if value is UNKNOWN else value
 
     def _meta_base(self, path: str, base: ast.expr) -> tuple[str, ast.ClassDef] | None:
         """`Base.Meta` 식을 Meta 클래스로 푼다.

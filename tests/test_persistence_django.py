@@ -480,6 +480,7 @@ from thirdparty.fields import FancyField
 from thirdparty.models import TimeStampedModel
 
 COLUMN = "dyn"
+PREFIX = "kids_"
 
 
 class LowerCaseField(models.CharField):
@@ -496,7 +497,7 @@ class Base(models.Model):
 
 class Child(Base):
     class Meta(Base.Meta):
-        db_table = "children"
+        db_table = PREFIX + "children"
 
 
 class Plain(Base):
@@ -534,7 +535,7 @@ class Stamped(TimeStampedModel):
     document = schema_document(_project(make_project, "x = 1\n", models=models))
     rows = {row[:3] for row in relation_rows(document)}
     assert {
-        ("children", "note", False),
+        ("kids_children", "note", False),
         ("ignored_for_children_via_meta_inheritance", "note", False),
         ("ignored_for_children_via_meta_inheritance", "code", False),
         ("ignored_for_children_via_meta_inheritance", "ref_id", False),
@@ -610,3 +611,28 @@ def run(shelf: Shelf, item: Item):
     )
     assert {("app_item", "shelf_id", False), ("app_item_followers", "from_item_id", False)} <= rows
     assert ("item__id", None, True) in rows
+
+
+def test_starred_apps_unpacked_settings_and_non_model_fields(make_project: MakeProject) -> None:
+    """`*LOCAL_APPS` 원소를 풀고, 구조 분해 재대입은 목록을 불완전하게 만들며, DRF 직렬화기는 모델이 아니다."""
+    settings = """
+LOCAL_APPS = ["app"]
+INSTALLED_APPS = ["django.contrib.auth", *LOCAL_APPS]
+INSTALLED_APPS, MIDDLEWARE = setup(INSTALLED_APPS, [])
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}
+"""
+    root = _project(make_project, "x = 1\n", settings=settings)
+    (root / "app" / "extra").mkdir()
+    (root / "app" / "extra" / "__init__.py").write_text("")
+    (root / "app" / "extra" / "models.py").write_text(
+        "from django.db import models\n\nclass Nested(models.Model):\n    pass\n"
+    )
+    (root / "app" / "serializers.py").write_text(
+        "from rest_framework import serializers\n\n"
+        "class BookSerializer(serializers.Serializer):\n    title = serializers.CharField()\n\n"
+        "def build():\n    return BookSerializer(data={}, title='x')\n"
+    )
+    rows = {row[:3] for row in relation_rows(schema_document(root))}
+    assert ("app_book", "title", False) in rows
+    assert ("Nested", None, True) in rows
+    assert not any("BookSerializer" in str(row[0]) or row[0] in ("data", "title") for row in rows)

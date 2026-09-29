@@ -161,6 +161,9 @@ class _AppsReader:
                 self._extend(path, statement.value)
             elif isinstance(statement, ast.AugAssign) and _targets_apps(targets):
                 self._extend(path, statement.value)
+            elif any(_unpacks_name(target, "INSTALLED_APPS") for target in targets):
+                # `INSTALLED_APPS, MIDDLEWARE = setup(INSTALLED_APPS, MIDDLEWARE)`는 원소를 더할 수 있다.
+                self.settings.apps_complete = False
             elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
                 self._method_call(path, statement.value)
             else:
@@ -214,7 +217,10 @@ class _AppsReader:
         """
         if isinstance(node, (ast.List, ast.Tuple)):
             for element in node.elts:
-                self._extend_value(self.evaluator.value(path, element), single=True)
+                if isinstance(element, ast.Starred):
+                    self._extend_value(self.evaluator.value(path, element.value), single=False)
+                else:
+                    self._extend_value(self.evaluator.value(path, element), single=True)
             return
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             self._extend(path, node.left)
@@ -260,6 +266,21 @@ def _targets_name(targets: list[ast.expr], name: str) -> bool:
         있으면 True.
     """
     return any(isinstance(target, ast.Name) and target.id == name for target in targets)
+
+
+def _unpacks_name(target: ast.expr, name: str) -> bool:
+    """대입 대상이 이름을 담은 튜플·목록 구조 분해인지 본다.
+
+    Args:
+        target: 대입 대상.
+        name: 이름.
+
+    Returns:
+        그러면 True.
+    """
+    return isinstance(target, (ast.Tuple, ast.List)) and any(
+        isinstance(element, ast.Name) and element.id == name for element in target.elts
+    )
 
 
 def _subscripts_name(target: ast.expr, name: str) -> bool:
