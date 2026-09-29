@@ -210,7 +210,9 @@ isthmus 공유 적합성 벡터(`conformance/`, isthmus `f9dcd1d`에서 벤더�
 **Phase 6 종료 조건(Django 백엔드 × iOS/Android 체인).** `experiments/e2e/`가 합성 Django+DRF 서버(`fixtures/e2e/shop-api`),
 Django DDL의 schemagraph 카탈로그, 합성 iOS(cartograph)·Android(kartograph) 클라이언트의 route-call·역방향 순회를 isthmus
 `trace`(workspace)로 잇고, 세 질문 — (a) API → DB 테이블 + DB 의존자, (b) API → 클라이언트 호출부 → 영향 심볼, (c) 테이블 → API →
-클라이언트 — 의 기대 경로가 일치한다. 기록한 입력·출력을 `tests/test_e2e_trace.py`가 오프라인으로 다시 확인한다(표는
+클라이언트 — 의 기대 경로가 일치한다. Android 기록은 kartograph `4c09d91` 이상(Retrofit route-call usr·`baseUrl` 결합)이
+필요하고, 그래서 Android 주문·결제 호출이 체인에 붙는다. 기록한 입력·출력을 `tests/test_e2e_trace.py`가 오프라인으로 다시
+확인한다(표는
 [docs/GRAPH.md](docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
 
 persistence 명명 벡터(`fixtures/persistence-naming/vectors.json`)는 스크래치 환경에서 합성 모델을 실제 ORM으로 import해

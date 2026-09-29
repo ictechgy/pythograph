@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Phase 6 종료 조건 기록(`experiments/e2e/recorded/`)의 Android 문서를 kartograph `4c09d91`(#122 Retrofit route-call usr·상속
+  인터페이스 호출 간선, #123 Retrofit baseUrl 결합)로 다시 기록하고, route 선택에 `POST /api/checkout/`을 더해 trace를 다시
+  만들었다. Android `OrdersService.getOrder` → `OrderRepository.load`(1) → `OrderViewModel.refresh`(2)와 `OrdersService.checkout`
+  → `CheckoutRepository.submit`(1) → `CheckoutViewModel.pay`(2)가 체인에 붙고, `unattributed-calls-omitted` gap(route 3개·
+  relation 2개)이 사라졌다. **Android 기록은 kartograph `4c09d91` 이상에 의존한다** — 그 전 판으로 다시 기록하면
+  `tests/test_e2e_trace.py`가 실패한다. iOS 기록(cartograph 0.22.0)과 서버 문서는 바뀌지 않았다.
+- `experiments/e2e/record_clients.py --client ios|android`: 한 클라이언트만 다시 기록한다(생략하면 둘 다).
+
 ### Added
 
 - 릴리스 준비(게시는 아직 하지 않음): `.github/workflows/release.yml` 초안(`v*` 태그 push → ubuntu·macOS × Python 3.10·3.13 검증 →

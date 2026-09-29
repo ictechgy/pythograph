@@ -203,14 +203,20 @@ route-call과 역방향 순회(`record_clients.py`가 기록), isthmus `trace`(w
 `experiments/e2e/recorded/`에 있고(절대 경로 없음, project는 `/e2e/...` 합성 경로), `tests/test_e2e_trace.py`가 지금의 pythograph
 출력이 기록과 같은지와 세 질문의 기대 경로를 오프라인으로 확인한다.
 
+기록에 쓴 도구 판: kartograph 0.17.0 `4c09d91` 이상(Android — #122 Retrofit route-call usr·상속 인터페이스 호출 간선, #123
+Retrofit baseUrl 결합), cartograph 0.22.0(iOS), schemagraph 0.6.0 `703a21f`, isthmus `f9dcd1d`. Android 기록은 kartograph
+`4c09d91`보다 오래된 판으로 다시 만들면 안 된다 — 주문·결제 호출이 host link에 귀속되지 않아 기대 경로가 깨진다. 한 클라이언트만
+다시 기록할 때는 `record_clients.py --client android --kartograph <launcher> --java-home <JDK 17/21>`처럼 고르고, 그다음
+`run_trace.py --record`로 trace를 다시 만든다(도구는 스크래치에서 빌드).
+
 | 질문 | 선택 | 기대 경로(기록한 trace와 일치) |
 |---|---|---|
-| (a) API → DB 테이블 + DB 의존자 | `GET /api/orders/{}/` | `OrderViewSet.retrieve`(상속 멤버) → `framework` → `get_queryset` → `selectors.orders_for_customer` → `store_order`(·`customer_id`) → 의존자 `store_open_orders`(뷰)·`store_orderline`(FK). `POST …/cancel/` → `OrderService.cancel` → `store_order` 그리고 `audit.record` → `store_auditentry`. `GET /api/products/` → `ListAPIView.get` 훅 `get_queryset` → `active_products` → `store_product` |
-| (b) API → 클라이언트 호출부 → 영향 심볼 | 같은 route | iOS `OrdersAPI.fetchOrder` → `OrderDetailViewModel.load`(1) → `OrderDetailScreen.appear`(2), `cancelOrder` → `cancel`(1) → `tapCancel`(2), 상품 목록은 iOS `ProductsAPI.list` → `CatalogViewModel.refresh`와 Android `ProductsClient.list` → `CatalogViewModel.refresh` |
+| (a) API → DB 테이블 + DB 의존자 | `GET /api/orders/{}/`, `POST /api/orders/{}/cancel/`, `GET /api/products/`, `POST /api/checkout/` | `OrderViewSet.retrieve`(상속 멤버) → `framework` → `get_queryset` → `selectors.orders_for_customer` → `store_order`(·`customer_id`) → 의존자 `store_open_orders`(뷰)·`store_orderline`(FK). `POST …/cancel/` → `OrderService.cancel` → `store_order` 그리고 `audit.record` → `store_auditentry`. `GET /api/products/` → `ListAPIView.get` 훅 `get_queryset` → `active_products` → `store_product`. `POST /api/checkout/` → `CheckoutView.post` → `OrderService.place` → `store_order`(의존자 `store_open_orders`·`store_orderline`)·`store_orderline`(의존자 없음)과 그 컬럼들 |
+| (b) API → 클라이언트 호출부 → 영향 심볼 | 같은 route | 주문 조회는 iOS `OrdersAPI.fetchOrder` → `OrderDetailViewModel.load`(1) → `OrderDetailScreen.appear`(2)와 Android `OrdersService.getOrder` → `OrderRepository.load`(1) → `OrderViewModel.refresh`(2), 취소는 iOS `cancelOrder` → `cancel`(1) → `tapCancel`(2)(Android 호출 없음), 상품 목록은 iOS `ProductsAPI.list` → `CatalogViewModel.refresh`와 Android `ProductsClient.list` → `CatalogViewModel.refresh`, 결제는 Android `OrdersService.checkout` → `CheckoutRepository.submit`(1) → `CheckoutViewModel.pay`(2)(iOS 호출 없음) |
 | (c) 테이블 → API → 클라이언트 | `store_auditentry`, `store_product` | `audit.record` ← `OrderService.cancel` ← `OrderViewSet.cancel` → `POST /api/orders/{}/cancel/` → iOS `cancelOrder` → `cancel` → `tapCancel`; `active_products` ← `get_queryset` ← `ProductListView.get` → `GET /api/products/` → iOS·Android 목록 호출 |
 
 기대 gap(개수까지 고정): route 선택은 `reach-possibly-incomplete` 2개(`retrieve`·`ProductListView.get`의 `serializer_class`
-`framework-callback`)와 `unattributed-calls-omitted` 3개(Android Retrofit 호출은 base 앵커라 host link에 귀속되지 않는다),
-relation 선택은 `non-http-entry` 3개(모델 선언 사실의 usr인 모델 클래스는 핸들러에서 닿지 않는다)와 `unattributed-calls-omitted`
-2개. kartograph는 Retrofit 인터페이스 메서드에 JVM usr를 붙이지 못해(`missing-route-usrs:`) Android 주문 호출의 영향 심볼은 없다 —
-그래서 합성 Android 클라이언트에 usr가 붙는 `java.net.URL` 호출(상품 목록)을 두었다.
+`framework-callback`), relation 선택은 `non-http-entry` 3개(모델 선언 사실의 usr인 모델 클래스는 핸들러에서 닿지 않는다)뿐이다.
+kartograph `4c09d91`부터 Retrofit route-call이 인터페이스 메서드 usr와 `baseUrl`에서 푼 authority·`pathAnchor: root` 템플릿을
+실어 Android 주문·결제 호출이 host link에 귀속된다. 그 전 기록에 있던 `unattributed-calls-omitted`(route 3개·relation 2개)는
+사라졌다. 합성 Android 클라이언트의 `java.net.URL` 호출(상품 목록)은 Retrofit이 아닌 호출 모양을 함께 확인하려고 그대로 둔다.
