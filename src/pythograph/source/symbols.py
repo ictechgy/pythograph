@@ -7,6 +7,10 @@
 
 이름 해석은 import 문과 모듈 수준 정의만 따라간다(정적, 실행 없음). 프로젝트 밖 모듈은
 점 경로 문자열(`ExternalSymbol`)로 남겨 알려진 프레임워크 API 표와 맞춘다.
+
+모듈 안에서 찾지 못한 이름은 프로젝트 모듈의 `from x import *`를 뒤에서부터(뒤의 `*`가 앞의 것을 덮는다) 따라간다.
+대상 모듈의 리터럴 `__all__`, 없으면 밑줄로 시작하지 않는 이름만 내보낸 것으로 본다(파이썬 `import *` 규칙). 외부
+모듈이나 `__all__`을 확정하지 못한 모듈의 `*`를 만나면 그 모듈이 이름을 가릴 수 있어 모른다(None).
 """
 
 from __future__ import annotations
@@ -21,6 +25,9 @@ MAX_RESOLVE_HOPS = 16
 
 #: 함수 정의 노드 타입이다.
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
+#: `__all__`을 정적으로 확정하지 못했다는 표식이다.
+UNKNOWN_EXPORTS = frozenset({"<unknown-exports>"})
 
 
 def symbol_id(path: str, qualname: str) -> str:
@@ -145,6 +152,8 @@ class SymbolTable:
         """
         self.project = project
         self._indexes: dict[str, ModuleIndex | None] = {}
+        self._star_cache: dict[tuple[str, str], tuple[Symbol | None, bool]] = {}
+        self._exports: dict[str, frozenset[str] | None] = {}
 
     def index(self, path: str) -> ModuleIndex | None:
         """모듈 색인을 만든다(캐시). 파싱하지 못하면 None이다.
@@ -181,7 +190,68 @@ class SymbolTable:
             return self.resolve_binding(index.imports[name], hops + 1)
         if name in index.values:
             return ValueSymbol(path, name, index.values[name])
-        return None
+        return self._star_lookup(index, name, hops)[0]
+
+    def star_blocked(self, path: str, name: str) -> bool:
+        """모듈의 `*` import가 이름을 가릴 수 있어 모르는지(외부·`__all__` 미확정 모듈의 `*`) 돌려준다.
+
+        Args:
+            path: 이름을 쓰는 모듈의 경로.
+            name: 이름.
+
+        Returns:
+            가릴 수 있으면 True.
+        """
+        index = self.index(path)
+        return index is not None and self._star_lookup(index, name, 0)[1]
+
+    def _star_lookup(self, index: ModuleIndex, name: str, hops: int) -> tuple[Symbol | None, bool]:
+        """`from x import *`로 들어온 이름을 푼다(캐시, 순환이면 모른다).
+
+        뒤의 `*`가 앞의 것을 덮으므로 마지막부터 본다. 외부 모듈이나 `__all__`을 확정하지 못한 모듈을 만나면(대상
+        모듈 안의 `*`가 그런 경우 포함) 그 모듈이 이름을 가릴 수 있어 멈추고 가림으로 표시한다.
+
+        Args:
+            index: 이름을 쓰는 모듈의 색인.
+            name: 이름.
+            hops: 지금까지 따라간 홉 수.
+
+        Returns:
+            (해석 결과 또는 None, 가림 여부).
+        """
+        key = (index.module.path, name)
+        if key in self._star_cache:
+            return self._star_cache[key]
+        self._star_cache[key] = (None, False)
+        result: tuple[Symbol | None, bool] = (None, False)
+        for module in reversed(star_import_modules(index)):
+            module_path = self.project.resolve_module(module)
+            target = self.index(module_path) if module_path is not None else None
+            if target is None or module_path is None or self._module_exports(target) is UNKNOWN_EXPORTS:
+                result = (None, True)
+                break
+            if not is_exported(name, self._module_exports(target)):
+                continue
+            found = self.resolve_name(module_path, name, hops + 1)
+            if found is not None or self._star_lookup(target, name, hops + 1)[1]:
+                result = (found, found is None)
+                break
+        self._star_cache[key] = result
+        return result
+
+    def _module_exports(self, index: ModuleIndex) -> frozenset[str] | None:
+        """`star_exports`를 모듈별로 캐시한다.
+
+        Args:
+            index: 모듈 색인.
+
+        Returns:
+            `star_exports` 결과.
+        """
+        path = index.module.path
+        if path not in self._exports:
+            self._exports[path] = star_exports(index)
+        return self._exports[path]
 
     def resolve_binding(self, binding: ImportBinding, hops: int = 0) -> Symbol | None:
         """import 묶음을 해석한다.
@@ -389,6 +459,89 @@ def is_external(symbol: Symbol | None, *candidates: str) -> bool:
         일치하면 True.
     """
     return external_name(symbol) in candidates
+
+
+def star_exports(index: ModuleIndex) -> frozenset[str] | None:
+    """`from 모듈 import *`가 내보내는 이름 집합을 정한다.
+
+    모듈 수준 무조건 대입 `__all__ = [...]`(리터럴 문자열 목록·튜플, 주석 대입 포함)이면 그 집합, `__all__`이 없으면
+    None(밑줄로 시작하지 않는 이름 모두), 그 밖(리터럴이 아님, `+=`, 조건문 안 대입, 모듈 수준 메서드 호출
+    `__all__.extend(...)`)은 `UNKNOWN_EXPORTS`다. 함수·클래스 본문의 같은 이름은 지역 이름이라 보지 않는다.
+
+    Args:
+        index: 모듈 색인.
+
+    Returns:
+        이름 집합, None, 또는 `UNKNOWN_EXPORTS`.
+    """
+    exports: frozenset[str] | None = None
+    for node in _module_level_nodes(index.module.tree):
+        if isinstance(node, ast.Name) and node.id == "__all__" and not isinstance(node.ctx, ast.Load):
+            parent = index.parents.get(node)
+            if not isinstance(parent, (ast.Assign, ast.AnnAssign)) or parent.value is None:
+                return UNKNOWN_EXPORTS
+            literal = _literal_names(parent.value)
+            if literal is None or index.parents.get(parent) is not index.module.tree:
+                return UNKNOWN_EXPORTS
+            exports = literal
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "__all__"
+        ):
+            return UNKNOWN_EXPORTS
+    return exports
+
+
+def _module_level_nodes(tree: ast.Module) -> list[ast.AST]:
+    """함수·클래스·람다 본문을 빼고 모듈 수준 노드를 모은다.
+
+    Args:
+        tree: 모듈 구문 트리.
+
+    Returns:
+        노드 목록.
+    """
+    nodes: list[ast.AST] = []
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                pending.append(child)
+    return nodes
+
+
+def _literal_names(node: ast.expr) -> frozenset[str] | None:
+    """리터럴 문자열 목록·튜플을 이름 집합으로 바꾼다.
+
+    Args:
+        node: 값 식.
+
+    Returns:
+        이름 집합, 리터럴 문자열 목록이 아니면 None.
+    """
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return None
+    names = [element.value for element in node.elts if isinstance(element, ast.Constant)]
+    if len(names) != len(node.elts) or not all(isinstance(name, str) for name in names):
+        return None
+    return frozenset(str(name) for name in names)
+
+
+def is_exported(name: str, exports: frozenset[str] | None) -> bool:
+    """`import *`가 이름을 내보내는지 본다.
+
+    Args:
+        name: 이름.
+        exports: `star_exports` 결과(`UNKNOWN_EXPORTS` 제외).
+
+    Returns:
+        내보내면 True.
+    """
+    return not name.startswith("_") if exports is None else name in exports
 
 
 def star_import_modules(index: ModuleIndex) -> list[str]:

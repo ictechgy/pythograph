@@ -43,7 +43,6 @@ from pythograph.source.symbols import (
     SymbolTable,
     ValueSymbol,
     absolute_module,
-    star_import_modules,
 )
 
 #: 값을 따라가는 최대 깊이다(순환·과도한 재귀 방지).
@@ -328,17 +327,10 @@ class Resolver:
         symbol = self.symbols.resolve_name(path, name)
         if symbol is not None:
             return self.symbol_value(symbol, depth)
-        index = self.symbols.index(path)
-        if index is not None:
-            # 뒤의 `*` import가 앞의 것을 덮으므로 마지막부터 본다. 외부 모듈의 `*`를 만나면 그 이름(내장 이름 포함)을
-            # 그 모듈이 가릴 수 있어 모른다.
-            for module in reversed(star_import_modules(index)):
-                module_path = self.symbols.project.resolve_module(module)
-                if module_path is None:
-                    return UnknownValue("star-import")
-                found = self.symbols.resolve_name(module_path, name)
-                if found is not None:
-                    return self.symbol_value(found, depth)
+        # 프로젝트 `*` import는 이름 해석기가 따라간다. 외부·`__all__` 미확정 모듈의 `*`를 만나면 그 이름(내장 이름
+        # 포함)을 그 모듈이 가릴 수 있어 모른다.
+        if self.symbols.star_blocked(path, name):
+            return UnknownValue("star-import")
         return ExternalValue(f"builtins.{name}") if name in BUILTIN_NAMES else UnknownValue("unresolved-name")
 
     def symbol_value(self, symbol: Symbol | None, depth: int) -> Value:
