@@ -101,7 +101,7 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 | 규칙 | 확인한 소스 |
 |---|---|
 | Declarative 기반: `DeclarativeBase`·`DeclarativeBaseNoMeta` 하위 클래스, `declarative_base()`, `registry().generate_base()`, Flask-SQLAlchemy `db.Model` | SQLAlchemy `orm/decl_api.py`, Flask-SQLAlchemy `extension.py` `_make_declarative_base` |
-| 테이블 이름: 자기 `__table__`(Core 테이블), 자기 `__tablename__`, 매핑되지 않은 믹스인·추상(`__abstract__`) 클래스의 `__tablename__`. 매핑된 부모의 이름은 물려받지 않고, 이름이 없으면 단일 테이블 상속으로 부모 테이블을 쓴다. `@declared_attr` 이름은 dynamic | SQLAlchemy 2.0.54 `orm/decl_base.py` `_ClassScanMapperConfig._scan_attributes`·`_setup_table` |
+| 테이블 이름: 자기 `__table__`(Core 테이블), 자기 `__tablename__`, 매핑되지 않은 믹스인·추상(`__abstract__`) 클래스의 `__tablename__`. 매핑된 부모의 이름은 물려받지 않고, 이름이 없거나 `__tablename__ = None`이면 단일 테이블 상속으로 부모 테이블을 쓴다(`None`이면 자동 이름도 없다). `@declared_attr` 이름은 dynamic | SQLAlchemy 2.0.54 `orm/decl_base.py` `_ClassScanMapperConfig._scan_attributes`·`_setup_table` |
 | 컬럼: `Column`·`mapped_column`의 첫 위치 문자열 또는 `name=`, 없으면 속성 이름. 값 없는 `x: Mapped[T]`도 컬럼(T가 매핑 클래스·컬렉션이면 관계). 믹스인 컬럼은 매핑 클래스마다 복사, 단일 테이블 상속 자식 컬럼은 부모 테이블, 조인 상속 부모 컬럼은 부모 테이블에 남는다 | `orm/decl_base.py`, `orm/_orm_constructors.py` `mapped_column` |
 | 스키마: `__table_args__`(사전 또는 끝이 사전인 튜플)의 `schema`, 없으면 기반 `MetaData(schema=)`. Core `Table`은 `schema=`, 없으면 MetaData 스키마(Flask-SQLAlchemy `db.Table`은 `SQLAlchemy(metadata=)`) | `sql/schema.py` `Table`·`MetaData`(스크래치에서 실측) |
 | Flask-SQLAlchemy 자동 이름: `camel_to_snake_case(클래스 이름)` = `re.sub(r"((?<=[a-z0-9])[A-Z]\|(?!^)[A-Z](?=[a-z]))", r"_\1", name).lower().lstrip("_")`. 이름이 어디에도 없을 때, 또는 매핑된 부모에만 있을 때 붙인다. 매핑된 부모가 있으면 자기 기본 키 컬럼이 있을 때만 조인 테이블이고 없으면 단일 테이블 상속(부모 테이블) | Flask-SQLAlchemy 3.1.1 `model.py` `camel_to_snake_case`·`should_set_tablename`·`NameMixin.__table_cls__`(3.0.5 동일) |
@@ -118,6 +118,7 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 | Flask-SQLAlchemy `Model.query`, `Model.__table__`, Core `table.select()` 등 | 관계 사실 |
 | `table.c.name` | 컬럼 사실 |
 | `filter_by(**kw)` | 마지막 조인 대상(없으면 첫 엔터티)의 컬럼 사실 |
+| `insert(M).values(k=...)`, `update(M)….values(k=...)` | M의 컬럼 사실 |
 | 생성자 `Model(key=...)` | 관계와 컬럼(관계 키는 대상 테이블) 사실 |
 | `ForeignKey("schema.table.column")`, `ForeignKeyConstraint(…, ["t.c"])`, `relationship(secondary="t")` | 선언이 가리키는 관계·컬럼 사실 |
 | `text(sql)`, `exec_driver_sql(sql)` | SQL 텍스트 |
@@ -129,7 +130,9 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 ## SQL 텍스트
 
 관계 추출기는 가족 공유 알고리즘(tsograph `sql-relations.ts` ← dartograph·kartograph·cartograph)을 한 규칙씩 옮겼고
-공유 벡터를 그대로 통과한다(`tests/test_sql_relations.py`).
+공유 벡터를 그대로 통과한다(`tests/test_sql_relations.py`). 문자열 안 `\`를 escape로 보는 것(PostgreSQL 표준 문자열과
+다름)과 MySQL `#` 주석을 모르는 것도 가족과 같게 둔다. 언어마다 같은 SQL을 같게 읽는 것이 조인 일관성의 조건이라,
+바꾸려면 공유 벡터와 가족 추출기를 함께 바꾼다.
 
 - 명시 sink(`raw()`, `RawSQL`, `text()`, `exec_driver_sql`, DB 패키지 — `sqlite3`·`psycopg`·`psycopg2`·`pymysql`·
   `MySQLdb`·`mysql`·`cx_Oracle`·`oracledb`·`asyncpg`·`aiosqlite`·`aiomysql`·`pyodbc`·`django`·`sqlalchemy`·
