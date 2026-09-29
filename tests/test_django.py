@@ -329,6 +329,7 @@ def test_i18n_force_script_name_and_converters(make_project: Callable[[dict[str,
     document = routes_document(root)
     anchors = {fact["channel"]: fact["pathAnchor"] for fact in document["facts"]}  # type: ignore[union-attr]
     assert anchors["/about/"] == "base"
+    assert any("i18n_patterns" in text for text in document["limitations"])  # type: ignore[union-attr]
     assert anchors["/k/{}/"] == "root"
     dynamic = [fact for fact in document["facts"] if fact["dynamic"]]  # type: ignore[union-attr]
     assert len(dynamic) == 4

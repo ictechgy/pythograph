@@ -420,17 +420,23 @@ class _Collector:
                 if "static_folder" in keywords or len(call.args) > 2
                 else "static"
             )
-        obj.static = self._static_path(path, keywords, folder, call)
+        obj.static = self._static_path(path, keywords, folder, call, 3 if kind == "blueprint" else 1)
         self.objects[key] = obj
 
-    def _static_path(self, path: str, keywords: dict[str, ast.expr], folder: object, call: ast.Call) -> object:
+    def _static_path(
+        self, path: str, keywords: dict[str, ast.expr], folder: object, call: ast.Call, position: int
+    ) -> object:
         """정적 파일 URL 경로를 정한다(`static_url_path`가 없으면 `/` + 폴더 이름).
+
+        위치 인자 순번은 `Flask(import_name, static_url_path, static_folder, …)`면 1,
+        `Blueprint(name, import_name, static_folder, static_url_path, …)`면 3이다.
 
         Args:
             path: 모듈 경로.
             keywords: 생성자 키워드 인자.
             folder: 정적 폴더 값.
             call: 생성자 호출.
+            position: `static_url_path`의 위치 인자 순번.
 
         Returns:
             경로, 없으면 None, 모르면 `UNKNOWN`.
@@ -438,7 +444,7 @@ class _Collector:
         if folder is None:
             return None
         explicit = self._optional_string(
-            path, keywords.get("static_url_path"), 3 if "static_url_path" not in keywords else -1, call
+            path, keywords.get("static_url_path"), position if "static_url_path" not in keywords else -1, call
         )
         if explicit is not None:
             return explicit if explicit is UNKNOWN else str(explicit).rstrip("/")
@@ -592,7 +598,7 @@ class _Registrar:
                 continue
             qualname = f"{scope}.{function.name}" if scope else function.name
             usr = f"{self.path}#{qualname}"
-            self._add_rule(owner, decorator, _SHORTCUTS.get(name), [("GET", usr, usr)], None, False)
+            self._add_rule(owner, decorator, _SHORTCUTS.get(name), [("*", usr, usr)], None, False, loops)
 
     def _call(self, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.add_url_rule`·`X.register_blueprint`·`X.url_map.converters.update` 호출을 처리한다.
@@ -615,7 +621,7 @@ class _Registrar:
         if owner is None:
             return
         if func.attr == "add_url_rule":
-            self._add_url_rule(owner, call, scope)
+            self._add_url_rule(owner, call, scope, loops)
         elif func.attr == "register_blueprint" and call.args:
             child = self._object(call.args[0], scope, loops)
             keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
@@ -659,13 +665,14 @@ class _Registrar:
         if name is not None:
             owner.converters[name] = converter_regex(self.collector.symbols, self.collector.evaluator, self.path, value)
 
-    def _add_url_rule(self, owner: _Object, call: ast.Call, scope: str) -> None:
+    def _add_url_rule(self, owner: _Object, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.add_url_rule(rule, endpoint=None, view_func=None, **options)`를 기록한다.
 
         Args:
             owner: 앱·블루프린트.
             call: 호출 식.
             scope: 함수 점 경로.
+            loops: 반복 변수 바인딩.
         """
         view = (
             call.args[2]
@@ -673,7 +680,7 @@ class _Registrar:
             else next((keyword.value for keyword in call.keywords if keyword.arg == "view_func"), None)
         )
         handlers, view_methods, uncertain = self._view_handlers(view, scope)
-        self._add_rule(owner, call, None, handlers, view_methods, uncertain)
+        self._add_rule(owner, call, None, handlers, view_methods, uncertain, loops)
 
     def _view_handlers(
         self, view: ast.expr | None, scope: str
@@ -692,15 +699,15 @@ class _Registrar:
         if isinstance(view, ast.Name):
             local = self._local_function(view.id, scope)
             if local is not None:
-                return [("GET", local, local)], None, False
+                return [("*", local, local)], None, False
         symbol = (
             self.collector.symbols.resolve_expr(self.path, view)
             if isinstance(view, (ast.Name, ast.Attribute))
             else None
         )
         if isinstance(symbol, ProjectSymbol) and isinstance(symbol.node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return [("GET", symbol.id, symbol.id)], None, False
-        return [("GET", None, "unresolved-view")], None, view is not None
+            return [("*", symbol.id, symbol.id)], None, False
+        return [("*", None, "unresolved-view")], None, view is not None
 
     def _local_function(self, name: str, scope: str) -> str | None:
         """같은 함수 안에 정의한 함수면 그 id를 돌려준다.
@@ -742,31 +749,45 @@ class _Registrar:
         )
         info = analyze_class(self.collector.symbols, symbol)
         if info is None or not isinstance(info.symbol, ProjectSymbol):
-            return [("ANY", None, "unresolved-view")], (), True
+            return [("*", None, "unresolved-view")], (), True
         base_id = info.symbol.id
+        dispatch = f"{base_id}.dispatch_request"
         declared = attribute_literal(info, "methods")
         if isinstance(declared, (list, tuple, set)) and all(isinstance(item, str) for item in declared):
             methods = tuple(str(item).upper() for item in declared)
-            handler = "dispatch_request" if "flask-methodview" not in info.kinds else None
-            return (
-                [
-                    (method, f"{base_id}.{handler or method.lower()}", f"{base_id}.{handler or method.lower()}")
-                    for method in methods
-                ],
-                methods,
-                info.unknown_bases,
-            )
+            return self._method_view_handlers(info.names, base_id, info.kinds), methods, info.unknown_bases
         if declared is not None:
-            return [("ANY", None, "unresolved-view")], (), True
+            return [("*", None, "unresolved-view")], (), True
         if "flask-methodview" in info.kinds:
             names = [name for name in _HTTP_METHOD_FUNCS if name in info.names]
             methods = tuple(name.upper() for name in names)
-            return (
-                [(method, f"{base_id}.{method.lower()}", f"{base_id}.{method.lower()}") for method in methods],
-                (methods or None),
-                info.unknown_bases,
-            )
-        return [("GET", f"{base_id}.dispatch_request", f"{base_id}.dispatch_request")], None, info.unknown_bases
+            return self._method_view_handlers(info.names, base_id, info.kinds), (methods or None), info.unknown_bases
+        return [("*", dispatch, dispatch)], None, info.unknown_bases
+
+    @staticmethod
+    def _method_view_handlers(names: set[str], base_id: str, kinds: set[str]) -> list[tuple[str, str | None, str]]:
+        """클래스 뷰의 method별 핸들러 틀을 만든다.
+
+        `View`는 `dispatch_request`가 모든 method를 처리한다(`*`). `MethodView`는 정의한 `get`·`post`… 핸들러로
+        보내고, 핸들러가 없는 method는 `dispatch_request`의 단정문에서 실패하므로 usr 없는 `dispatch_request`로
+        둔다(빈 키). HEAD는 `get`으로 넘어간다(`MethodView.dispatch_request`).
+
+        Args:
+            names: 클래스 사슬에서 정의한 이름.
+            base_id: 등록한 클래스 id.
+            kinds: 프레임워크 뷰 종류.
+
+        Returns:
+            (method 또는 `*`·빈 키, usr, qualifiedName) 목록.
+        """
+        dispatch = f"{base_id}.dispatch_request"
+        if "flask-methodview" not in kinds:
+            return [("*", dispatch, dispatch)]
+        handlers: list[tuple[str, str | None, str]] = [
+            (name.upper(), f"{base_id}.{name}", f"{base_id}.{name}") for name in _HTTP_METHOD_FUNCS if name in names
+        ]
+        handlers.append(("", None, dispatch))
+        return handlers
 
     def _add_rule(
         self,
@@ -776,6 +797,7 @@ class _Registrar:
         handlers: list[tuple[str, str | None, str]],
         view_methods: tuple[str, ...] | None,
         uncertain: bool,
+        loops: dict[str, list[ast.expr]],
     ) -> None:
         """규칙을 기록한다. method는 `methods` 인자 → 단축 장식자 → 뷰의 methods → GET 순서다.
 
@@ -783,12 +805,15 @@ class _Registrar:
             owner: 앱·블루프린트.
             call: 장식자·`add_url_rule` 호출.
             shortcut: 단축 장식자 동사.
-            handlers: method별 핸들러 틀(첫 항목이 기본 핸들러).
+            handlers: 핸들러 틀(`*`는 모든 method, 빈 키는 핸들러 없는 method).
             view_methods: 뷰의 methods.
             uncertain: 확정 불가 여부.
+            loops: 반복 변수 바인딩(리터럴 목록을 도는 반복의 규칙 문자열).
         """
         keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
         rule_node = call.args[0] if call.args else keywords.get("rule")
+        if isinstance(rule_node, ast.Name) and loops.get(rule_node.id):
+            rule_node = loops[rule_node.id][0]
         rule = self.collector.evaluator.string(self.path, rule_node)
         strict = self._strict(keywords)
         methods, uncertain = self._methods(keywords, shortcut, view_methods, uncertain)
@@ -840,7 +865,10 @@ class _Registrar:
 def _bind_handlers(
     handlers: list[tuple[str, str | None, str]], methods: tuple[str, ...] | None
 ) -> list[tuple[str, str | None, str]]:
-    """method 목록에 핸들러를 붙인다. 클래스 뷰는 method별 핸들러, 함수 뷰는 같은 핸들러다.
+    """method 목록에 핸들러를 붙인다.
+
+    `*` 핸들러(함수 뷰, `View.dispatch_request`)는 모든 method를 처리한다. 그 밖(`MethodView`)은 method별
+    핸들러, HEAD는 GET 핸들러, 핸들러가 없는 method는 빈 키 항목(usr 없음)이다.
 
     Args:
         handlers: 핸들러 틀.
@@ -850,14 +878,12 @@ def _bind_handlers(
         (method, usr, qualifiedName) 목록.
     """
     by_method = {method: (usr, name) for method, usr, name in handlers}
-    default = handlers[0][1:] if handlers else (None, "unresolved-view")
+    missing = by_method.get("*", by_method.get("", (None, "unresolved-view")))
     if methods is None:
-        return [("ANY", default[0], default[1])]
+        return [("ANY", *missing)]
     result: list[tuple[str, str | None, str]] = []
     for method in emitted_methods(list(methods)):
-        usr, name = by_method.get(method, by_method.get("GET", default)) if len(by_method) > 1 else default
-        if len(by_method) > 1 and method not in by_method and method == "HEAD":
-            usr, name = by_method.get("GET", default)
+        usr, name = by_method.get(method, by_method.get("GET", missing) if method == "HEAD" else missing)
         result.append((method, usr, name))
     return result
 

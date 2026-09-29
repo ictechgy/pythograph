@@ -203,3 +203,33 @@ def test_rule_parsing_edge_cases() -> None:
     with pytest.raises(Unconvertible):
         parse_converter_arguments("=")
     assert len(rule_alternatives("/<string(minlength=0):s>/<float(signed=True):f>", True, {})) == 1
+
+
+def test_glm_review_regressions(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """GLM 리뷰 재현: 핸들러 없는 MethodView method, Flask 위치 인자 static_url_path, 반복문 규칙 문자열."""
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        class MV(MethodView):
+            def get(self):
+                pass
+        app = Flask("myapp", "/assets")
+        app.add_url_rule("/m", view_func=MV.as_view("m"), methods=["GET", "HEAD", "TRACE"])
+        for r in ["/a", "/b"]:
+            app.add_url_rule(r, r, MV.as_view(r))
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/m", False, "app.py#MV.get"),
+        ("TRACE", "/m", False, None),
+        ("GET", "/a", False, "app.py#MV.get"),
+        ("GET", "/b", False, "app.py#MV.get"),
+    }
+    assert document["limitationScopes"] == [
+        {"limitationIndex": 0, "methods": ["GET", "HEAD"], "templatePrefixes": ["/assets"]}
+    ]

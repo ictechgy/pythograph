@@ -207,7 +207,13 @@ class _Context:
         test_source = is_test_path(endpoint.location.path)
         if test_source and not self.options.include_tests:
             return
-        anchor = "base" if any(piece.kind == "locale" for piece in flat.pieces) else self.anchor
+        localized = any(piece.kind == "locale" for piece in flat.pieces)
+        anchor = "base" if localized else self.anchor
+        if localized:
+            self.extraction.add_gap(
+                "unresolved-route-prefix:",
+                "{count} URL patterns are under i18n_patterns, whose language prefixes are not modeled",
+            )
         shapes = self._shapes(flat.pieces)
         resolution = self._resolve(endpoint)
         if flat.conditional:
