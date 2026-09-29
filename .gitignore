@@ -1,0 +1,25 @@
+# 가상 환경과 도구 캐시
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# 비밀값과 로컬 설정은 커밋하지 않는다
+.env
+.env.*
+
+# fixture 실행 부산물(오라클은 스크래치 가상 환경에서 fixture를 import한다)
+db.sqlite3
+
+# GLM 리뷰 패킷 임시 파일
+.review-tmp/

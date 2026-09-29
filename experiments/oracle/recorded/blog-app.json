@@ -1,0 +1,850 @@
+{
+  "dynamicFacts": [],
+  "endpoints": [
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.index",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 1,
+      "route": "/ -> index",
+      "rule": "/",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.contact",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/__init__.py#create_app.contact",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 2,
+      "route": "/contact -> contact",
+      "rule": "/contact",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.about",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 3,
+      "route": "/about/ -> about",
+      "rule": "/about/",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.feed",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 4,
+      "route": "/feed -> feed",
+      "rule": "/feed",
+      "strictSlashes": false
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.color",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 5,
+      "route": "/color/<hex:value> -> color",
+      "rule": "/color/<hex:value>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.language",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 6,
+      "route": "/lang/<string(length=2):lang>/ -> language",
+      "rule": "/lang/<string(length=2):lang>/",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#create_app.download",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 7,
+      "route": "/files/<path:p> -> download",
+      "rule": "/files/<path:p>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/__init__.py#health",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 8,
+      "route": "/health -> health",
+      "rule": "/health",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/views.py#ItemAPI.get",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/views.py#ItemAPI.post",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 9,
+      "route": "/items -> items",
+      "rule": "/items",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/views.py#ItemAPI.get",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/views.py#ItemAPI.post",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 10,
+      "route": "/items/<int:item_id> -> item",
+      "rule": "/items/<int:item_id>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/views.py#SettingsView.dispatch_request",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/views.py#SettingsView.dispatch_request",
+          "method": "PUT"
+        }
+      ],
+      "flags": [],
+      "index": 11,
+      "route": "/settings -> settings",
+      "rule": "/settings",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#list_posts",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 12,
+      "route": "/posts/ -> posts.list_posts",
+      "rule": "/posts/",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#create_post",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 13,
+      "route": "/posts/ -> posts.create_post",
+      "rule": "/posts/",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#show_post",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 14,
+      "route": "/posts/<int:post_id> -> posts.show_post",
+      "rule": "/posts/<int:post_id>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#delete_post",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 15,
+      "route": "/posts/<int:post_id> -> posts.delete_post",
+      "rule": "/posts/<int:post_id>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#posts_by_state",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 16,
+      "route": "/posts/<any(draft, published):state>/list -> posts.posts_by_state",
+      "rule": "/posts/<any(draft, published):state>/list",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/posts.py#post_by_uuid",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/posts.py#post_by_uuid",
+          "method": "PUT"
+        }
+      ],
+      "flags": [],
+      "index": 17,
+      "route": "/posts/by-uuid/<uuid:u> -> posts.post_by_uuid",
+      "rule": "/posts/by-uuid/<uuid:u>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/api.py#score",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 18,
+      "route": "/api/v1/scores/<float:x> -> api.score",
+      "rule": "/api/v1/scores/<float:x>",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/api.py#ping",
+          "method": "GET"
+        },
+        {
+          "handler": "blog/api.py#ping",
+          "method": "OPTIONS"
+        }
+      ],
+      "flags": [],
+      "index": 19,
+      "route": "/api/v1/ping -> api.ping",
+      "rule": "/api/v1/ping",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/api.py#reindex",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 20,
+      "route": "/api/v1/admin/reindex -> api.admin.reindex",
+      "rule": "/api/v1/admin/reindex",
+      "strictSlashes": true
+    },
+    {
+      "entries": [
+        {
+          "handler": "blog/api.py#admin_home",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 21,
+      "route": "/api/v1/admin -> api.admin.admin_home",
+      "rule": "/api/v1/admin",
+      "strictSlashes": true
+    }
+  ],
+  "fixture": "blog-app",
+  "framework": "flask",
+  "limitations": [
+    "framework-provided-routes: Flask serves static files under the static URL path"
+  ],
+  "probes": [
+    {
+      "fact": {
+        "channel": "/",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.index"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.index",
+      "resolvedRoute": "/ -> index",
+      "sample": "/",
+      "trailingSlashOk": null,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/about/",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.about"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.about",
+      "resolvedRoute": "/about/ -> about",
+      "sample": "/about/",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/api/v1/admin",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/api.py#admin_home"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/api.py#admin_home",
+      "resolvedRoute": "/api/v1/admin -> api.admin.admin_home",
+      "sample": "/api/v1/admin",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/api/v1/admin/reindex",
+        "method": "POST",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/api.py#reindex"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/api.py#reindex",
+      "resolvedRoute": "/api/v1/admin/reindex -> api.admin.reindex",
+      "sample": "/api/v1/admin/reindex",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/api/v1/ping",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/api.py#ping"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/api.py#ping",
+      "resolvedRoute": "/api/v1/ping -> api.ping",
+      "sample": "/api/v1/ping",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/api/v1/ping",
+        "method": "OPTIONS",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/api.py#ping"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/api.py#ping",
+      "resolvedRoute": "/api/v1/ping -> api.ping",
+      "sample": "/api/v1/ping",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/api/v1/scores/{}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "\\d+\\.\\d+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/api.py#score"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/api.py#score",
+      "resolvedRoute": "/api/v1/scores/<float:x> -> api.score",
+      "sample": "/api/v1/scores/12.5",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/color/{}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[0-9a-f]+",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.color"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.color",
+      "resolvedRoute": "/color/<hex:value> -> color",
+      "sample": "/color/7",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/contact",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.contact"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.contact",
+      "resolvedRoute": "/contact -> contact",
+      "sample": "/contact",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/contact",
+        "method": "POST",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.contact"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.contact",
+      "resolvedRoute": "/contact -> contact",
+      "sample": "/contact",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/feed",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "blog/__init__.py#create_app.feed"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.feed",
+      "resolvedRoute": "/feed -> feed",
+      "sample": "/feed",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/files/{**}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "path",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "usr": "blog/__init__.py#create_app.download"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.download",
+      "resolvedRoute": "/files/<path:p> -> download",
+      "sample": "/files/a/b",
+      "trailingSlashOk": null,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/health",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#health"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#health",
+      "resolvedRoute": "/health -> health",
+      "sample": "/health",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/items",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#ItemAPI.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#ItemAPI.get",
+      "resolvedRoute": "/items -> items",
+      "sample": "/items",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/items",
+        "method": "POST",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#ItemAPI.post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#ItemAPI.post",
+      "resolvedRoute": "/items -> items",
+      "sample": "/items",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/items/{}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#ItemAPI.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#ItemAPI.get",
+      "resolvedRoute": "/items/<int:item_id> -> item",
+      "sample": "/items/7",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/items/{}",
+        "method": "POST",
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#ItemAPI.post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#ItemAPI.post",
+      "resolvedRoute": "/items/<int:item_id> -> item",
+      "sample": "/items/7",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/lang/{}/",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/]{2}",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/__init__.py#create_app.language"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/__init__.py#create_app.language",
+      "resolvedRoute": "/lang/<string(length=2):lang>/ -> language",
+      "sample": "/lang/en/",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#list_posts"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#list_posts",
+      "resolvedRoute": "/posts/ -> posts.list_posts",
+      "sample": "/posts/",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/",
+        "method": "POST",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#create_post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#create_post",
+      "resolvedRoute": "/posts/ -> posts.create_post",
+      "sample": "/posts/",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/by-uuid/{}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "uuid",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#post_by_uuid"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#post_by_uuid",
+      "resolvedRoute": "/posts/by-uuid/<uuid:u> -> posts.post_by_uuid",
+      "sample": "/posts/by-uuid/123e4567-e89b-12d3-a456-426614174000",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/by-uuid/{}",
+        "method": "PUT",
+        "paramConstraints": [
+          {
+            "kind": "uuid",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#post_by_uuid"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#post_by_uuid",
+      "resolvedRoute": "/posts/by-uuid/<uuid:u> -> posts.post_by_uuid",
+      "sample": "/posts/by-uuid/123e4567-e89b-12d3-a456-426614174000",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/draft/list",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#posts_by_state"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#posts_by_state",
+      "resolvedRoute": "/posts/<any(draft, published):state>/list -> posts.posts_by_state",
+      "sample": "/posts/draft/list",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/published/list",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#posts_by_state"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#posts_by_state",
+      "resolvedRoute": "/posts/<any(draft, published):state>/list -> posts.posts_by_state",
+      "sample": "/posts/published/list",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/{}",
+        "method": "DELETE",
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#delete_post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#delete_post",
+      "resolvedRoute": "/posts/<int:post_id> -> posts.delete_post",
+      "sample": "/posts/7",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/posts/{}",
+        "method": "GET",
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/posts.py#show_post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/posts.py#show_post",
+      "resolvedRoute": "/posts/<int:post_id> -> posts.show_post",
+      "sample": "/posts/7",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/settings",
+        "method": "GET",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#SettingsView.dispatch_request"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#SettingsView.dispatch_request",
+      "resolvedRoute": "/settings -> settings",
+      "sample": "/settings",
+      "trailingSlashOk": true,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/settings",
+        "method": "PUT",
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "blog/views.py#SettingsView.dispatch_request"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "outcome": "match",
+      "resolvedHandler": "blog/views.py#SettingsView.dispatch_request",
+      "resolvedRoute": "/settings -> settings",
+      "sample": "/settings",
+      "trailingSlashOk": true,
+      "verified": true
+    }
+  ],
+  "skipped": {
+    "static": 1
+  }
+}

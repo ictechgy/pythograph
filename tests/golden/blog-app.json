@@ -1,0 +1,574 @@
+{
+  "dispatch": "specificity",
+  "facts": [
+    {
+      "channel": "/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 26,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.index",
+        "usr": "blog/__init__.py#create_app.index"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/about/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 36,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.about",
+        "usr": "blog/__init__.py#create_app.about"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/api/v1/admin",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 30,
+        "path": "blog/api.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/api.py#admin_home",
+        "usr": "blog/api.py#admin_home"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/api/v1/admin/reindex",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 24,
+        "path": "blog/api.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/api.py#reindex",
+        "usr": "blog/api.py#reindex"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/api/v1/ping",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 18,
+        "path": "blog/api.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/api.py#ping",
+        "usr": "blog/api.py#ping"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/api/v1/ping",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 18,
+        "path": "blog/api.py"
+      },
+      "method": "OPTIONS",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/api.py#ping",
+        "usr": "blog/api.py#ping"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/api/v1/scores/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 12,
+        "path": "blog/api.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "\\d+\\.\\d+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/api.py#score",
+        "usr": "blog/api.py#score"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/color/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 14,
+        "line": 46,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[0-9a-f]+",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.color",
+        "usr": "blog/__init__.py#create_app.color"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/contact",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 31,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.contact",
+        "usr": "blog/__init__.py#create_app.contact"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/contact",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 31,
+        "path": "blog/__init__.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.contact",
+        "usr": "blog/__init__.py#create_app.contact"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/feed",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 41,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.feed",
+        "usr": "blog/__init__.py#create_app.feed"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/files/{**}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 14,
+        "line": 56,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "path",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.download",
+        "usr": "blog/__init__.py#create_app.download"
+      }
+    },
+    {
+      "channel": "/health",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 61,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#health",
+        "usr": "blog/__init__.py#health"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/items",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 62,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#ItemAPI.get",
+        "usr": "blog/views.py#ItemAPI.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/items",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 62,
+        "path": "blog/__init__.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#ItemAPI.post",
+        "usr": "blog/views.py#ItemAPI.post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/items/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 63,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#ItemAPI.get",
+        "usr": "blog/views.py#ItemAPI.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/items/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 63,
+        "path": "blog/__init__.py"
+      },
+      "method": "POST",
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#ItemAPI.post",
+        "usr": "blog/views.py#ItemAPI.post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/lang/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 14,
+        "line": 51,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/]{2}",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/__init__.py#create_app.language",
+        "usr": "blog/__init__.py#create_app.language"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 9,
+        "path": "blog/posts.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#list_posts",
+        "usr": "blog/posts.py#list_posts"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 16,
+        "line": 15,
+        "path": "blog/posts.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#create_post",
+        "usr": "blog/posts.py#create_post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/by-uuid/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 39,
+        "path": "blog/posts.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "uuid",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#post_by_uuid",
+        "usr": "blog/posts.py#post_by_uuid"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/by-uuid/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 39,
+        "path": "blog/posts.py"
+      },
+      "method": "PUT",
+      "paramConstraints": [
+        {
+          "kind": "uuid",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#post_by_uuid",
+        "usr": "blog/posts.py#post_by_uuid"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/draft/list",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 33,
+        "path": "blog/posts.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#posts_by_state",
+        "usr": "blog/posts.py#posts_by_state"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/published/list",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 33,
+        "path": "blog/posts.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#posts_by_state",
+        "usr": "blog/posts.py#posts_by_state"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 18,
+        "line": 27,
+        "path": "blog/posts.py"
+      },
+      "method": "DELETE",
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#delete_post",
+        "usr": "blog/posts.py#delete_post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/posts/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 15,
+        "line": 21,
+        "path": "blog/posts.py"
+      },
+      "method": "GET",
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/posts.py#show_post",
+        "usr": "blog/posts.py#show_post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/settings",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 64,
+        "path": "blog/__init__.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#SettingsView.dispatch_request",
+        "usr": "blog/views.py#SettingsView.dispatch_request"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/settings",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 64,
+        "path": "blog/__init__.py"
+      },
+      "method": "PUT",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "blog/views.py#SettingsView.dispatch_request",
+        "usr": "blog/views.py#SettingsView.dispatch_request"
+      },
+      "trailingSlash": "strict"
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitationScopes": [
+    {
+      "limitationIndex": 0,
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "templatePrefixes": [
+        "/static"
+      ]
+    }
+  ],
+  "limitations": [
+    "framework-provided-routes: Flask serves static files under the static URL path"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "roles": [
+    "server"
+  ],
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}
