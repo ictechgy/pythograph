@@ -419,6 +419,53 @@ def test_later_project_star_import_wins(make_project: MakeProject) -> None:
     assert graph.node_map()["other.py#run"].reasons == {"star-import": 1}
 
 
+def test_nested_star_imports_and_exports(make_project: MakeProject) -> None:
+    """패키지 `__init__`의 `*`를 거듭 따라가고 `__all__`을 지킨다. 대상 모듈 안의 외부 `*`는 가림이다.
+
+    도그푸딩에서 `from .models import *` → `models/__init__.py`의 `from .sites import *`가 한 단계만 풀려
+    `unresolved-name` 호출이 많았다.
+    """
+    graph = graph_for(
+        make_project,
+        {
+            "pkg/__init__.py": "",
+            "pkg/models/__init__.py": "from .sites import *\n",
+            "pkg/models/sites.py": (
+                "__all__ = ['make_site']\n\n\ndef make_site():\n    pass\n\n\ndef hidden():\n    pass\n"
+            ),
+            "pkg/leaky.py": "from os.path import *\n\n\ndef helper():\n    pass\n",
+            "pkg/views.py": "from .models import *\n\n\ndef run():\n    make_site()\n    hidden()\n",
+            "pkg/other.py": "from pkg.leaky import *\n\n\ndef run():\n    return helper(), join()\n",
+        },
+    )
+    assert ("pkg/views.py#run", "pkg/models/sites.py#make_site", "direct") in edges(graph)
+    assert graph.node_map()["pkg/views.py#run"].reasons == {"unresolved-name": 1}
+    assert ("pkg/other.py#run", "pkg/leaky.py#helper", "direct") in edges(graph)
+    assert graph.node_map()["pkg/other.py#run"].reasons == {"star-import": 1}
+
+
+def test_auth_and_base_view_handlers_are_nodes(make_project: MakeProject) -> None:
+    """routes가 내는 `django.contrib.auth.views`·`Base…View` 상속 핸들러 id가 그래프 정점이다.
+
+    도그푸딩에서 `LogoutView` 하위 클래스의 `post` route usr가 그래프에 없어 `reach`가 root-not-found로 잘렸다.
+    """
+    graph = graph_for(
+        make_project,
+        {
+            "views.py": (
+                "from django.contrib.auth.views import LogoutView\n"
+                "from django.views.generic.detail import BaseDetailView\n\n\n"
+                "class Logout(LogoutView):\n    pass\n\n\n"
+                "class Detail(BaseDetailView):\n    def get_object(self):\n        return None\n"
+            ),
+        },
+    )
+    nodes = graph.node_map()
+    assert "views.py#Logout.post" in nodes
+    assert "views.py#Detail.get" in nodes
+    assert ("views.py#Detail.get", "views.py#Detail.get_object", "direct") in edges(graph)
+
+
 def test_module_level_getattr_keeps_name_filter(make_project: MakeProject) -> None:
     """모듈 수준 PEP 562 `__getattr__`은 이름 필터를 끄지 않는다(클래스 메서드일 때만 끈다)."""
     graph = graph_for(

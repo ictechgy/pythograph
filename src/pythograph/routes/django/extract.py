@@ -207,14 +207,21 @@ class _Context:
         test_source = is_test_path(endpoint.location.path)
         if test_source and not self.options.include_tests:
             return
-        localized = any(piece.kind == "locale" for piece in flat.pieces)
-        anchor = "base" if localized else self.anchor
+        pieces, based = strip_leading_dynamic_prefix(flat.pieces)
+        localized = any(piece.kind == "locale" for piece in pieces)
+        anchor = "base" if localized or based else self.anchor
         if localized:
             self.extraction.add_gap(
                 "unresolved-route-prefix:",
                 "{count} URL patterns are under i18n_patterns, whose language prefixes are not modeled",
             )
-        shapes = self._shapes(flat.pieces)
+        if based:
+            self.extraction.add_gap(
+                "unresolved-route-prefix:",
+                "{count} URL patterns are under a leading include whose route prefix is not a literal (for example "
+                "a settings value), so they are emitted with a base anchor",
+            )
+        shapes = self._shapes(pieces)
         resolution = self._resolve(endpoint)
         if flat.conditional:
             self._gap_for("route-coverage:", "{count} URL patterns are registered under a condition", shapes, anchor)
@@ -443,6 +450,29 @@ def route_to_regex(route: str, endpoint: bool, converters: dict[str, str | None]
     if endpoint:
         parts.append(r"\Z")
     return "".join(parts)
+
+
+def strip_leading_dynamic_prefix(pieces: tuple[Piece, ...]) -> tuple[tuple[Piece, ...], bool]:
+    """맨 앞 include 접두사가 리터럴이 아니면 떼어 내고 base 앵커로 표시한다.
+
+    `path(settings.BASE_PATH, include(...))`처럼 배포 설정이 정하는 접두사는 그 뒤 템플릿이 "알 수 없는 base 뒤"라는
+    뜻이다(isthmus `pathAnchor: "base"`와 `unresolved-route-prefix:`). 그 앞 조각은 빈 리터럴(`""`, `re_path`의
+    `"^"`)이나 언어 접두사만 허용한다. 앞에 리터럴 경로가 있으면 중간의 알 수 없는 조각은 base로 표현할 수
+    없어 그대로 둔다(dynamic).
+
+    Args:
+        pieces: 루트부터의 조각.
+
+    Returns:
+        (정리한 조각, base 앵커인지).
+    """
+    for position, piece in enumerate(pieces):
+        if piece.kind == "locale" or piece.text == "" or (piece.kind == "regex" and piece.text == "^"):
+            continue
+        if piece.text is None and not piece.endpoint:
+            return (*pieces[:position], *pieces[position + 1 :]), True
+        break
+    return pieces, False
 
 
 def _flatten(entries: tuple[Entry, ...], pieces: tuple[Piece, ...], conditional: bool) -> Iterator[_Flat]:

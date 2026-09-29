@@ -89,6 +89,71 @@ def test_unregistered_blueprint_is_base(make_project: Callable[[dict[str, str]],
     assert any(text.startswith("unresolved-route-prefix:") for text in document["limitations"])  # type: ignore[union-attr]
 
 
+def test_factory_local_blueprint_imports(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """앱 팩토리 안의 `from pkg.auth import bp as auth_bp` 뒤 `register_blueprint(auth_bp, url_prefix=...)`를 따른다.
+
+    도그푸딩(앱 팩토리 튜토리얼 구조)에서 함수 안 import를 따라가지 않아 모든 블루프린트 경로가 base 앵커로 나왔다.
+    다른 함수의 지역 import는 보이지 않고, import 뒤 대입·반복 변수로 다시 묶은 이름(안쪽 함수 포함)은 풀지 않는다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app/__init__.py": """
+        from flask import Flask
+        def create_app():
+            app = Flask(__name__, static_folder=None)
+            from app.auth import bp as auth_bp
+            app.register_blueprint(auth_bp, url_prefix="/auth")
+            from . import main
+            app.register_blueprint(main.bp)
+            if True:
+                import app.api as api_module
+                app.register_blueprint(api_module.bp, url_prefix="/api")
+            def later():
+                from app.auth import bp as auth_again
+                auth_again = make_blueprint()
+                app.register_blueprint(auth_again, url_prefix="/rebound")
+                main = pick()
+                app.register_blueprint(main.bp, url_prefix="/inner")
+                for api_module in modules():
+                    app.register_blueprint(api_module.bp, url_prefix="/loop")
+            return app
+        def other(app):
+            app.register_blueprint(auth_bp, url_prefix="/wrong")
+    """,
+            "app/auth.py": """
+        from flask import Blueprint
+        bp = Blueprint("auth", __name__)
+        @bp.route("/login", methods=["GET", "POST"])
+        def login():
+            pass
+    """,
+            "app/main.py": """
+        from flask import Blueprint
+        bp = Blueprint("main", __name__)
+        @bp.get("/")
+        def index():
+            pass
+    """,
+            "app/api.py": """
+        from flask import Blueprint
+        bp = Blueprint("api", __name__)
+        @bp.delete("/tokens")
+        def revoke():
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/auth/login", False, "app/auth.py#login"),
+        ("POST", "/auth/login", False, "app/auth.py#login"),
+        ("GET", "/", False, "app/main.py#index"),
+        ("DELETE", "/api/tokens", False, "app/api.py#revoke"),
+    }
+    assert {fact["pathAnchor"] for fact in document["facts"]} == {"root"}  # type: ignore[union-attr]
+
+
 def test_view_classes_and_unknown_methods(make_project: Callable[[dict[str, str]], Path]) -> None:
     """View·MethodView 변형과 method를 확정하지 못한 규칙을 처리한다."""
     root = make_project(
