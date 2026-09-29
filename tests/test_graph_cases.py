@@ -385,3 +385,20 @@ def test_limitations_for_scan_gaps(make_project: MakeProject) -> None:
     assert any(line.startswith("dynamic-attribute-writes:") for line in lines)
     assert graph.node_map()["bom.py#first"].location.column == 4
     assert graph.node_map()["ok.py#configure"].reasons == {"excluded-source": 1}
+
+
+def test_string_annotations_resolve_independently(make_project: MakeProject) -> None:
+    """문자열 주석마다 파싱한 노드를 따로 보관한다(임시 노드 id 재사용으로 메모가 섞이지 않는다)."""
+    body = "\n".join(
+        f'def use{index}(item: "{"Left" if index % 2 else "Right"}"):\n    return item.ping()\n' for index in range(40)
+    )
+    graph = graph_for(
+        make_project,
+        {
+            "m.py": "class Left:\n    def ping(self):\n        return 1\n\n\n"
+            "class Right:\n    def ping(self):\n        return 2\n\n\n" + body
+        },
+    )
+    for index in range(40):
+        expected = "m.py#Left.ping" if index % 2 else "m.py#Right.ping"
+        assert (f"m.py#use{index}", expected, "direct") in edges(graph)

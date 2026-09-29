@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pythograph.graph.framework_table import FRAMEWORK_CLASSES
@@ -124,6 +125,7 @@ class Resolver:
         self._bindings: dict[str, ScopeBindings] = {}
         self._memo: dict[tuple[str, int], Value] = {}
         self._active: set[tuple[str, str]] = set()
+        self._annotations: dict[int, tuple[ast.Constant, ast.expr | None]] = {}
 
     def _base_value(self, definition: Definition, expr: ast.expr) -> Value:
         """클래스 기반 식을 클래스를 감싼 범위에서 푼다.
@@ -283,7 +285,7 @@ class Resolver:
         Returns:
             프로젝트 클래스면 하위 클래스 가능 인스턴스, 외부 타입이면 외부 결과, 아니면 모름.
         """
-        target = _annotation_target(annotation)
+        target = _annotation_target(annotation, self._parse_annotation)
         if target is None:
             return UnknownValue("parameter")
         resolved = self.value(scope, target, depth + 1)
@@ -292,6 +294,25 @@ class Resolver:
         if isinstance(resolved, ExternalValue):
             return ExternalResult()
         return UnknownValue("parameter")
+
+    def _parse_annotation(self, constant: ast.Constant) -> ast.expr | None:
+        """문자열 주석을 파싱한다(캐시). 상수 노드와 파싱 결과를 함께 보관해 노드 id가 재사용되지 않게 한다.
+
+        Args:
+            constant: 문자열 상수 노드.
+
+        Returns:
+            파싱한 식, 문법 오류면 None.
+        """
+        cached = self._annotations.get(id(constant))
+        if cached is None:
+            try:
+                parsed: ast.expr | None = ast.parse(str(constant.value), mode="eval").body
+            except (SyntaxError, ValueError, RecursionError, MemoryError):
+                parsed = None
+            cached = (constant, parsed)
+            self._annotations[id(constant)] = cached
+        return cached[1]
 
     def module_name_value(self, path: str, name: str, depth: int) -> Value:
         """모듈 전역 이름을 푼다: 정의·import·대입 → 프로젝트 `*` import → 내장 이름.
@@ -586,45 +607,48 @@ def _node_name(node: ast.AST) -> str:
     return getattr(node, "name", "")
 
 
-def _annotation_target(annotation: ast.expr) -> ast.expr | None:
+#: 문자열 주석을 파싱하는 함수 타입이다(같은 상수 노드면 같은 파싱 결과를 돌려준다).
+AnnotationParser = Callable[[ast.Constant], "ast.expr | None"]
+
+
+def _annotation_target(annotation: ast.expr, parse: AnnotationParser) -> ast.expr | None:
     """주석에서 클래스 이름 식을 꺼낸다.
 
     Args:
         annotation: 주석 식.
+        parse: 문자열 주석 파서(파싱한 노드를 살려 두어 메모 키가 재사용되지 않게 한다).
 
     Returns:
         이름·속성 식, 모르면 None.
     """
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-        try:
-            parsed = ast.parse(annotation.value, mode="eval").body
-        except (SyntaxError, ValueError, RecursionError, MemoryError):
-            return None
-        return _annotation_target(parsed)
+        parsed = parse(annotation)
+        return None if parsed is None else _annotation_target(parsed, parse)
     if isinstance(annotation, (ast.Name, ast.Attribute)):
         return annotation
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
-        return _optional_side(annotation.left, annotation.right)
+        return _optional_side(annotation.left, annotation.right, parse)
     if isinstance(annotation, ast.Subscript) and _subscript_name(annotation.value) in ("Optional", "Annotated"):
         inner = annotation.slice
-        return _annotation_target(inner.elts[0] if isinstance(inner, ast.Tuple) and inner.elts else inner)
+        return _annotation_target(inner.elts[0] if isinstance(inner, ast.Tuple) and inner.elts else inner, parse)
     return None
 
 
-def _optional_side(left: ast.expr, right: ast.expr) -> ast.expr | None:
+def _optional_side(left: ast.expr, right: ast.expr, parse: AnnotationParser) -> ast.expr | None:
     """`X | None`에서 X를 꺼낸다.
 
     Args:
         left: 왼쪽.
         right: 오른쪽.
+        parse: 문자열 주석 파서.
 
     Returns:
         X의 이름 식 또는 None.
     """
     if isinstance(right, ast.Constant) and right.value is None:
-        return _annotation_target(left)
+        return _annotation_target(left, parse)
     if isinstance(left, ast.Constant) and left.value is None:
-        return _annotation_target(right)
+        return _annotation_target(right, parse)
     return None
 
 
