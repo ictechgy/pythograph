@@ -402,3 +402,30 @@ def test_string_annotations_resolve_independently(make_project: MakeProject) -> 
     for index in range(40):
         expected = "m.py#Left.ping" if index % 2 else "m.py#Right.ping"
         assert (f"m.py#use{index}", expected, "direct") in edges(graph)
+
+
+def test_later_project_star_import_wins(make_project: MakeProject) -> None:
+    """뒤의 프로젝트 `*` import가 앞의 외부 `*` import를 덮는다. 외부 `*` 뒤의 내장 이름은 가려질 수 있어 모른다."""
+    graph = graph_for(
+        make_project,
+        {
+            "helpers.py": "def util(value):\n    return value\n",
+            "main.py": "from os import *\nfrom helpers import *\n\n\ndef run(paths):\n    return util(sorted(paths))\n",
+            "other.py": "from helpers import *\nfrom os import *\n\n\ndef run(paths):\n    return util(paths)\n",
+        },
+    )
+    assert ("main.py#run", "helpers.py#util", "direct") in edges(graph)
+    assert graph.node_map()["main.py#run"].reasons == {"star-import": 1}
+    assert graph.node_map()["other.py#run"].reasons == {"star-import": 1}
+
+
+def test_module_level_getattr_keeps_name_filter(make_project: MakeProject) -> None:
+    """모듈 수준 PEP 562 `__getattr__`은 이름 필터를 끄지 않는다(클래스 메서드일 때만 끈다)."""
+    graph = graph_for(
+        make_project,
+        {
+            "lazy.py": "def __getattr__(name):\n    return name\n",
+            "a.py": "def use(response):\n    return response.json()\n",
+        },
+    )
+    assert graph.node_map()["a.py#use"].reasons == {}

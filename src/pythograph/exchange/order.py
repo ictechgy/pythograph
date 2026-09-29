@@ -24,10 +24,13 @@ MAX_GROUP_LENGTH = 256
 MAX_SAFE_INTEGER = 2**53 - 1
 
 #: 소비자가 거부하는 제어 문자다.
-_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f  ]")
+_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029]")
 
 #: JavaScript `String.prototype.trim`이 지우는 공백이다.
-_JS_WHITESPACE = " \t\n\v\f\r                 　﻿"
+_JS_WHITESPACE = (
+    " \t\n\v\f\r\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 
 
 def order_problem(document: Mapping[str, object]) -> str | None:

@@ -60,7 +60,7 @@ pythograph impact (reach와 같은 옵션)
 - 이름은 파이썬 LEGB 규칙이다: 함수 지역 → 바깥 함수(클래스 범위는 건너뛴다) → 모듈 전역 → 내장 이름. 클래스 본문은 자기
   본문 이름을 먼저 본다. `global`·`nonlocal`을 따른다.
 - 모듈 전역: 정의, import(절대·상대·`from x import y as z`, 조건문 안 포함), 모듈 속성 접근(`models.Base`), `__init__` 재수출,
-  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스), 프로젝트 모듈의 `from x import *`. 풀지 못한 프로젝트 import
+  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다 — 외부 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
   (`from .missing import x`)는 외부로 보지 않고 `unresolved-import`다.
 - 지역 이름은 흐름을 따지지 않는다. 한 범위에서 두 번 이상 묶이거나 반복 변수·`with … as`·예외·풀기·match 캡처로 묶인 이름은
   모르는 값(`local-value`)이다.
@@ -83,7 +83,7 @@ pythograph impact (reach와 같은 옵션)
 외부 이름으로 푼 호출(표준 라이브러리·설치 패키지·프레임워크 멤버, 외부 기반 클래스에서 물려받은 멤버 `Order.objects`)은 외부다.
 타입을 모르는 수신자(매개변수, 외부 호출 결과)의 메서드 호출 `x.m()`은, 프로젝트의 어떤 클래스·모듈도 `m`을 정의하지 않고 어떤
 속성 쓰기(`obj.m = …`, 리터럴 `setattr`)도 `m`을 대입하지 않으면 프로젝트 코드에 닿을 수 없으므로 외부로 확정한다. 그 이름을
-프로젝트가 쓰면 `untyped-receiver`로 센다. 프로젝트 클래스가 `__getattr__`·`__getattribute__`를 정의하면 필터를 끈다. 계산된 이름의
+프로젝트가 쓰면 `untyped-receiver`로 센다. 프로젝트 클래스가 `__getattr__`·`__getattribute__`를 정의하면 필터를 끈다(모듈 수준 PEP 562 `__getattr__`은 모듈 속성으로 따로 풀므로 끄지 않는다). 계산된 이름의
 `setattr`로 붙인 함수는 필터가 보지 못하므로 `dynamic-attribute-writes:`로 센다. 외부 코드가 프로젝트로 되돌아오는 호출(시그널,
 콜백을 받은 라이브러리)은 따라가지 않는다 — 콜백을 넘긴 곳의 `callback` 간선만 있다.
 

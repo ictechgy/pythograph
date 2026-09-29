@@ -347,7 +347,8 @@ def name_filter(index: DefinitionIndex) -> tuple[NameFilter, int]:
         for node in ast.walk(module.node):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 names.add(node.name)
-                disabled = disabled or node.name in ("__getattr__", "__getattribute__")
+            if isinstance(node, ast.ClassDef):
+                disabled = disabled or any(_is_dynamic_lookup(item) for item in node.body)
             elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
                 names.add(node.attr)
             elif isinstance(node, ast.Call) and _is_setattr(node):
@@ -359,6 +360,20 @@ def name_filter(index: DefinitionIndex) -> tuple[NameFilter, int]:
     for definition in index.classes():
         names.update(index.class_members(definition).attributes)
     return NameFilter(names, disabled), dynamic_writes
+
+
+def _is_dynamic_lookup(statement: ast.stmt) -> bool:
+    """클래스 본문 문장이 `__getattr__`·`__getattribute__` 정의인지 본다(모듈 수준 PEP 562 `__getattr__`은 뺀다 —
+    모듈 속성은 모듈 값으로 따로 풀고, 모르면 이미 미해석이다).
+
+    Args:
+        statement: 클래스 본문 문장.
+
+    Returns:
+        그렇다면 True.
+    """
+    names = ("__getattr__", "__getattribute__")
+    return isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) and statement.name in names
 
 
 def _is_setattr(node: ast.Call) -> bool:

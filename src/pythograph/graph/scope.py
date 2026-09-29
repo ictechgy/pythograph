@@ -330,7 +330,9 @@ class Resolver:
             return self.symbol_value(symbol, depth)
         index = self.symbols.index(path)
         if index is not None:
-            for module in star_import_modules(index):
+            # 뒤의 `*` import가 앞의 것을 덮으므로 마지막부터 본다. 외부 모듈의 `*`를 만나면 그 이름(내장 이름 포함)을
+            # 그 모듈이 가릴 수 있어 모른다.
+            for module in reversed(star_import_modules(index)):
                 module_path = self.symbols.project.resolve_module(module)
                 if module_path is None:
                     return UnknownValue("star-import")
