@@ -2,12 +2,14 @@
 
 사용법:
     python record_clients.py --cartograph <cartograph> --kartograph <kartograph launcher> [--java-home <JDK 17/21>]
+    python record_clients.py --client android --kartograph <kartograph launcher> [--java-home <JDK 17/21>]
 
 클라이언트 소스를 임시 디렉터리에 복사해 빌드하고(`swift build`, `gradle compileKotlin`), cartograph `routes`·
 `impact --format language-traversal`, kartograph `snapshot`·`routes --role client`·`impact --format language-traversal`을
 실행한다. 역방향 순회의 root는 route-call 사실의 `symbol.usr`다(`--roots-from <http 문서>`). 기록 전에 문서의 `project`
 (임시 디렉터리 realpath)를 합성 경로(`/e2e/clients/<이름>`)로 바꾸고, 그 밖에 절대 경로가 남아 있으면 실패한다.
-결과는 `recorded/`에 쓴다. 제품(pythograph)은 이 도구들을 실행하지 않는다.
+결과는 `recorded/`에 쓴다. `--client`(반복 가능)로 한 클라이언트만 다시 기록할 수 있다 — 한쪽 생산자만 바뀌었을 때
+다른 쪽 기록을 건드리지 않기 위해서다. 제품(pythograph)은 이 도구들을 실행하지 않는다.
 """
 
 import argparse
@@ -101,22 +103,40 @@ def record_android(kartograph, work, env):
     }
 
 
-def main():
-    """두 클라이언트 문서를 기록한다."""
+def parse_arguments():
+    """명령줄 인자를 읽고, 고른 클라이언트에 필요한 생산자가 주어졌는지 확인한다.
+
+    :returns: 인자(`clients`는 기록할 클라이언트 이름 집합)
+    """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cartograph", required=True)
-    parser.add_argument("--kartograph", required=True)
+    parser.add_argument("--client", action="append", choices=("ios", "android"), dest="clients")
+    parser.add_argument("--cartograph")
+    parser.add_argument("--kartograph")
     parser.add_argument("--java-home")
     arguments = parser.parse_args()
+    arguments.clients = set(arguments.clients or ("ios", "android"))
+    if "ios" in arguments.clients and not arguments.cartograph:
+        parser.error("--cartograph is required to record the ios client")
+    if "android" in arguments.clients and not arguments.kartograph:
+        parser.error("--kartograph is required to record the android client")
+    return arguments
+
+
+def main():
+    """고른 클라이언트(기본은 둘 다)의 문서를 기록한다."""
+    arguments = parse_arguments()
     env = dict(os.environ)
     if arguments.java_home:
         env["JAVA_HOME"] = arguments.java_home
         env["PATH"] = f"{arguments.java_home}/bin:{env['PATH']}"
+    documents = {}
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         shutil.copytree(HERE / "clients", work, dirs_exist_ok=True)
-        documents = record_ios(arguments.cartograph, work)
-        documents.update(record_android(arguments.kartograph, work, env))
+        if "ios" in arguments.clients:
+            documents.update(record_ios(arguments.cartograph, work))
+        if "android" in arguments.clients:
+            documents.update(record_android(arguments.kartograph, work, env))
     RECORDED.mkdir(parents=True, exist_ok=True)
     for name, text in sorted(documents.items()):
         (RECORDED / name).write_text(text, encoding="utf-8")

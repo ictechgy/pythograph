@@ -1,6 +1,8 @@
 {
   "facts": [
     {
+      "authority": "api.example.com",
+      "baseRef": "kt:com.example.shop.createOrdersService",
       "channel": "/api/orders/{}/",
       "dynamic": false,
       "kind": "route-call",
@@ -10,12 +12,15 @@
         "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
       },
       "method": "GET",
-      "pathAnchor": "base",
+      "pathAnchor": "root",
       "symbol": {
-        "qualifiedName": "com.example.shop.OrdersService.getOrder"
+        "qualifiedName": "com.example.shop.OrdersService.getOrder",
+        "usr": "method:com/example/shop/OrdersService#getOrder(I)Lretrofit2/Call;"
       }
     },
     {
+      "authority": "api.example.com",
+      "baseRef": "kt:com.example.shop.createOrdersService",
       "channel": "/api/checkout/",
       "dynamic": false,
       "kind": "route-call",
@@ -25,9 +30,10 @@
         "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
       },
       "method": "POST",
-      "pathAnchor": "base",
+      "pathAnchor": "root",
       "symbol": {
-        "qualifiedName": "com.example.shop.OrdersService.checkout"
+        "qualifiedName": "com.example.shop.OrdersService.checkout",
+        "usr": "method:com/example/shop/OrdersService#checkout(Ljava/util/Map;)Lretrofit2/Call;"
       }
     },
     {
@@ -49,18 +55,17 @@
     }
   ],
   "format": "bridge-facts",
-  "generatedAt": "2026-09-29T08:46:45.180Z",
+  "generatedAt": "2026-09-29T22:47:05.650Z",
   "limitations": [
     "graph-file-freshness-unverified: build-scope-mismatch;missing-build-witness;unwitnessed-class-root",
-    "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites",
-    "missing-route-usrs: 2 route-call fact(s) lack JVM symbol identities; no compiled declaration in the snapshot matched the enclosing source declaration"
+    "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites"
   ],
   "platform": "kotlin",
   "project": "/e2e/clients/android",
   "roles": [
     "client"
   ],
-  "sourceModifiedAt": "2026-09-29T08:18:38.000Z",
+  "sourceModifiedAt": "2026-09-29T22:44:30.190Z",
   "sourceSets": {
     "tests": "excluded"
   },

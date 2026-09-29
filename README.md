@@ -269,7 +269,9 @@ golden output.
 server (`fixtures/e2e/shop-api`), a schemagraph catalog of its Django DDL, and route-calls plus reverse traversals of
 synthetic iOS (cartograph) and Android (kartograph) clients with isthmus `trace` (workspace). The expected paths of the
 three questions match: (a) API → DB tables + DB dependents, (b) API → client call sites → affected client symbols, and
-(c) table → API → client. `tests/test_e2e_trace.py` re-checks the recorded inputs and outputs offline (the table is in
+(c) table → API → client. The Android recording needs kartograph `4c09d91` or later (Retrofit route-call usrs and
+`baseUrl` joins), which attaches the Android order and checkout calls to the chain. `tests/test_e2e_trace.py` re-checks
+the recorded inputs and outputs offline (the table is in
 [docs/GRAPH.md](https://github.com/ictechgy/pythograph/blob/main/docs/GRAPH.md#phase-6-종료-조건-django-백엔드--iosandroid-체인)).
 
 Persistence naming vectors (`fixtures/persistence-naming/vectors.json`) are recorded by importing synthetic models

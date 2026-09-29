@@ -99,6 +99,10 @@
       {
         "method": "GET",
         "template": "/api/products/"
+      },
+      {
+        "method": "POST",
+        "template": "/api/checkout/"
       }
     ]
   },

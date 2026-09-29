@@ -8,11 +8,11 @@
       "id": "android-reverse",
       "member": "android",
       "platform": "kotlin",
-      "reached": 1,
+      "reached": 5,
       "revision": "a11d000000000000000000000000000000000e2e",
       "role": "reverse",
       "rootProvenance": "complete",
-      "roots": 1,
+      "roots": 3,
       "rootsTruncated": false,
       "source": "language-traversal",
       "tool": {
@@ -1192,49 +1192,15 @@
         "platform": "python",
         "usr": "store/models.py#Product"
       }
-    },
-    {
-      "code": "unattributed-calls-omitted",
-      "detail": "2 route call(s) could not be attributed to a declaration side and may call this scope; their paths and hosts are not reported.",
-      "route": {
-        "method": "GET",
-        "scope": "android->api",
-        "template": "/api/products/"
-      },
-      "selector": {
-        "member": "server",
-        "relation": "store_product"
-      }
-    },
-    {
-      "code": "unattributed-calls-omitted",
-      "detail": "2 route call(s) could not be attributed to a declaration side and may call this scope; their paths and hosts are not reported.",
-      "route": {
-        "method": "POST",
-        "scope": "android->api",
-        "template": "/api/orders/{}/cancel/"
-      },
-      "selector": {
-        "member": "server",
-        "relation": "store_auditentry"
-      }
     }
   ],
   "limitations": [
     {
       "link": "android->api",
-      "message": "input-freshness: bridge documents differ by 6513 hours",
+      "message": "input-freshness: bridge documents differ by 6527 hours",
       "origin": "consumer",
       "platform": "cross-platform",
       "target": null,
-      "tool": "isthmus"
-    },
-    {
-      "link": "android->api",
-      "message": "unjoined-unbound-route-calls: 2 route call facts without an attributed declaration side (paths and hosts are not reported) were not joined",
-      "origin": "consumer",
-      "platform": "kotlin",
-      "target": "http",
       "tool": "isthmus"
     },
     {
@@ -1247,13 +1213,6 @@
     {
       "link": "android->api",
       "message": "inlined-constant-references: 1 compile-time constant declaration(s) may have erased use sites",
-      "platform": "kotlin",
-      "target": "http",
-      "tool": "kartograph"
-    },
-    {
-      "link": "android->api",
-      "message": "missing-route-usrs: 2 route-call fact(s) lack JVM symbol identities; no compiled declaration in the snapshot matched the enclosing source declaration",
       "platform": "kotlin",
       "target": "http",
       "tool": "kartograph"
@@ -1311,7 +1270,7 @@
       "direct": 8,
       "unassessed": 0
     },
-    "gaps": 5,
+    "gaps": 3,
     "handlers": 2,
     "notices": 0,
     "relationUses": 17,
