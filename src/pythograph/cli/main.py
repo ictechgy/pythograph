@@ -32,8 +32,8 @@ EXIT_USAGE = 64
 #: `--service` 최대 길이다.
 MAX_SERVICE_LENGTH = 256
 
-#: 계약이 금지하는 식별자 문자다(제어 문자, U+2028/2029).
-_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f  ]")
+#: 계약이 금지하는 식별자 문자다(제어 문자, U+2028/2029, UTF-8로 쓸 수 없는 짝 없는 서로게이트).
+_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
 
 #: `--generated-at` 형식이다.
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
@@ -132,16 +132,35 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None, stderr
     try:
         text = run(arguments)
     except UsageError as error:
-        err.write(f"pythograph: {error}\n")
+        _report(err, str(error))
         return EXIT_USAGE
     except InputError as error:
-        err.write(f"pythograph: {error}\n")
+        _report(err, str(error))
         return EXIT_INPUT
     except Exception as error:  # 1은 예약이므로 어떤 내부 오류도 2로 바꾼다. 원문은 싣지 않는다.
-        err.write(f"pythograph: internal error ({type(error).__name__}); please report it with the command line\n")
+        _report(err, f"internal error ({type(error).__name__}); please report it with the command line")
         return EXIT_INPUT
-    out.write(text)
+    try:
+        out.write(text)
+        out.flush()
+    except (OSError, UnicodeError) as error:  # 닫힌 파이프·인코딩 실패도 1이 아니라 2다.
+        _report(err, f"could not write the output ({type(error).__name__}); check the output destination")
+        return EXIT_INPUT
     return EXIT_OK
+
+
+def _report(err: TextIO, message: str) -> None:
+    """표준 오류에 한 줄을 쓴다. 표준 오류 자체가 실패해도 종료 코드 계약을 지키도록 오류를 삼키지 않고 무시한다.
+
+    Args:
+        err: 표준 오류.
+        message: 문구.
+    """
+    try:
+        err.write(f"pythograph: {message}\n")
+    except (OSError, UnicodeError):
+        # 표준 오류가 닫혔으면 알릴 곳이 없다. 종료 코드가 원인을 전한다.
+        return
 
 
 def run(arguments: list[str]) -> str:

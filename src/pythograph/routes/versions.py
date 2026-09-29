@@ -31,7 +31,7 @@ _REQUIREMENT = re.compile(
 #: poetry 표기(`django = "^5.2"`)를 찾는 정규식이다.
 _POETRY = re.compile(
     r"(?im)^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*=\s*(?:\{[^}]*version\s*=\s*)?"
-    r'"(?P<spec>[\^~]?[0-9][0-9A-Za-z.*]*)"'
+    r'"(?P<spec>(?:[\^~]?[0-9][0-9A-Za-z.*]*|(?:(?:===|==|~=|!=|<=|>=|<|>)\s*[0-9][0-9A-Za-z.*]*\s*,?\s*)+))"'
 )
 
 

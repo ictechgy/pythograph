@@ -279,8 +279,9 @@ class _ModuleInterpreter:
             value = self._value(statement.value, conditional)
             for target in statement.targets:
                 if isinstance(target, ast.Name):
-                    self._assign(target.id, self._transformed(target.id, statement.value, value, conditional),
-                                 conditional)
+                    self._assign(
+                        target.id, self._transformed(target.id, statement.value, value, conditional), conditional
+                    )
         elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
             if isinstance(statement.target, ast.Name):
                 self._assign(statement.target.id, self._value(statement.value, conditional), conditional)

@@ -134,3 +134,14 @@ def test_python_module_entry_point() -> None:
         [sys.executable, "-m", "pythograph", "--version"], capture_output=True, text=True, check=False, cwd=REPOSITORY
     )
     assert result.returncode == 0 and result.stdout.strip()
+
+
+def test_unencodable_file_names_are_skipped(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """UTF-8로 쓸 수 없는 파일 이름은 건너뛰고 센다(교환 형식이 쓸 수 없는 문자열이 새지 않게)."""
+    assert project_module._is_encodable("\udcff") is False
+    root = make_project({"ok.py": "", "odd.py": ""})
+    monkeypatch.setattr(project_module, "_is_encodable", lambda text: not text.startswith("odd"))
+    project = Project.open(root)
+    assert project.python_files() == ["ok.py"] and project.unencodable_names == 1

@@ -47,6 +47,7 @@ def test_help_outputs() -> None:
         ["routes", "--role", "server", "--project", DJANGO, "--framework", "rails"],
         ["routes", "--role", "server", "--project", DJANGO, "--dispatch", "registration-order"],
         ["routes", "--role", "server", "--project", DJANGO, "--service", "a\nb"],
+        ["routes", "--role", "server", "--project", DJANGO, "--service", "\udcff"],
         ["routes", "--role", "server", "--project", DJANGO, "--settings", "not a module"],
         ["routes", "--role", "server", "--project", DJANGO, "--generated-at", "yesterday"],
         ["routes", "--role", "server", "--project", DJANGO, "--generated-at", "2026-02-30T00:00:00Z"],
@@ -159,3 +160,21 @@ def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path
     (root / "link").symlink_to(outside)
     limitations = routes_document(root)["limitations"]
     assert any("symbolic links" in text for text in limitations)  # type: ignore[union-attr]
+
+
+class _BrokenStream:
+    """쓰기가 항상 실패하는 스트림(닫힌 파이프 흉내)."""
+
+    def write(self, text: str) -> int:
+        """항상 실패한다."""
+        raise BrokenPipeError(text[:1])
+
+    def flush(self) -> None:
+        """아무것도 하지 않는다."""
+
+
+def test_output_write_failure_exits_2() -> None:
+    """출력·오류 스트림 쓰기가 실패해도 1이 아니라 2다(GLM 리뷰 재현: 인코딩 실패·닫힌 파이프)."""
+    broken = _BrokenStream()
+    assert cli.main(["routes", "--role", "server", "--project", DJANGO], stdout=broken, stderr=broken) == 2  # type: ignore[arg-type]
+    assert cli.main(["nope"], stdout=broken, stderr=broken) == 64  # type: ignore[arg-type]

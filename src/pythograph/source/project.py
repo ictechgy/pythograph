@@ -81,6 +81,7 @@ class Project:
     _files: list[str] | None = None
     skipped_links: int = 0
     scan_capped: bool = False
+    unencodable_names: int = 0
 
     @classmethod
     def open(cls, root: Path) -> Project:
@@ -164,7 +165,12 @@ class Project:
                 return
             pending.append((Path(entry.path), depth + 1))
         elif entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
-            found.append(Path(entry.path).relative_to(self.root).as_posix())
+            relative = Path(entry.path).relative_to(self.root).as_posix()
+            if _is_encodable(relative):
+                found.append(relative)
+            else:
+                # UTF-8이 아닌 파일 이름은 교환 형식에 쓸 수 없다. 건너뛰고 센다.
+                self.unencodable_names += 1
 
     def is_directory(self, relative: str) -> bool:
         """프로젝트 상대 경로가 링크가 아닌 디렉터리인지 돌려준다.
@@ -328,6 +334,22 @@ def _inside(root: Path, relative: str) -> bool:
         안이면 True.
     """
     return ".." not in PurePosixPath(relative).parts and not PurePosixPath(relative).is_absolute()
+
+
+def _is_encodable(text: str) -> bool:
+    """문자열을 UTF-8로 쓸 수 있는지(짝 없는 서로게이트가 없는지) 확인한다.
+
+    Args:
+        text: 검사할 문자열.
+
+    Returns:
+        쓸 수 있으면 True.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def is_test_path(relative: str) -> bool:

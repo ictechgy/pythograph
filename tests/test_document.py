@@ -121,4 +121,8 @@ def test_declared_majors_from_manifests(make_project: Callable[[dict[str, str]],
     assert version_gap(majors, "django", 5, "Django") is not None
     assert version_gap(majors, "missing", 1, "Missing") is not None
     (root / "Pipfile.lock").write_text("not json")
+    (root / "Pipfile").write_text('[packages]\nflask = ">=3.0,<4.0"\n')
+    (root / "pyproject.toml").write_text('[tool.poetry.dependencies]\ndjangorestframework = {version = ">=3.15,<4"}\n')
+    majors = declared_majors(Project.open(root))
+    assert majors["flask"] == {3} and majors["djangorestframework"] == {3}
     assert declared_majors(Project.open(root))["django"] == {5, None}

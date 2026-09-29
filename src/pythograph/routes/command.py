@@ -102,6 +102,11 @@ def _project_gaps(project: Project, extraction: Extraction) -> None:
     """
     if project.scan_capped:
         extraction.add_gap("route-coverage:", "the project scan stopped at its entry or depth limit")
+    if project.unencodable_names:
+        extraction.add_gap(
+            "route-coverage:",
+            f"{project.unencodable_names} Python files have names that are not valid UTF-8 and were not analyzed",
+        )
     if project.skipped_links:
         extraction.add_gap("route-coverage:", f"{project.skipped_links} symbolic links were not followed")
     _failed_modules(project, extraction)
