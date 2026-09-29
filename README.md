@@ -1,0 +1,195 @@
+# pythograph
+
+[한국어](README.ko.md)
+
+Static facts for Python services (Django, Django REST framework, Flask), emitted in the
+[isthmus](https://github.com/ictechgy/isthmus) bridge-facts exchange format.
+
+pythograph is the Python member of a family of static-analysis CLIs (tsograph for
+TypeScript/JavaScript, cartograph for Swift, kartograph for Kotlin, dartograph for Dart, gartograph for
+Go, rustograph for Rust, schemagraph for SQL). Each tool reports only what it observes in its own language;
+isthmus joins the documents.
+
+The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
+and pythograph has no runtime dependencies and uses no network.
+
+## Status
+
+| Area | State |
+|---|---|
+| `pythograph routes --role server`: Django URLconf, Django REST framework routers and views, Flask/Werkzeug rules → `route-decl` facts | Implemented |
+| Persistence `relation-use` facts (Django models with `app_label`/`db_table`, SQLAlchemy, Flask-SQLAlchemy) | Planned |
+| `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 | Planned |
+| Client route-calls (requests, httpx) | Planned |
+
+The isthmus `http` target is still a draft in isthmus `docs/GRAPH-EXCHANGE.md`, and isthmus does not accept
+`platform: "python"` yet (see [isthmus compatibility](#isthmus-compatibility)).
+
+## Requirements and installation
+
+- Python 3.10 or newer (Django 5.x needs 3.10+, and pythograph parses the analyzed code with the running
+  interpreter, so run it with the same or a newer Python than the project).
+
+```sh
+uv tool install git+https://github.com/ictechgy/pythograph
+# or
+pipx install git+https://github.com/ictechgy/pythograph
+```
+
+## `pythograph routes --role server`
+
+```sh
+pythograph routes --role server --project <root> [--service <name>] [--include-tests]
+                  [--framework auto|django|flask] [--settings <module>]
+                  [--dispatch specificity] [--generated-at <timestamp>] [--format json]
+```
+
+Writes a bridge-facts v1 document to stdout: `platform: "python"`, `target: "http"`, `roles: ["server"]`,
+`dispatch`, `sourceSets`, and one `route-decl` fact per (route, HTTP method).
+
+- `--project` (required): the project root. `project` is its POSIX realpath and every `location.path` is
+  relative to it.
+- `--framework`: `auto` (default) detects Django (a `DJANGO_SETTINGS_MODULE` default in `manage.py`,
+  `wsgi.py`, or `asgi.py`, or `--settings`) and Flask (a `Flask(...)` or `Blueprint(...)` object). A project
+  with both is a usage error until you pick one.
+- `--settings`: the Django settings module when the entry files do not name it.
+- `--include-tests`: also emit routes declared in test sources (`test_*.py`, `*_test.py`, `tests.py`,
+  `conftest.py`, files under `tests/` or `test/`) with `testSource: true` and `sourceSets.tests: "included"`.
+- `--dispatch specificity`: declare `specificity` for a Django project and omit `order` (see
+  [Decisions](#decisions)).
+- `--generated-at`: a fixed `generatedAt` for byte-identical output.
+- Exit codes: `0` success (zero facts is still success, not proof of completeness), `2` unreadable project,
+  more than 100,000 facts, output over 16 Mi characters, or an internal error (the message states the cause
+  and a fix, never source text or absolute paths), `64` usage error. `1` is reserved.
+
+Example (synthetic, compacted; the real output is key-sorted JSON with two-space indentation):
+
+```json
+{
+  "dispatch": "registration-order",
+  "facts": [
+    {
+      "channel": "/catalog/items/{}/edit/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": { "column": 10, "line": 20, "path": "catalog/urls.py" },
+      "method": "POST",
+      "order": { "group": "django:shop.urls", "index": 7 },
+      "paramConstraints": [{ "kind": "int", "segment": 2 }],
+      "pathAnchor": "root",
+      "symbol": { "qualifiedName": "catalog/views.py#ItemEditView.post", "usr": "catalog/views.py#ItemEditView.post" },
+      "trailingSlash": "strict"
+    }
+  ],
+  "format": "bridge-facts",
+  "platform": "python",
+  "roles": ["server"],
+  "target": "http",
+  "tool": { "name": "pythograph", "version": "0.1.0" },
+  "version": 1
+}
+```
+
+### What is modeled
+
+Every rule was checked against the installed package sources (Django 5.2.17, djangorestframework 3.18.1,
+Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-ROUTES.md](docs/HTTP-ROUTES.md)
+(Korean).
+
+- **Django**: `ROOT_URLCONF` from the settings module (star imports of project settings modules are
+  followed), `urlpatterns` built with lists, `+`, `+=`, `.append`, `.extend`, `.insert`, `path()`, `re_path()`,
+  `include()` (module strings, module objects, lists, `(patterns, app_name)` tuples, nested), default and
+  registered path converters, `re_path` regular expressions converted from their syntax tree when possible,
+  function views (`ANY`, narrowed by `require_http_methods`/`require_GET`/`require_POST`/`require_safe`/
+  `api_view`), class views (`as_view()`, handlers along the class chain, `http_method_names`), and the
+  registration order (first match wins).
+- **Django REST framework**: `SimpleRouter`/`DefaultRouter` (`trailing_slash`, `use_regex_path`, lookup
+  settings, `@action` with `detail`, `methods`, `url_path`, and `.mapping`), the `DefaultRouter` API root and
+  format-suffix variants, `format_suffix_patterns`, `APIView`, generic views, and viewsets.
+- **Flask**: `Flask(...)` and `Blueprint(...)` objects at module level or in app factories, `@route`,
+  `@get`/`@post`/`@put`/`@delete`/`@patch`, `add_url_rule`, `register_blueprint` (nested, `url_prefix`),
+  `MethodView`/`View`, Werkzeug converters (`string`, `int`, `float`, `uuid`, `path`, `any`, custom),
+  `strict_slashes`, and `merge_slashes`.
+
+### How facts are built
+
+- **channel**: the canonical path template. A parameter filling a whole segment is `{}`, a partial segment
+  keeps its literal skeleton (`/files/{}.json`), a final parameter that can match `/` is `{**}`, and anything
+  else that cannot be proven (a segment with two parameters, a middle catch-all, lookarounds, unanchored
+  regular expressions) is `dynamic` with a `route-coverage:` limitation. Literals are in the decoded path
+  space, so non-pchar characters are UTF-8 percent-encoded and `%` becomes `%25`.
+- **method**: uppercase verbs or `ANY`. `HEAD` next to `GET` and automatic `OPTIONS` are not emitted (isthmus
+  matches them with `head-as-get` and `options-any`); an explicitly declared `OPTIONS` is.
+- **paramConstraints**: `int`, `slug`, `uuid`, `path` (for `{**}`), or `regex` with the pattern.
+- **trailingSlash**: Django and strict Flask rules are `strict`; `/?` in a regex and Flask
+  `strict_slashes=False` are `optional`; omitted after `{**}`.
+- **order** (Django): `{group: "django:<ROOT_URLCONF>", index: <depth-first position>}`.
+- **location**: the route string argument (Django `path()`/`re_path()`, Flask decorator or `add_url_rule`), the
+  `router.register()` prefix for DRF routes, or the `@action` decorator for extra actions; 1-based line and
+  1-based UTF-8 byte column.
+
+### Symbol ids
+
+`symbol.usr` is `<project-relative POSIX path>#<lexical dotted name>`, outermost declaration first and
+without `<locals>`: `catalog/views.py#item_list`, `blog/__init__.py#create_app.index`,
+`catalog/views.py#ItemEditView.get`, `orders/views.py#OrderViewSet.list`. Class handlers are named after the
+class registered in the URL even when the method is inherited; the planned call graph will use the same ids
+with an inherited-member node. Views defined outside the project have no usr and are counted under
+`missing-route-usrs:`.
+
+### Limitations
+
+When a value cannot be proven, pythograph does not guess: it emits `dynamic`, `pathAnchor: "base"`, or a
+limitation with one of the contract's prefixes, and adds `limitationScopes` only when it can prove an upper
+bound. Examples: conditional registrations (`if settings.DEBUG:`) become `route-coverage:` scoped to their
+templates; unresolved includes and third-party URL modules are scoped to their include prefix; the Django admin,
+`static()`, `django.contrib.staticfiles`, and Flask static files are `framework-provided-routes:` with prefix
+scopes (Flask static also with `GET`/`HEAD`); `FORCE_SCRIPT_NAME`, `i18n_patterns`, and blueprints whose
+registration is not visible use a `base` anchor with `unresolved-route-prefix:`; a project that does not pin
+Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
+
+### Decisions
+
+- **Django is `registration-order`, Flask is `specificity`**, as verified from the sources. Current isthmus
+  releases reject `registration-order`; `--dispatch specificity` declares specificity for Django and omits
+  `order`. That approximation can only produce false matches (a shadowed pattern matched), never false errors,
+  because isthmus filters by method first and reports a method mismatch only when no candidate accepts the
+  method, which is also when Django answers 405.
+- **Shadowed patterns are still declarations**; shadowing is the consumer's judgement from `order`.
+- **Conditional registrations are scoped limitations**, not declarations.
+
+## Validation
+
+The oracle harness in `experiments/oracle/` imports the synthetic fixtures in a scratch virtual environment
+and compares pythograph's facts with Django's resolver traversal, DRF routers, and Flask's `url_map`
+(`tests/test_fixtures.py` replays the recorded results offline):
+
+| Target | Precision | Recall |
+|---|---|---|
+| `fixtures/django/drf-shop` | 69/69 | 58/59 (one intentional dynamic lookahead pattern) |
+| `fixtures/flask/blog-app` | 28/28 | 27/27 |
+| HackSoftware/Django-Styleguide-Example `a70ef43` (MIT, scratch clone) | 21/21 | 21/22 (the DEBUG-only `static()` route) |
+
+The isthmus shared conformance vectors (`conformance/`, locked in `conformance.lock`) pass 100% of the
+applicable producer cases (60: `template.grammar`, `template.normalize`, `scope.validate`, `scope.applies`).
+
+## isthmus compatibility
+
+isthmus `main` (`78d3dee`) rejects `platform: "python"` documents. Adding `python` to the platform union,
+`bridgePlatforms`, `httpPlatforms`, and the `route-decl` entry of `routeKindPlatforms` in
+`src/exchange/parse.ts` makes it accept Flask documents and Django documents produced with
+`--dispatch specificity`. Default Django documents also need isthmus to implement `registration-order`.
+
+## Development
+
+```sh
+uv sync
+uv run ruff check src tests && uv run ruff format --check src tests
+uv run mypy
+uv run pytest --cov          # line and branch coverage gate: 90%
+uv run python scripts/verify_cli_contract.py
+```
+
+## License
+
+MIT
