@@ -196,10 +196,15 @@ class DjangoApps:
         node = config.node
         assert isinstance(node, ast.ClassDef)
         for statement in node.body:
-            if isinstance(statement, ast.Assign) and any(
-                isinstance(target, ast.Name) and target.id == name for target in statement.targets
-            ):
-                return _literal(statement.value)
+            value: ast.expr | None = None
+            if isinstance(statement, ast.Assign):
+                targets, value = statement.targets, statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                targets, value = [statement.target], statement.value
+            else:
+                continue
+            if value is not None and any(isinstance(target, ast.Name) and target.id == name for target in targets):
+                return _literal(value)
         if depth > MAX_APPCONFIG_DEPTH:
             return ...
         for base in node.bases:

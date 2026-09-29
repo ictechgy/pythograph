@@ -86,7 +86,14 @@ class DjangoDeclarations:
                     name = self.catalog.column(column)
                     if name is not None:
                         self.extraction.add_column(through, name, location, symbol)
-        elif field.column is None and field.kind != "unknown":
+        elif field.kind == "unknown":
+            self.extraction.add_dynamic(
+                field.name,
+                location,
+                symbol,
+                "{count} fields use third-party field classes whose column rule is not verified",
+            )
+        elif field.column is None:
             self.extraction.add_dynamic(
                 field.name,
                 location,

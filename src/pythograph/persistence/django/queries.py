@@ -80,10 +80,13 @@ _FIRST_ONLY_EXPRESSIONS = frozenset(
 )
 
 #: 필드 인자를 받지 않는 식 클래스다.
-_OPAQUE_EXPRESSIONS = frozenset({"Value", "RawSQL", "Subquery", "Exists", "OuterRef", "Prefetch"})
+_OPAQUE_EXPRESSIONS = frozenset({"Value", "RawSQL", "Subquery", "Exists", "OuterRef"})
 
 #: 문자열을 필드로 읽는 식 키워드 인자다.
 _EXPRESSION_KEYWORDS = frozenset({"then", "default", "order_by", "partition_by", "filter", "expression"})
+
+#: 컬럼 규칙을 모르는 외부 필드 한계 문장이다.
+_UNKNOWN_FIELD_REASON = "{count} fields use third-party field classes whose column rule is not verified"
 
 #: `extra()` SQL 조각 한계 문장이다.
 _EXTRA_FRAGMENTS = "{count} QuerySet.extra() SQL fragments were not read"
@@ -419,7 +422,7 @@ class DjangoQueries:
             self.sql.sink(node.args[0], explicit=True)
             return
         if method == "extra":
-            self._extra(node)
+            self._extra(key, node)
             return
         annotations = self._annotations(receiver, 0)
         for keyword in node.keywords:
@@ -523,10 +526,11 @@ class DjangoQueries:
                 if keyword.arg is not None:
                     self._emit_path(first.key, keyword.arg, keyword, set(), allow_join=True)
 
-    def _extra(self, node: ast.Call) -> None:
+    def _extra(self, key: str, node: ast.Call) -> None:
         """`extra(tables=[...])`의 테이블을 관계 사실로 낸다. SQL 조각(`where`·`select`)은 읽지 않고 센다.
 
         Args:
+            key: 모델 키.
             node: 호출.
         """
         for keyword in node.keywords:
@@ -541,10 +545,37 @@ class DjangoQueries:
                         self.extraction.add_relation(relation, self._location(element), self.scopes.symbol_for(element))
                     else:
                         self._dynamic_lookup(element, "{count} extra(tables=...) entries are not string literals")
-            elif keyword.arg in ("where", "select", "order_by", "select_params", "params"):
+            elif keyword.arg == "order_by":
+                self._extra_order(key, keyword.value, node)
+            elif keyword.arg in ("where", "select", "select_params", "params"):
                 self.extraction.add_gap(
                     "skipped-sql-fragments:", "{count} QuerySet.extra() SQL fragments were not read"
                 )
+
+    def _extra_order(self, key: str, value: ast.expr, node: ast.Call) -> None:
+        """`extra(order_by=[...])`를 읽는다.
+
+        필드 이름은 경로로 읽고, `select` 별칭은 건너뛰며, `table.column`은 SQL 조각으로 센다.
+
+        Args:
+            key: 모델 키.
+            value: 목록 식.
+            node: `extra` 호출.
+        """
+        aliases: set[str] = set()
+        for keyword in node.keywords:
+            if keyword.arg == "select" and isinstance(keyword.value, ast.Dict):
+                aliases |= {str(item.value) for item in keyword.value.keys if isinstance(item, ast.Constant)}
+        elements = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
+        for element in elements:
+            if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
+                self.extraction.add_gap("skipped-sql-fragments:", _EXTRA_FRAGMENTS)
+                continue
+            name = element.value.lstrip("-")
+            if "." in name:
+                self.extraction.add_gap("skipped-sql-fragments:", _EXTRA_FRAGMENTS)
+            elif name not in aliases:
+                self._emit_path(key, name, element, set(), allow_join=True)
 
     def _dict_fields(self, key: str, node: ast.expr) -> None:
         """`defaults={...}` 사전의 키를 필드 이름으로 읽는다.
@@ -615,6 +646,11 @@ class DjangoQueries:
                     "unresolved-django-lookups:", "{count} OuterRef() references were not attributed to a model"
                 )
             return
+        if name == "Prefetch":
+            # `Prefetch("tags", queryset=...)`의 첫 인자는 조회 경로다. queryset은 따로 읽힌다.
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                self._emit_path(key, node.args[0].value, node.args[0], annotations, allow_join=True)
+            return
         if name == "Q":
             for keyword in node.keywords:
                 if keyword.arg is not None:
@@ -649,6 +685,10 @@ class DjangoQueries:
         """
         parts = path.split("__")
         if parts[0] in annotations or not path or path == "?":
+            return
+        if not allow_join and len(parts) > 1:
+            # `create`·`update`·생성자는 관계를 건너는 이름을 받지 않는다(FieldDoesNotExist). 추측하지 않는다.
+            self._dynamic_lookup(node, "{count} Django lookups or field names could not be resolved", path)
             return
         current = key
         for index, part in enumerate(parts):
@@ -705,7 +745,12 @@ class DjangoQueries:
         """
         if field.owner != model.concrete:
             self._emit_table(field.owner, node)
-        if field.kind == "m2m" or (field.column is None and field.kind == "unknown"):
+        if field.kind == "m2m":
+            return
+        if field.kind == "unknown":
+            self.extraction.add_dynamic(
+                field.name, self._location(node), self.scopes.symbol_for(node), _UNKNOWN_FIELD_REASON
+            )
             return
         self._emit_column(field.owner, field.column, node)
 

@@ -605,10 +605,16 @@ class DjangoCatalog:
                     inherited.pop("abstract", None)
                     values.update(inherited)
         for statement in meta.body:
+            # 주석 대입(`db_table: str = "x"`)도 클래스 속성이라 Django가 읽는다.
             if isinstance(statement, ast.Assign):
-                for target in statement.targets:
-                    if isinstance(target, ast.Name) and target.id in _META_OPTIONS:
-                        values[target.id] = self._meta_value(path, statement.value)
+                targets, value = statement.targets, statement.value
+            elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                targets, value = [statement.target], statement.value
+            else:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in _META_OPTIONS:
+                    values[target.id] = self._meta_value(path, value)
         return values
 
     def _meta_value(self, path: str, node: ast.expr) -> object:

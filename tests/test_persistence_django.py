@@ -636,3 +636,59 @@ DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}
     assert ("app_book", "title", False) in rows
     assert ("Nested", None, True) in rows
     assert not any("BookSerializer" in str(row[0]) or row[0] in ("data", "title") for row in rows)
+
+
+def test_review_findings_annotated_meta_prefetch_extra_and_unknown_fields(make_project: MakeProject) -> None:
+    """주석 대입 Meta·AppConfig, Prefetch 경로, extra(order_by=), 외부 필드, create의 관계 건너기 이름을 처리한다."""
+    models = """
+from django.db import models
+from thirdparty.fields import FancyField
+
+
+class Tag(models.Model):
+    label = models.CharField(max_length=5)
+
+
+class Entry(models.Model):
+    tags = models.ManyToManyField(Tag)
+    fancy = FancyField()
+    title = models.CharField(max_length=5)
+
+    class Meta:
+        db_table: str = "legacy_entries"
+
+
+class Base(models.Model):
+    class Meta:
+        abstract: bool = True
+"""
+    document = schema_document(
+        _project(
+            make_project,
+            """
+from django.db.models import Prefetch
+
+from app.models import Entry, Tag
+
+
+def run():
+    Entry.objects.prefetch_related(Prefetch("tags", queryset=Tag.objects.all()))
+    Entry.objects.extra(select={"n": "1"}, order_by=["-title", "n", "legacy_entries.title"])
+    Entry.objects.filter(fancy="x")
+    Entry.objects.create(tags__label="x")
+""",
+            models=models,
+        )
+    )
+    rows = {row[:3] for row in relation_rows(document)}
+    assert {
+        ("legacy_entries", "title", False),
+        ("legacy_entries_tags", "entry_id", False),
+        ("app_tag", None, False),
+        ("fancy", None, True),
+        ("tags__label", None, True),
+    } <= rows
+    assert not any(row[0] == "app_base" for row in rows)
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert "skipped-sql-fragments: 2 QuerySet.extra() SQL fragments were not read" in limitations
