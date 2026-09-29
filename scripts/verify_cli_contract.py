@@ -27,6 +27,10 @@ FIXTURES = (
     (REPOSITORY / "fixtures" / "flask" / "blog-app", "specificity"),
 )
 
+#: graph·reach·impact 명령 fixture와 root다.
+GRAPH_FIXTURE = REPOSITORY / "fixtures" / "e2e" / "shop-api"
+GRAPH_ROOT = "store/views.py#OrderViewSet.retrieve"
+
 #: schema 명령 fixture다.
 SCHEMA_FIXTURES = (
     REPOSITORY / "fixtures" / "persistence" / "django-shop",
@@ -73,10 +77,14 @@ def verify_basics(executable: str) -> None:
     verify(run(executable, ["--help"]).stdout.startswith("Usage: pythograph"), "help")
     verify(run(executable, ["help", "routes"]).stdout.startswith("Usage: pythograph routes"), "routes help")
     verify(run(executable, ["help", "schema"]).stdout.startswith("Usage: pythograph schema"), "schema help")
+    for command in ("graph", "reach", "impact"):
+        verify(run(executable, ["help", command]).stdout.startswith(f"Usage: pythograph {command}"), f"{command} help")
     for arguments in ([], ["no-such-command"], ["routes", "--project", "."], ["routes", "--role", "client"],
                       ["routes", "--role", "server"], ["routes", "--role", "server", "--project", ".", "--format",
                                                         "yaml"],
-                      ["schema"], ["schema", "--project", ".", "--format", "yaml"], ["schema", "--project", ".", "x"]):
+                      ["schema"], ["schema", "--project", ".", "--format", "yaml"], ["schema", "--project", ".", "x"],
+                      ["graph"], ["graph", "--project", ".", "x"], ["reach", "--project", "."],
+                      ["impact", "--project", ".", "a\u0001b"], ["reach", "--project", ".", "--dispatch", "x", "a#b"]):
         verify(run(executable, arguments).returncode == 64, f"usage error {arguments}")
 
 
@@ -117,6 +125,25 @@ def verify_schema(executable: str) -> None:
         verify(first.stdout == run(executable, arguments).stdout, f"{fixture.name} schema determinism")
 
 
+def verify_graph(executable: str) -> None:
+    """graph·reach·impact 문서가 결정적이고, 정점이 아닌 root는 문서를 쓰고 64로 끝나는지 확인한다.
+
+    Args:
+        executable: 실행 파일.
+    """
+    common = ["--project", str(GRAPH_FIXTURE), "--generated-at", GENERATED_AT, "--revision", "contract"]
+    graph = run(executable, ["graph", *common])
+    verify(graph.returncode == 0 and json.loads(graph.stdout)["format"] == "pythograph-graph", "graph snapshot")
+    for command, direction in (("reach", "dependencies"), ("impact", "dependents")):
+        first = run(executable, [command, *common, GRAPH_ROOT])
+        verify(first.returncode == 0, f"{command} exit code")
+        document = json.loads(first.stdout)
+        verify(document["format"] == "language-traversal" and document["direction"] == direction, f"{command} shape")
+        verify(first.stdout == run(executable, [command, *common, GRAPH_ROOT]).stdout, f"{command} determinism")
+    missing = run(executable, ["reach", *common, "nope#x", GRAPH_ROOT])
+    verify(missing.returncode == 64 and json.loads(missing.stdout)["roots"][0] == {"id": "nope#x"}, "root-not-found")
+
+
 def verify_input_errors(executable: str) -> None:
     """읽을 수 없는 프로젝트는 2로 끝나는지 확인한다.
 
@@ -132,6 +159,8 @@ def verify_input_errors(executable: str) -> None:
                .returncode == 2, "project is a file")
         missing_schema = run(executable, ["schema", "--project", str(directory / "missing")])
         verify(missing_schema.returncode == 2 and str(directory) not in missing_schema.stderr, "schema missing project")
+        missing_graph = run(executable, ["graph", "--project", str(directory / "missing")])
+        verify(missing_graph.returncode == 2 and str(directory) not in missing_graph.stderr, "graph missing project")
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -148,6 +177,7 @@ def main(argv: list[str]) -> None:
     verify_basics(executable)
     verify_routes(executable)
     verify_schema(executable)
+    verify_graph(executable)
     verify_input_errors(executable)
     sys.stdout.write("CLI contract verified: 0/2/64 (1 reserved)\n")
 
