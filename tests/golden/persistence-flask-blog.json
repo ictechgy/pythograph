@@ -1,0 +1,705 @@
+{
+  "facts": [
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 40,
+        "line": 9,
+        "path": "blog/models.py"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 23,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 39,
+        "line": 52,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 24,
+        "line": 21,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#user_posts",
+        "usr": "blog/views.py#user_posts"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 26,
+        "line": 28,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#post_detail",
+        "usr": "blog/views.py#post_detail"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 21,
+        "line": 41,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#tagged",
+        "usr": "blog/views.py#tagged"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 78,
+        "line": 47,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#authors",
+        "usr": "blog/views.py#authors"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 31,
+        "line": 54,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#retitle",
+        "usr": "blog/views.py#retitle"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 30,
+        "path": "blog/models.py"
+      },
+      "method": "author_id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 49,
+        "line": 21,
+        "path": "blog/views.py"
+      },
+      "method": "author_id",
+      "symbol": {
+        "qualifiedName": "blog/views.py#user_posts",
+        "usr": "blog/views.py#user_posts"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 28,
+        "path": "blog/models.py"
+      },
+      "method": "body",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 29,
+        "path": "blog/models.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 89,
+        "line": 21,
+        "path": "blog/views.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "blog/views.py#user_posts",
+        "usr": "blog/views.py#user_posts"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 40,
+        "line": 9,
+        "path": "blog/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 26,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 39,
+        "line": 52,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 68,
+        "line": 47,
+        "path": "blog/views.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/views.py#authors",
+        "usr": "blog/views.py#authors"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 56,
+        "line": 54,
+        "path": "blog/views.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/views.py#retitle",
+        "usr": "blog/views.py#retitle"
+      }
+    },
+    {
+      "channel": "blog_post",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 27,
+        "path": "blog/models.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 46,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 20,
+        "line": 34,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#add_comment",
+        "usr": "blog/views.py#add_comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 53,
+        "path": "blog/models.py"
+      },
+      "method": "body",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 45,
+        "line": 34,
+        "path": "blog/views.py"
+      },
+      "method": "body",
+      "symbol": {
+        "qualifiedName": "blog/views.py#add_comment",
+        "usr": "blog/views.py#add_comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 51,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 52,
+        "path": "blog/models.py"
+      },
+      "method": "post_id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Comment",
+        "usr": "blog/models.py#Comment"
+      }
+    },
+    {
+      "channel": "post_comments",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 28,
+        "line": 34,
+        "path": "blog/views.py"
+      },
+      "method": "post_id",
+      "symbol": {
+        "qualifiedName": "blog/views.py#add_comment",
+        "usr": "blog/views.py#add_comment"
+      }
+    },
+    {
+      "channel": "post_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 8,
+        "path": "blog/models.py"
+      }
+    },
+    {
+      "channel": "post_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 41,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#tagged",
+        "usr": "blog/views.py#tagged"
+      }
+    },
+    {
+      "channel": "post_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 36,
+        "line": 60,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#stats",
+        "usr": "blog/views.py#stats"
+      }
+    },
+    {
+      "channel": "post_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 15,
+        "line": 9,
+        "path": "blog/models.py"
+      },
+      "method": "post_id"
+    },
+    {
+      "channel": "post_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 15,
+        "line": 10,
+        "path": "blog/models.py"
+      },
+      "method": "tag_id"
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 39,
+        "line": 10,
+        "path": "blog/models.py"
+      }
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 39,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#Tag",
+        "usr": "blog/models.py#Tag"
+      }
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 41,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#tagged",
+        "usr": "blog/views.py#tagged"
+      }
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 39,
+        "line": 10,
+        "path": "blog/models.py"
+      },
+      "method": "id"
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 42,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Tag",
+        "usr": "blog/models.py#Tag"
+      }
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 43,
+        "path": "blog/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "blog/models.py#Tag",
+        "usr": "blog/models.py#Tag"
+      }
+    },
+    {
+      "channel": "tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 58,
+        "line": 41,
+        "path": "blog/views.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "blog/views.py#tagged",
+        "usr": "blog/views.py#tagged"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 14,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#User",
+        "usr": "blog/models.py#User"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 30,
+        "path": "blog/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 17,
+        "line": 15,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#user_by_email",
+        "usr": "blog/views.py#user_by_email"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 29,
+        "line": 47,
+        "path": "blog/views.py"
+      },
+      "symbol": {
+        "qualifiedName": "blog/views.py#authors",
+        "usr": "blog/views.py#authors"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 18,
+        "path": "blog/models.py"
+      },
+      "method": "email",
+      "symbol": {
+        "qualifiedName": "blog/models.py#User",
+        "usr": "blog/models.py#User"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 33,
+        "line": 15,
+        "path": "blog/views.py"
+      },
+      "method": "email",
+      "symbol": {
+        "qualifiedName": "blog/views.py#user_by_email",
+        "usr": "blog/views.py#user_by_email"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 17,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#User",
+        "usr": "blog/models.py#User"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 41,
+        "line": 30,
+        "path": "blog/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/models.py#BlogPost",
+        "usr": "blog/models.py#BlogPost"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 102,
+        "line": 47,
+        "path": "blog/views.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "blog/views.py#authors",
+        "usr": "blog/views.py#authors"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 19,
+        "path": "blog/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "blog/models.py#User",
+        "usr": "blog/models.py#User"
+      }
+    },
+    {
+      "channel": "user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 34,
+        "line": 47,
+        "path": "blog/views.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "blog/views.py#authors",
+        "usr": "blog/views.py#authors"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [
+    "missing-relation-usrs: 7 facts are outside any function or class",
+    "skipped-migration-sources: 1 migration files were not scanned; they describe past schemas"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "target": "persistence",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

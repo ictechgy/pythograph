@@ -1,0 +1,1710 @@
+{
+  "facts": [
+    {
+      "channel": "accounts_profile",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 13,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#Profile",
+        "usr": "accounts/models.py#Profile"
+      }
+    },
+    {
+      "channel": "accounts_profile",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 17,
+        "path": "accounts/models.py"
+      },
+      "method": "bio",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#Profile",
+        "usr": "accounts/models.py#Profile"
+      }
+    },
+    {
+      "channel": "accounts_profile",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 13,
+        "path": "accounts/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#Profile",
+        "usr": "accounts/models.py#Profile"
+      }
+    },
+    {
+      "channel": "accounts_profile",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 16,
+        "path": "accounts/models.py"
+      },
+      "method": "user_id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#Profile",
+        "usr": "accounts/models.py#Profile"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 16,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#Profile",
+        "usr": "accounts/models.py#Profile"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 21,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "pkg/sub/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "pkg/sub/models.py#Widget",
+        "usr": "pkg/sub/models.py#Widget"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "warehouse_management_system/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "date_joined",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "email",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "first_name",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "is_active",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "is_staff",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "is_superuser",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "last_login",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "last_name",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "accounts/models.py"
+      },
+      "method": "nickname",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "password",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "username",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_groups",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_groups",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "group_id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_groups",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "user_id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_user_permissions",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_user_permissions",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "permission_id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "accounts_user_user_permissions",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "method": "user_id",
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "archive.documents",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 50,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "archive.documents",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 53,
+        "path": "library/models.py"
+      },
+      "method": "body",
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "archive.documents",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 50,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "archive.documents_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 54,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "archive.documents_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 54,
+        "path": "library/models.py"
+      },
+      "method": "archiveddocument_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "archive.documents_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 54,
+        "path": "library/models.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "auth_group",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "auth_permission",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 7,
+        "path": "accounts/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "accounts/models.py#User",
+        "usr": "accounts/models.py#User"
+      }
+    },
+    {
+      "channel": "book_shelf_links",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 38,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "book_shelf_links",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 38,
+        "path": "library/models.py"
+      },
+      "method": "book_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "book_shelf_links",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 38,
+        "path": "library/models.py"
+      },
+      "method": "shelf_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "custom_label_widget",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "pkg/sub/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "pkg/sub/models.py#Widget",
+        "usr": "pkg/sub/models.py#Widget"
+      }
+    },
+    {
+      "channel": "custom_label_widget",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "pkg/sub/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "pkg/sub/models.py#Widget",
+        "usr": "pkg/sub/models.py#Widget"
+      }
+    },
+    {
+      "channel": "custom_label_widget",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 9,
+        "path": "pkg/sub/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "pkg/sub/models.py#Widget",
+        "usr": "pkg/sub/models.py#Widget"
+      }
+    },
+    {
+      "channel": "custom_label_widget",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "pkg/sub/models.py"
+      },
+      "method": "owner_id",
+      "symbol": {
+        "qualifiedName": "pkg/sub/models.py#Widget",
+        "usr": "pkg/sub/models.py#Widget"
+      }
+    },
+    {
+      "channel": "legacy_shelves",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 38,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "legacy_shelves",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 41,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Shelf",
+        "usr": "library/models.py#Shelf"
+      }
+    },
+    {
+      "channel": "legacy_shelves",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 41,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Shelf",
+        "usr": "library/models.py#Shelf"
+      }
+    },
+    {
+      "channel": "legacy_shelves",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 44,
+        "path": "library/models.py"
+      },
+      "method": "label",
+      "symbol": {
+        "qualifiedName": "library/models.py#Shelf",
+        "usr": "library/models.py#Shelf"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 17,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 35,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 36,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 21,
+        "path": "library/models.py"
+      },
+      "method": "account_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 17,
+        "path": "library/models.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 17,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 17,
+        "path": "library/models.py"
+      },
+      "method": "modified_on",
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_author",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 20,
+        "path": "library/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "library/models.py#Author",
+        "usr": "library/models.py#Author"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 114,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 117,
+        "path": "library/models.py"
+      },
+      "method": "extraordinarily_long_column_name_over_thirty",
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 114,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 118,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 118,
+        "path": "library/models.py"
+      },
+      "method": "averylongmodelnamethatwilldefinitelyexceedoracle_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_averylongmodelnamethatwilldefinitelyexceedoracle_labels",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 118,
+        "path": "library/models.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_bar",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 79,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Bar",
+        "usr": "library/models.py#Bar"
+      }
+    },
+    {
+      "channel": "library_bar",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 82,
+        "path": "library/models.py"
+      },
+      "method": "happy_hour",
+      "symbol": {
+        "qualifiedName": "library/models.py#Bar",
+        "usr": "library/models.py#Bar"
+      }
+    },
+    {
+      "channel": "library_bar",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 79,
+        "path": "library/models.py"
+      },
+      "method": "restaurant_ptr_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Bar",
+        "usr": "library/models.py#Bar"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 30,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 60,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#FeaturedBook",
+        "usr": "library/models.py#FeaturedBook"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 34,
+        "path": "library/models.py"
+      },
+      "method": "ISBN_CODE",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 35,
+        "path": "library/models.py"
+      },
+      "method": "author_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 30,
+        "path": "library/models.py"
+      },
+      "method": "created",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 36,
+        "path": "library/models.py"
+      },
+      "method": "editor_ref",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 30,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 30,
+        "path": "library/models.py"
+      },
+      "method": "modified_on",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 33,
+        "path": "library/models.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 37,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 37,
+        "path": "library/models.py"
+      },
+      "method": "book_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_book_tags",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 37,
+        "path": "library/models.py"
+      },
+      "method": "tag_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_club",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 99,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Club",
+        "usr": "library/models.py#Club"
+      }
+    },
+    {
+      "channel": "library_club",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 110,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_club",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 99,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Club",
+        "usr": "library/models.py#Club"
+      }
+    },
+    {
+      "channel": "library_club",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 102,
+        "path": "library/models.py"
+      },
+      "method": "title",
+      "symbol": {
+        "qualifiedName": "library/models.py#Club",
+        "usr": "library/models.py#Club"
+      }
+    },
+    {
+      "channel": "library_kiosk",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 85,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Kiosk",
+        "usr": "library/models.py#Kiosk"
+      }
+    },
+    {
+      "channel": "library_kiosk",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 88,
+        "path": "library/models.py"
+      },
+      "method": "base_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Kiosk",
+        "usr": "library/models.py#Kiosk"
+      }
+    },
+    {
+      "channel": "library_kiosk",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 89,
+        "path": "library/models.py"
+      },
+      "method": "number",
+      "symbol": {
+        "qualifiedName": "library/models.py#Kiosk",
+        "usr": "library/models.py#Kiosk"
+      }
+    },
+    {
+      "channel": "library_membership",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 106,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_membership",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 110,
+        "path": "library/models.py"
+      },
+      "method": "club_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_membership",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 106,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_membership",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 109,
+        "path": "library/models.py"
+      },
+      "method": "person_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_membership",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 111,
+        "path": "library/models.py"
+      },
+      "method": "since",
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 92,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 96,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 103,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Club",
+        "usr": "library/models.py#Club"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 109,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Membership",
+        "usr": "library/models.py#Membership"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 92,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 95,
+        "path": "library/models.py"
+      },
+      "method": "name",
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person_friends",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 96,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person_friends",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 96,
+        "path": "library/models.py"
+      },
+      "method": "from_person_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_person_friends",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 96,
+        "path": "library/models.py"
+      },
+      "method": "to_person_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Person",
+        "usr": "library/models.py#Person"
+      }
+    },
+    {
+      "channel": "library_place",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 67,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Place",
+        "usr": "library/models.py#Place"
+      }
+    },
+    {
+      "channel": "library_place",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 73,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Restaurant",
+        "usr": "library/models.py#Restaurant"
+      }
+    },
+    {
+      "channel": "library_place",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 88,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Kiosk",
+        "usr": "library/models.py#Kiosk"
+      }
+    },
+    {
+      "channel": "library_place",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 70,
+        "path": "library/models.py"
+      },
+      "method": "address",
+      "symbol": {
+        "qualifiedName": "library/models.py#Place",
+        "usr": "library/models.py#Place"
+      }
+    },
+    {
+      "channel": "library_place",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 67,
+        "path": "library/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Place",
+        "usr": "library/models.py#Place"
+      }
+    },
+    {
+      "channel": "library_restaurant",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 73,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Restaurant",
+        "usr": "library/models.py#Restaurant"
+      }
+    },
+    {
+      "channel": "library_restaurant",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 79,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Bar",
+        "usr": "library/models.py#Bar"
+      }
+    },
+    {
+      "channel": "library_restaurant",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 73,
+        "path": "library/models.py"
+      },
+      "method": "place_ptr_id",
+      "symbol": {
+        "qualifiedName": "library/models.py#Restaurant",
+        "usr": "library/models.py#Restaurant"
+      }
+    },
+    {
+      "channel": "library_restaurant",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 76,
+        "path": "library/models.py"
+      },
+      "method": "serves_pizza",
+      "symbol": {
+        "qualifiedName": "library/models.py#Restaurant",
+        "usr": "library/models.py#Restaurant"
+      }
+    },
+    {
+      "channel": "library_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 24,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Tag",
+        "usr": "library/models.py#Tag"
+      }
+    },
+    {
+      "channel": "library_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 37,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#Book",
+        "usr": "library/models.py#Book"
+      }
+    },
+    {
+      "channel": "library_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 54,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#ArchivedDocument",
+        "usr": "library/models.py#ArchivedDocument"
+      }
+    },
+    {
+      "channel": "library_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 118,
+        "path": "library/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle",
+        "usr": "library/models.py#AVeryLongModelNameThatWillDefinitelyExceedOracle"
+      }
+    },
+    {
+      "channel": "library_tag",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 27,
+        "path": "library/models.py"
+      },
+      "method": "slug",
+      "symbol": {
+        "qualifiedName": "library/models.py#Tag",
+        "usr": "library/models.py#Tag"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "warehouse_management_system/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 1,
+        "line": 6,
+        "path": "warehouse_management_system/models.py"
+      },
+      "method": "id",
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 9,
+        "path": "warehouse_management_system/models.py"
+      },
+      "method": "quantity",
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord_approved_by_supervisors_and_managers",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "warehouse_management_system/models.py"
+      },
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord_approved_by_supervisors_and_managers",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "warehouse_management_system/models.py"
+      },
+      "method": "inventoryadjustmentrecord_id",
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    },
+    {
+      "channel": "warehouse_management_system_inventoryadjustmentrecord_approved_by_supervisors_and_managers",
+      "dynamic": false,
+      "kind": "relation-use",
+      "location": {
+        "column": 5,
+        "line": 10,
+        "path": "warehouse_management_system/models.py"
+      },
+      "method": "user_id",
+      "symbol": {
+        "qualifiedName": "warehouse_management_system/models.py#InventoryAdjustmentRecord",
+        "usr": "warehouse_management_system/models.py#InventoryAdjustmentRecord"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [],
+  "platform": "python",
+  "project": "<project>",
+  "target": "persistence",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}
