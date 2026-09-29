@@ -232,7 +232,8 @@ class DjangoQueries:
         if isinstance(node, ast.Name):
             return self._classify_name(node, depth)
         if isinstance(node, ast.Attribute):
-            return self._member(self.classify(node.value, depth + 1), node.attr)
+            base = self.classify(node.value, depth + 1)
+            return self._module_model(node) if base is None else self._member(base, node.attr)
         if isinstance(node, ast.Call):
             return self._call_result(node, depth)
         if isinstance(node, ast.Subscript):
@@ -275,6 +276,31 @@ class DjangoQueries:
                 return InstanceRef(value.key) if isinstance(value, QuerySetRef) and not value.rows else None
             return value if binding.kind == "assign" else None
         key = self.catalog.model_for_symbol(self.symbols.resolve_name(self.scopes.path, node.id))
+        return ModelRef(key) if key is not None else None
+
+    def _module_model(self, node: ast.Attribute) -> ModelRef | None:
+        """모듈 속성으로 닿은 모델 클래스(`from app import models` 뒤의 `models.Book`)를 분류한다.
+
+        속성 사슬 맨 앞 이름을 이 함수나 바깥 함수에서 묶으면 모듈 이름을 가리므로 풀지 않는다(추측하지 않는다).
+
+        Args:
+            node: 속성 접근.
+
+        Returns:
+            모델 값 또는 None.
+        """
+        root: ast.expr = node
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return None
+        function = self.scopes.enclosing_function(root)
+        while function is not None:
+            # 바깥 함수의 지역 이름도 클로저로 모듈 이름을 가린다.
+            if self.scopes.binds_locally(function, root.id):
+                return None
+            function = self.scopes.enclosing_function(function)
+        key = self.catalog.model_for_symbol(self.symbols.resolve_expr(self.scopes.path, node))
         return ModelRef(key) if key is not None else None
 
     def _class_model(self, owner: ast.ClassDef) -> str | None:

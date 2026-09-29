@@ -692,3 +692,108 @@ def run():
     limitations = document["limitations"]
     assert isinstance(limitations, list)
     assert "skipped-sql-fragments: 2 QuerySet.extra() SQL fragments were not read" in limitations
+
+
+def test_model_forms_with_form_fields_are_not_models(make_project: MakeProject) -> None:
+    """`django.forms` 필드(`forms.CharField`)를 선언한 ModelForm은 모델이 아니라 테이블 사실을 만들지 않는다.
+
+    도그푸딩에서 폼 클래스가 모르는 기반 + `…Field` 선언으로 모델로 오인돼 없는 테이블(`app_bookdeleteform`)을
+    냈다. 폼 필드 모듈(`django.forms`, `django.contrib.postgres.forms` 등)의 클래스는 모델 필드가 아니다.
+    """
+    root = _project(make_project, "x = 1\n")
+    (root / "app" / "forms.py").write_text(
+        "from django import forms\n"
+        "from django.contrib.postgres import forms as pg_forms\n"
+        "from django.forms import fields\n\n"
+        "from app.models import Book\n\n\n"
+        "class BookDeleteForm(forms.ModelForm):\n"
+        "    confirm_title = forms.CharField(max_length=10)\n"
+        "    ranges = pg_forms.IntegerRangeField()\n"
+        "    flag = fields.BooleanField()\n\n"
+        "    class Meta:\n"
+        "        model = Book\n"
+        "        fields = []\n\n\n"
+        "class CustomField(forms.CharField):\n"
+        "    pass\n\n\n"
+        "class SearchForm(forms.Form):\n"
+        "    query = CustomField()\n"
+    )
+    document = schema_document(root)
+    channels = {row[0] for row in relation_rows(document)}
+    assert not any("form" in str(channel) for channel in channels)
+    assert not any("unknown base" in str(item) for item in document["limitations"])  # type: ignore[union-attr]
+
+
+def test_removed_installed_apps_keep_labels(make_project: MakeProject) -> None:
+    """조건부 `INSTALLED_APPS.remove(...)`는 목록을 불완전하게 만들지 않는다(설치될 수 있는 앱의 상위 집합).
+
+    도그푸딩에서 `if not DEBUG: INSTALLED_APPS.remove("debug_toolbar")`가 목록 전체를 불완전하게 만들어, 앱의
+    `models` 모듈 밖(예: `app/extra/models.py`)에 있는 모델의 라벨을 잃었다.
+    """
+    settings = """
+DEBUG = False
+INSTALLED_APPS = ["django.contrib.auth", "debug_toolbar", "app"]
+if not DEBUG:
+    INSTALLED_APPS.remove("debug_toolbar")
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}
+"""
+    root = _project(make_project, "x = 1\n", settings=settings)
+    (root / "app" / "extra").mkdir()
+    (root / "app" / "extra" / "__init__.py").write_text("")
+    (root / "app" / "extra" / "tables.py").write_text(
+        "from django.db import models\n\nclass Nested(models.Model):\n    pass\n"
+    )
+    rows = {row[:3] for row in relation_rows(schema_document(root))}
+    assert ("app_nested", None, False) in rows
+    # 무조건 remove는 적용한다: 뺀 앱의 모델은 라벨이 없다.
+    unconditional = (
+        settings.replace("if not DEBUG:\n    INSTALLED_APPS", "INSTALLED_APPS").replace(
+            '"debug_toolbar", "app"', '"debug_toolbar", "app", "gone"'
+        )
+        + 'INSTALLED_APPS.remove("gone")\n'
+    )
+    root = _project(make_project, "x = 1\n", settings=unconditional)
+    (root / "gone").mkdir()
+    (root / "gone" / "__init__.py").write_text("")
+    (root / "gone" / "models.py").write_text("from django.db import models\n\nclass Old(models.Model):\n    pass\n")
+    rows = {row[:3] for row in relation_rows(schema_document(root))}
+    assert ("gone_old", None, False) not in rows
+    assert ("app_book", None, False) in rows
+
+
+def test_models_reached_through_module_attributes(make_project: MakeProject) -> None:
+    """`from app import models` 뒤의 `models.Book.objects`처럼 모듈 속성으로 닿은 모델도 모델로 푼다.
+
+    도그푸딩에서 이 흔한 import 형태가 모두 풀리지 않아(`django.db.models`를 함께 import한 모듈은 dynamic, 아니면 사실
+    없음) 관계 사실을 잃었다. 같은 이름을 지역에서 다시 묶으면 모듈 이름을 가리므로 풀지 않는다.
+    """
+    rows = _rows(
+        make_project,
+        """
+from django.db.models import Q
+
+from app import models
+from app import models as app_models
+
+
+def run():
+    models.Book.objects.filter(title="x")
+    app_models.Author.objects.all()
+
+
+def shadowed(models):
+    return models.Tag.objects.all()
+
+
+def closure():
+    models = make_models()
+
+    def helper():
+        return models.Tag.objects.count()
+
+    return helper
+""",
+    )
+    assert {("app_book", None, False), ("app_book", "title", False), ("app_author", None, False)} <= rows
+    assert not any(row[0] == "app_tag" for row in rows)
+    assert ("models.Tag.objects", None, True) in rows

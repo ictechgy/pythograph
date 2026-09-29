@@ -53,11 +53,13 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
 | `include(arg, namespace=None)`: 모듈 이름 문자열, 모듈 객체, 패턴 목록, `(목록 또는 모듈, app_name)` 튜플. `path(…, (목록, app_name, namespace))`도 include다 | `conf.py` `include`·`_path` |
 | 함수 뷰는 모든 method를 받는다. `require_http_methods`·`require_GET`·`require_POST`·`require_safe`(GET·HEAD)가 좁힌다 | `django/views/decorators/http.py` |
 | 클래스 뷰: `http_method_names`(기본 get·post·put·patch·delete·head·options·trace) 중 핸들러가 있는 method만 받고 나머지는 405. `get`이 있고 `head`가 없으면 `head = get`. `options`는 `View.options`가 항상 받는다 | `django/views/generic/base.py` `View.setup`·`dispatch`·`options` |
-| generic view 핸들러: `TemplateView`·`ListView`·`DetailView`·날짜 뷰 get, `RedirectView` get·head·post·options·delete·put·patch, `FormView`·`CreateView`·`UpdateView` get·post·put, `DeleteView` get·post·delete | 설치 패키지에서 `hasattr`로 조사 |
+| generic view 핸들러: `TemplateView`·`ListView`·`DetailView`·날짜 뷰 get, `RedirectView` get·head·post·options·delete·put·patch, `FormView`·`CreateView`·`UpdateView` get·post·put, `DeleteView` get·post·delete. 기반 클래스 `BaseDetailView`·`BaseListView`·`Base…ArchiveView`·`BaseDateDetailView` get, `ProcessFormView`·`BaseFormView`·`BaseCreateView`·`BaseUpdateView` get·post·put, `BaseDeleteView` get·post·delete, `DeletionMixin` post·delete. 핸들러가 없는 믹스인(`SingleObjectTemplateResponseMixin`·`MultipleObjectTemplateResponseMixin`·날짜 믹스인)은 투명 | 설치 패키지에서 `hasattr`로 조사 |
+| `django.contrib.auth.views`: `LoginView`·`PasswordChangeView`·`PasswordResetView`·`PasswordResetConfirmView` get·post·put, `PasswordChangeDoneView`·`PasswordResetDoneView`·`PasswordResetCompleteView` get, `LogoutView`는 `http_method_names = ["post", "options"]`라 post만(하위 클래스가 `http_method_names`를 다시 선언하면 그 값). `RedirectURLMixin`·`PasswordContextMixin`은 투명 | `django/contrib/auth/views.py`, 설치 패키지에서 `hasattr`로 조사 |
 | `APPEND_SLASH`: 경로가 맞지 않고 끝에 `/`를 붙이면 맞을 때만 `CommonMiddleware`가 301로 넘긴다(DEBUG의 POST 등은 RuntimeError). 매칭 자체는 정확하다 | `django/middleware/common.py` `should_redirect_with_slash`·`process_response` |
 | `static(prefix, view=serve)`는 `DEBUG`이고 prefix에 host가 없을 때만 `re_path(r"^<prefix>(?P<path>.*)$", serve)`를 더한다. `serve`는 method를 제한하지 않는다 | `django/conf/urls/static.py`, `django/views/static.py` |
 | `django.contrib.staticfiles`는 `DEBUG`의 `runserver`에서 `STATIC_URL` 아래 파일을 제공한다 | `django/contrib/staticfiles/handlers.py` `StaticFilesHandlerMixin` |
 | `i18n_patterns`는 언어 코드 접두사를 붙인다(설정·활성 언어에 따라 다름) | `resolvers.py` `LocalePrefixPattern` |
+| include의 경로 문자열도 앞부분을 소비하는 패턴이라, 맨 앞 include 문자열이 설정값(`path(settings.BASE_PATH, include(...))`)이면 하위 패턴은 그 알 수 없는 접두사 뒤에 붙는다 | `conf.py` `_path`, `resolvers.py` `URLResolver.resolve` |
 
 ### 사실로 바꾸는 방법
 
@@ -130,7 +132,9 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 - method: 선언한 동사에서 GET이 있으면 HEAD를 빼고, 자동 OPTIONS는 목록에 없으므로 내지 않는다. 명시한
   OPTIONS는 낸다(뷰가 직접 처리한다).
 - `Flask(...)`·`Blueprint(...)`는 모듈 수준과 함수(앱 팩토리) 안 대입에서 찾고, 이름은 반복 변수(리터럴 목록을
-  도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다.
+  도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
+  as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
+  같은 이름의 모듈 수준 import를 가린다.
 - 앱에 닿는 등록을 찾지 못한 블루프린트의 규칙은 `pathAnchor: "base"`(규칙만)와 `unresolved-route-prefix:`다.
 
 ## 한계와 스코프
@@ -151,6 +155,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |
 | i18n 접두사 | 그 아래 사실 `pathAnchor: "base"` |
+| 맨 앞 include 문자열이 리터럴이 아님(앞 조각이 빈 문자열·`re_path`의 `^`·언어 접두사뿐) | 그 조각을 떼고 하위 사실 `pathAnchor: "base"` + `unresolved-route-prefix:`. 앞에 리터럴 경로가 있으면 dynamic |
 | 프로젝트 밖 핸들러(usr 없음) | `missing-route-usrs:`(체인 전용) |
 | 파싱 실패(문법 오류·실행 중인 파이썬보다 새 문법·UTF-8 아님·4 MiB 초과), 심볼릭 링크, 순회 상한(200,000 항목, 깊이 64) | `route-coverage:` |
 | 버전 선언을 확인하지 못함 | `route-framework-version-unknown:` |

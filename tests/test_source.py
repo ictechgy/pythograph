@@ -92,6 +92,53 @@ def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> No
     assert absolute_module(module.module, None, 5) is None
 
 
+def test_star_import_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`from x import *`를 중첩해서 따라가고 `__all__`·밑줄 규칙과 외부·미확정 `*`의 가림을 지킨다.
+
+    도그푸딩에서 `from .models import *` → 패키지 `__init__`의 `from .sites import *`가 풀리지 않아 모델·뷰 이름을
+    잃었다.
+    """
+    root = make_project(
+        {
+            "pkg/__init__.py": "",
+            "pkg/models/__init__.py": "from .sites import *\nfrom .racks import *\n",
+            "pkg/models/sites.py": "__all__ = (\n    'Site',\n)\n\nclass Site:\n    pass\n\nclass Hidden:\n    pass\n",
+            "pkg/models/racks.py": "class Rack:\n    pass\n\nclass _Private:\n    pass\n",
+            "pkg/views.py": "from .models import *\n",
+            "pkg/annotated.py": "__all__: list[str] = ['Box']\n\nclass Box:\n    pass\n",
+            "pkg/grown.py": "__all__ = ['A']\n__all__ += ['B']\n\nclass A:\n    pass\n\nclass B:\n    pass\n",
+            "pkg/uses.py": "from pkg.annotated import *\nfrom pkg.grown import *\n",
+            "pkg/shadowed.py": "from pkg.models import *\nfrom os.path import *\n",
+            "pkg/local_all.py": (
+                "__all__ = ['Kept']\n\nclass Kept:\n    pass\n\n"
+                "def helper():\n    __all__ = ['x']\n    return __all__.copy()\n"
+            ),
+            "pkg/uses_local_all.py": "from pkg.local_all import *\n",
+            "pkg/cycle_a.py": "from pkg.cycle_b import *\n",
+            "pkg/cycle_b.py": "from pkg.cycle_a import *\n",
+        }
+    )
+    symbols = SymbolTable(Project.open(root))
+    site = symbols.resolve_name("pkg/views.py", "Site")
+    assert isinstance(site, ProjectSymbol)
+    assert site.path == "pkg/models/sites.py"
+    assert isinstance(symbols.resolve_name("pkg/views.py", "Rack"), ProjectSymbol)
+    assert symbols.resolve_name("pkg/views.py", "Hidden") is None
+    assert symbols.resolve_name("pkg/views.py", "_Private") is None
+    # 확정하지 못한 `__all__`(`+=`)은 이름을 가릴 수 있어 그 앞의 `*`도 따라가지 않는다.
+    assert symbols.resolve_name("pkg/uses.py", "Box") is None
+    assert isinstance(symbols.resolve_name("pkg/annotated.py", "Box"), ProjectSymbol)
+    # 외부 모듈의 `*`가 뒤에 있으면 앞의 프로젝트 이름도 가려질 수 있어 모른다.
+    assert symbols.resolve_name("pkg/shadowed.py", "Site") is None
+    assert symbols.resolve_name("pkg/cycle_a.py", "Nothing") is None
+    # 함수 안의 지역 `__all__`은 모듈의 내보내기를 흐리지 않는다.
+    assert isinstance(symbols.resolve_name("pkg/uses_local_all.py", "Kept"), ProjectSymbol)
+    assert symbols.star_blocked("pkg/shadowed.py", "Site")
+    assert symbols.star_blocked("pkg/uses.py", "Box")
+    assert not symbols.star_blocked("pkg/views.py", "len")
+    assert not symbols.star_blocked("missing.py", "x")
+
+
 def test_read_failures_and_limits(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

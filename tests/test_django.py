@@ -105,6 +105,26 @@ def test_settings_star_import_and_override(make_project: Callable[[dict[str, str
     }
 
 
+def test_settings_not_named_hints_settings_option(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """진입 파일이 설정 모듈을 이름으로 적지 않으면(.env로 정하는 경우) 사실 0건과 `--settings` 안내를 낸다.
+
+    도그푸딩에서 설정 모듈을 환경 파일로 정하는 앱이 아무 안내 없이 0건이었다.
+    """
+    root = make_project(
+        {
+            "manage.py": "from dotenv import load_dotenv\nload_dotenv()\n",
+            "site_pkg/__init__.py": "",
+            "site_pkg/settings/__init__.py": "",
+            "site_pkg/settings/base.py": SETTINGS,
+            "site_pkg/urls.py": "from django.urls import path\nurlpatterns = [path('a/', lambda r: r)]\n",
+        }
+    )
+    document = routes_document(root)
+    assert document["facts"] == []
+    assert any("--settings" in text for text in document["limitations"])  # type: ignore[union-attr]
+    assert routes_document(root, "--settings", "site_pkg.settings.base")["facts"]
+
+
 def test_missing_root_urlconf(make_project: Callable[[dict[str, str]], Path]) -> None:
     """ROOT_URLCONF를 풀지 못하면 사실 0건과 route-coverage 한계다."""
     root = _project(make_project, {}, settings="import os\nROOT_URLCONF = os.environ['X']\n")
@@ -245,6 +265,128 @@ def test_class_views(make_project: Callable[[dict[str, str]], Path]) -> None:
     assert not any(row[1] == "/manual/{}/" and row[0] == "HEAD" for row in rows)
     scoped_templates = [scope.get("templates") for scope in document["limitationScopes"]]  # type: ignore[union-attr]
     assert ["/foreign/"] in scoped_templates
+
+
+def test_auth_views(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`django.contrib.auth.views` 클래스는 Django 5.2.17의 핸들러를 쓴다(LogoutView는 http_method_names로 POST만).
+
+    도그푸딩에서 이 클래스들이 모르는 기반이라 `ANY`와 usr 없는 사실로 나왔다(오라클은 GET·POST·PUT 등만 허용).
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.contrib.auth import views as auth_views
+            from django.urls import path
+            from site_pkg import views
+            urlpatterns = [
+                path("login/", auth_views.LoginView.as_view()),
+                path("logout/", views.Logout.as_view()),
+                path("logout-get/", views.LogoutWithGet.as_view()),
+                path("reset/done/", auth_views.PasswordResetDoneView.as_view()),
+            ]
+        """,
+            "site_pkg/views.py": """
+            from django.contrib.auth.views import LogoutView
+            class Logout(LogoutView):
+                pass
+            class LogoutWithGet(LogoutView):
+                http_method_names = ["get", "post"]
+                def get(self, request):
+                    pass
+        """,
+        },
+    )
+    document = routes_document(root)
+    rows = fact_rows(document)
+    assert {
+        ("GET", "/login/", False, None),
+        ("POST", "/login/", False, None),
+        ("PUT", "/login/", False, None),
+        ("POST", "/logout/", False, "site_pkg/views.py#Logout.post"),
+        ("GET", "/logout-get/", False, "site_pkg/views.py#LogoutWithGet.get"),
+        ("POST", "/logout-get/", False, "site_pkg/views.py#LogoutWithGet.post"),
+        ("GET", "/reset/done/", False, None),
+    } == rows
+    assert not any("views accept methods" in text for text in document["limitations"])  # type: ignore[union-attr]
+
+
+def test_generic_base_views_and_template_mixins(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`BaseDetailView`·`DeletionMixin`·`SingleObjectTemplateResponseMixin` 조합도 확정한다(Django 5.2.17 조사).
+
+    도그푸딩에서 `Base…View`와 템플릿 믹스인이 표에 없어 GET을 잃고 불확정 한계가 붙었다.
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.urls import path
+            from site_pkg import views
+            urlpatterns = [path("unlock/<int:pk>/", views.Unlock.as_view()), path("gone/", views.Gone.as_view())]
+        """,
+            "site_pkg/views.py": """
+            from django.views.generic.detail import BaseDetailView, SingleObjectTemplateResponseMixin
+            from django.views.generic.edit import DeletionMixin, FormMixin
+            class Unlock(FormMixin, SingleObjectTemplateResponseMixin, BaseDetailView):
+                def post(self, request, pk):
+                    pass
+            class Gone(DeletionMixin, BaseDetailView):
+                pass
+        """,
+        },
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/unlock/{}/", False, "site_pkg/views.py#Unlock.get"),
+        ("POST", "/unlock/{}/", False, "site_pkg/views.py#Unlock.post"),
+        ("GET", "/gone/", False, "site_pkg/views.py#Gone.get"),
+        ("POST", "/gone/", False, "site_pkg/views.py#Gone.post"),
+        ("DELETE", "/gone/", False, "site_pkg/views.py#Gone.delete"),
+    }
+    assert not any("views accept methods" in text for text in document["limitations"])  # type: ignore[union-attr]
+
+
+def test_leading_dynamic_include_prefix_is_base(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """맨 앞 include의 경로 문자열이 설정값처럼 리터럴이 아니면 하위 패턴은 dynamic이 아니라 base 앵커다.
+
+    도그푸딩에서 `path(settings.BASE_PATH, include(_patterns))` 하나 때문에 모든 경로가 dynamic으로 나왔다. 앞에 리터럴
+    접두사가 있는 중간 동적 조각은 base로 표현할 수 없어 그대로 dynamic이다.
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.conf import settings
+            from django.urls import include, path
+            from site_pkg import views
+            _patterns = [
+                path("login/", views.login),
+                path("api/", include([path(views.dynamic_name(), include([path("x/", views.login)]))])),
+                path("ext/", include("thirdparty.urls")),
+            ]
+            urlpatterns = [
+                path("", include([path(settings.BASE_PATH, include(_patterns))])),
+            ]
+        """,
+            "site_pkg/views.py": "def login(request):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    facts = document["facts"]
+    login = [fact for fact in facts if fact["channel"] == "/login/"]  # type: ignore[union-attr, index]
+    assert login and login[0]["pathAnchor"] == "base" and not login[0]["dynamic"]
+    assert login[0]["order"]["index"] == 0
+    nested = [fact for fact in facts if fact["dynamic"]]  # type: ignore[union-attr, index]
+    assert len(nested) == 1
+    assert any(
+        text.startswith("unresolved-route-prefix:") and "not a literal" in text
+        for text in document["limitations"]  # type: ignore[union-attr]
+    )
+    # base 앵커 아래 불투명 include는 템플릿 접두사로 스코프를 둘 수 없다.
+    assert "limitationScopes" not in document or all(
+        scope.get("templatePrefixes") != ["/ext"]
+        for scope in document["limitationScopes"]  # type: ignore[union-attr]
+    )
 
 
 def test_drf_router_modes(make_project: Callable[[dict[str, str]], Path]) -> None:

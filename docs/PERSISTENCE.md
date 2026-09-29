@@ -65,7 +65,7 @@ GeoDjango 백엔드면 그 백엔드들이 후보다. 하나라도 모르거나 
 백엔드에서 확정할 수 없다. Oracle의 대문자 변환은 isthmus가 소문자로 접어 조인하므로 반영하지 않는다.
 
 **설정 읽기.** `INSTALLED_APPS`는 대입·`+=`·`append`·`extend`·`insert`를 순서대로 따라가고, 조건문 안의 원소도
-"설치될 수 있는 앱"으로 넣는다. 평가하지 못한 원소가 있으면 목록이 불완전하다고 보고, 그때는 알려진 앱의
+"설치될 수 있는 앱"으로 넣는다. 같은 이유로 `remove`·`pop`은 무시해 목록을 상위 집합으로 둔다. 평가하지 못한 원소가 있으면 목록이 불완전하다고 보고, 그때는 알려진 앱의
 `models` 모듈(`앱.models`, `앱.models.x`)만 그 앱에 귀속한다. 앱 라벨을 확정하지 못한 기본 이름 테이블은
 dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라벨 없이도 정적이다.
 
@@ -73,7 +73,8 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 
 값의 출처를 구문으로 증명할 때만 모델에 귀속한다(형 검사기 없음):
 
-- 모델 클래스: 모델 클래스 이름(import 포함), `get_user_model()`, 리터럴 인자의 `apps.get_model(...)`.
+- 모델 클래스: 모델 클래스 이름(import·프로젝트 모듈의 `from x import *` 포함), 모듈 속성(`from app import models` 뒤
+  `models.Book`, 맨 앞 이름을 지역에서 다시 묶으면 풀지 않는다), `get_user_model()`, 리터럴 인자의 `apps.get_model(...)`.
 - QuerySet: 매니저(`objects`·선언한 매니저·`as_manager()`·`from_queryset()()`·`_default_manager`), QuerySet 메서드
   사슬, 인스턴스의 관계 매니저(정방향 M2M, 역방향 FK·M2M), 그런 값을 대입한 지역 이름(`qs = qs.filter(...)`
   재대입은 종류를 바꾸지 않는다. 서로 다른 값을 대입한 이름은 모른다).
@@ -93,7 +94,9 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 
 풀지 못한 매니저 수신자(`model.objects`, django를 import한 모듈만)·조회식·`**` 인자, 컬럼 규칙을 확인하지 않은
 외부 필드 클래스(`django.` 밖의 `…Field`)의 선언·사용은 dynamic 사실이다. 모르는 외부 기반 클래스를 상속한 클래스는
-`django.` 필드를 선언했을 때만 모델로 본다(DRF 직렬화기의 `CharField`를 모델 필드로 오인하지 않는다).
+`django.` 필드를 선언했을 때만 모델로 본다(DRF 직렬화기의 `CharField`를 모델 필드로 오인하지 않는다). 폼 필드
+모듈(점 경로에 `forms` 조각이 있는 `django.forms.CharField`·`django.contrib.postgres.forms.…`)의 클래스는 필드가
+아니다(ModelForm·Form을 모델로 오인하지 않는다).
 
 ## SQLAlchemy·Flask-SQLAlchemy
 

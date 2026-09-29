@@ -61,7 +61,9 @@ def extract_routes(project: Project, options: RouteOptions) -> Extraction:
     else:
         extraction = Extraction()
         extraction.add_gap(
-            "route-coverage:", "no Django settings module or Flask application was found, so no routes were extracted"
+            "route-coverage:",
+            "no Django settings module or Flask application was found, so no routes were extracted; for a Django "
+            "project whose manage.py, wsgi.py, and asgi.py do not name the settings module, pass --settings <module>",
         )
     _project_gaps(project, extraction)
     return extraction

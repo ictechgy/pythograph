@@ -60,7 +60,7 @@ pythograph impact (reach와 같은 옵션)
 - 이름은 파이썬 LEGB 규칙이다: 함수 지역 → 바깥 함수(클래스 범위는 건너뛴다) → 모듈 전역 → 내장 이름. 클래스 본문은 자기
   본문 이름을 먼저 본다. `global`·`nonlocal`을 따른다.
 - 모듈 전역: 정의, import(절대·상대·`from x import y as z`, 조건문 안 포함), 모듈 속성 접근(`models.Base`), `__init__` 재수출,
-  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다 — 외부 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
+  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다. 패키지 `__init__`의 `*`를 거듭 따라가고, 대상 모듈의 리터럴 `__all__` 또는 밑줄 없는 이름만 내보낸 것으로 본다 — 외부 모듈이나 `__all__`을 확정하지 못한 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
   (`from .missing import x`)는 외부로 보지 않고 `unresolved-import`다.
 - 지역 이름은 흐름을 따지지 않는다. 한 범위에서 두 번 이상 묶이거나 반복 변수·`with … as`·예외·풀기·match 캡처로 묶인 이름은
   모르는 값(`local-value`)이다.

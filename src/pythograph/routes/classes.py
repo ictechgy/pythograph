@@ -1,7 +1,7 @@
 """클래스 기반 뷰의 정적 분석: 상속 사슬, 정의된 메서드, 클래스 속성, 알려진 프레임워크 기반 클래스.
 
-프로젝트 클래스는 소스에서, 알려진 프레임워크 클래스(Django generic view, DRF generic view·viewset·
-mixin, Flask `View`·`MethodView`)는 아래 표에서 메서드를 얻는다. 표의 값은 설치한 패키지를
+프로젝트 클래스는 소스에서, 알려진 프레임워크 클래스(Django generic view·`django.contrib.auth.views`, DRF generic
+view·viewset·mixin, Flask `View`·`MethodView`)는 아래 표에서 메서드를 얻는다. 표의 값은 설치한 패키지를
 직접 조사해 확인했다(Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3 — `docs/HTTP-ROUTES.md`).
 표에 없는 외부 기반 클래스가 있으면 메서드 집합을 확정할 수 없다(`unknown_bases`).
 """
@@ -52,6 +52,40 @@ DJANGO_VIEW_CLASSES: dict[str, _FrameworkClass] = {
     "DayArchiveView": _entry("django-view", "get", "options"),
     "TodayArchiveView": _entry("django-view", "get", "options"),
     "DateDetailView": _entry("django-view", "get", "options"),
+    "BaseDetailView": _entry("django-view", "get", "options"),
+    "BaseListView": _entry("django-view", "get", "options"),
+    "ProcessFormView": _entry("django-view", "get", "post", "put", "options"),
+    "BaseFormView": _entry("django-view", "get", "post", "put", "options"),
+    "BaseCreateView": _entry("django-view", "get", "post", "put", "options"),
+    "BaseUpdateView": _entry("django-view", "get", "post", "put", "options"),
+    "BaseDeleteView": _entry("django-view", "get", "post", "delete", "options"),
+    "BaseDateListView": _entry("django-view", "get", "options"),
+    "BaseArchiveIndexView": _entry("django-view", "get", "options"),
+    "BaseYearArchiveView": _entry("django-view", "get", "options"),
+    "BaseMonthArchiveView": _entry("django-view", "get", "options"),
+    "BaseWeekArchiveView": _entry("django-view", "get", "options"),
+    "BaseDayArchiveView": _entry("django-view", "get", "options"),
+    "BaseTodayArchiveView": _entry("django-view", "get", "options"),
+    "BaseDateDetailView": _entry("django-view", "get", "options"),
+    "DeletionMixin": _entry("mixin", "post", "delete"),
+}
+
+#: Django `django.contrib.auth.views` 클래스와 정의한(물려받은) 핸들러다. Django 5.2.17 설치본에서 `hasattr`로 조사했다.
+DJANGO_AUTH_VIEW_CLASSES: dict[str, _FrameworkClass] = {
+    "LoginView": _entry("django-view", "get", "post", "put", "options"),
+    "LogoutView": _entry("django-view", "get", "post", "options"),
+    "PasswordChangeView": _entry("django-view", "get", "post", "put", "options"),
+    "PasswordChangeDoneView": _entry("django-view", "get", "options"),
+    "PasswordResetView": _entry("django-view", "get", "post", "put", "options"),
+    "PasswordResetDoneView": _entry("django-view", "get", "options"),
+    "PasswordResetConfirmView": _entry("django-view", "get", "post", "put", "options"),
+    "PasswordResetCompleteView": _entry("django-view", "get", "options"),
+}
+
+#: 프레임워크 클래스가 선언한 `http_method_names`(외부 점 경로 → 소문자 동사)다. 사슬 앞의 프로젝트 선언이 이긴다.
+#: Django 5.2.17 `LogoutView.http_method_names = ["post", "options"]`(GET 로그아웃 제거).
+FRAMEWORK_HTTP_METHOD_NAMES: dict[str, tuple[str, ...]] = {
+    "django.contrib.auth.views.LogoutView": ("post", "options"),
 }
 
 #: 핸들러를 정의하지 않고 dispatch 등만 바꾸는 알려진 믹스인(외부 점 경로)이다.
@@ -65,6 +99,8 @@ TRANSPARENT_MIXINS = frozenset(
         "django.contrib.auth.mixins.PermissionRequiredMixin",
         "django.contrib.auth.mixins.UserPassesTestMixin",
         "django.contrib.auth.mixins.AccessMixin",
+        "django.contrib.auth.views.RedirectURLMixin",
+        "django.contrib.auth.views.PasswordContextMixin",
         "django.contrib.messages.views.SuccessMessageMixin",
         "django.views.generic.base.ContextMixin",
         "django.views.generic.base.TemplateResponseMixin",
@@ -72,6 +108,13 @@ TRANSPARENT_MIXINS = frozenset(
         "django.views.generic.list.MultipleObjectMixin",
         "django.views.generic.edit.FormMixin",
         "django.views.generic.edit.ModelFormMixin",
+        "django.views.generic.detail.SingleObjectTemplateResponseMixin",
+        "django.views.generic.list.MultipleObjectTemplateResponseMixin",
+        "django.views.generic.dates.YearMixin",
+        "django.views.generic.dates.MonthMixin",
+        "django.views.generic.dates.WeekMixin",
+        "django.views.generic.dates.DayMixin",
+        "django.views.generic.dates.DateMixin",
     }
 )
 
@@ -111,6 +154,7 @@ FLASK_CLASSES: dict[str, _FrameworkClass] = {
 #: 알려진 프레임워크 클래스를 찾을 때 허용하는 모듈 접두사다.
 _FRAMEWORK_MODULES = (
     ("django.views", DJANGO_VIEW_CLASSES),
+    ("django.contrib.auth.views", DJANGO_AUTH_VIEW_CLASSES),
     ("rest_framework", DRF_CLASSES),
     ("flask.views", FLASK_CLASSES),
     ("flask.sansio.views", FLASK_CLASSES),
@@ -281,6 +325,10 @@ def _add_external(info: ClassInfo, dotted: str) -> None:
     kind, names = known
     info.kinds.add(kind)
     info.names.update(names)
+    methods = FRAMEWORK_HTTP_METHOD_NAMES.get(dotted)
+    if methods is not None:
+        value = ast.List(elts=[ast.Constant(method) for method in methods], ctx=ast.Load())
+        info.attributes.setdefault("http_method_names", (dotted, value))
 
 
 def _add_project(symbols: SymbolTable, info: ClassInfo, symbol: ProjectSymbol) -> None:

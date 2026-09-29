@@ -30,7 +30,15 @@ from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape,
 from pythograph.routes.pattern import Unconvertible, dynamic_shape, skeleton_shapes
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import is_test_path
-from pythograph.source.symbols import ProjectSymbol, SymbolTable, ValueSymbol, is_external
+from pythograph.source.symbols import (
+    ImportBinding,
+    ProjectSymbol,
+    Symbol,
+    SymbolTable,
+    ValueSymbol,
+    absolute_module,
+    is_external,
+)
 
 #: `@X.<method>` 단축 장식자(Flask 2.0+)다.
 _SHORTCUTS = {"get": "GET", "post": "POST", "put": "PUT", "delete": "DELETE", "patch": "PATCH"}
@@ -504,6 +512,10 @@ class _Registrar:
         self.collector = collector
         self.path = path
         self.has_bom = has_bom
+        # 함수 안 import 묶음((함수 점 경로, 이름) → 묶음)이다. 앱 팩토리가 블루프린트를 함수 안에서 import하는 흔한
+        # 구조(`from app.auth import bp as auth_bp`)를 따라가려고 모은다. 모듈 수준 import는 이름 해석기가 다룬다.
+        # 값이 None이면 그 함수에서 import가 아닌 방식(대입·반복 변수 등)으로 다시 묶였다는 뜻이다(모듈 이름도 가린다).
+        self.local_imports: dict[tuple[str, str], ImportBinding | None] = {}
 
     def run(self, statements: list[ast.stmt], scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """문장 목록을 걷는다.
@@ -531,12 +543,96 @@ class _Registrar:
         elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
             self._call(statement.value, scope, loops)
         elif isinstance(statement, ast.Assign):
+            self._shadow(statement.targets, scope)
             self._assignment(statement, scope, loops)
+        elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+            self._shadow([statement.target], scope)
         elif isinstance(statement, (ast.For, ast.AsyncFor)):
+            self._shadow([statement.target], scope)
             self._loop(statement, scope, loops)
         elif isinstance(statement, (ast.If, ast.Try, ast.With)):
+            if isinstance(statement, ast.With):
+                self._shadow([item.optional_vars for item in statement.items if item.optional_vars], scope)
             for block in _blocks(statement):
                 self.run(block, scope, loops)
+        elif isinstance(statement, (ast.Import, ast.ImportFrom)) and scope:
+            self._local_import(statement, scope)
+
+    def _local_import(self, statement: ast.Import | ast.ImportFrom, scope: str) -> None:
+        """함수 안 import 문을 지역 묶음으로 기록한다(`*`와 풀 수 없는 상대 import는 건너뛴다).
+
+        Args:
+            statement: import 문.
+            scope: 함수 점 경로.
+        """
+        index = self.collector.symbols.index(self.path)
+        if index is None:
+            return
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                module = alias.name if alias.asname else alias.name.split(".")[0]
+                self.local_imports[(scope, alias.asname or module)] = ImportBinding(module, None)
+            return
+        base = absolute_module(index.module, statement.module, statement.level)
+        for alias in statement.names:
+            if base is not None and alias.name != "*":
+                self.local_imports[(scope, alias.asname or alias.name)] = ImportBinding(base, alias.name)
+
+    def _shadow(self, targets: list[ast.expr], scope: str) -> None:
+        """함수 안에서 import가 아닌 방식으로 묶은 이름을 기록한다(그 뒤로는 import 묶음·모듈 이름을 가린다).
+
+        Args:
+            targets: 대입·반복·with 대상 식.
+            scope: 함수 점 경로.
+        """
+        if not scope:
+            return
+        for target in targets:
+            for node in ast.walk(target):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    self.local_imports[(scope, node.id)] = None
+
+    def _local_binding(self, name: str, scope: str) -> ImportBinding | None | bool:
+        """함수 안 묶음을 찾는다. 안쪽 함수부터 바깥 함수로 가며 처음 묶은 범위의 것을 쓴다.
+
+        Args:
+            name: 이름.
+            scope: 함수 점 경로.
+
+        Returns:
+            import 묶음, 지역에서 import가 아닌 방식으로 묶였으면 True, 지역 묶음이 없으면 False.
+        """
+        parts = scope.split(".") if scope else []
+        for depth in range(len(parts), 0, -1):
+            key = (".".join(parts[:depth]), name)
+            if key in self.local_imports:
+                binding = self.local_imports[key]
+                return True if binding is None else binding
+        return False
+
+    def _resolve(self, node: ast.expr, scope: str) -> Symbol | None:
+        """이름·속성 식을 해석한다. 맨 앞 이름이 함수 안 import로 묶였으면 그 묶음으로만 푼다(모듈 이름을 가린다).
+
+        Args:
+            node: 이름 또는 속성 식.
+            scope: 함수 점 경로.
+
+        Returns:
+            해석 결과 또는 None.
+        """
+        if isinstance(node, ast.Attribute):
+            root: ast.expr = node
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and self._local_binding(root.id, scope) is not False:
+                return self.collector.symbols.member(self._resolve(node.value, scope), node.attr)
+        if isinstance(node, ast.Name):
+            binding = self._local_binding(node.id, scope)
+            if isinstance(binding, ImportBinding):
+                return self.collector.symbols.resolve_binding(binding)
+            if binding is True:
+                return None
+        return self.collector.symbols.resolve_expr(self.path, node)
 
     def _loop(self, statement: ast.For | ast.AsyncFor, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """리터럴 목록을 도는 반복문은 원소마다 몸체를 펼친다.
@@ -572,7 +668,7 @@ class _Registrar:
                 if found is not None:
                     return found
         if isinstance(node, (ast.Name, ast.Attribute)):
-            symbol = self.collector.symbols.resolve_expr(self.path, node)
+            symbol = self._resolve(node, scope)
             if isinstance(symbol, ValueSymbol):
                 return self.collector.objects.get((symbol.path, "", symbol.name))
         return None

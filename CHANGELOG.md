@@ -6,6 +6,12 @@
 
 ### Added
 
+- 릴리스 준비(게시는 아직 하지 않음): `.github/workflows/release.yml` 초안(`v*` 태그 push → ubuntu·macOS × Python 3.10·3.13 검증 →
+  태그·버전 대조와 sdist·wheel 빌드, 깨끗한 가상 환경의 wheel 설치·`--version`·CLI 계약 확인 → 환경 `pypi`에서 PyPI Trusted
+  Publishing 게시, 액션은 커밋 SHA 고정)과 관리자가 직접 할 절차를 적은 `RELEASING.md`.
+- `DOGFOOD.md`: 공개 앱 네 개(Django-Styleguide-Example, babybuddy, microblog, netbox)의 route 오라클 정밀도·재현율,
+  schemagraph·isthmus 조인율, 핸들러 → relation-use 도달률, 미해석 호출 분포, 실행 시간·메모리와 고친 문제.
+
 - `pythograph graph`·`reach`·`impact`: 표준 라이브러리 `ast`로 만든 파이썬 호출 그래프(`pythograph-graph` v1 스냅샷)와
   isthmus `language-traversal` v1 순회 문서(`docs/GRAPH.md`). 정점은 모듈·함수·메서드·클래스·중첩 정의와 routes가 등록
   클래스 기준으로 내는 상속 멤버 핸들러(`<클래스>.<멤버>`)이고, id는 routes·schema `symbol.usr`와 같다. 간선은 import(절대·상대·
@@ -58,8 +64,27 @@
 - 합성 fixture(`fixtures/django/drf-shop`, `fixtures/flask/blog-app`)와 오라클 하네스(`experiments/oracle/`):
   resolver 순회·DRF 라우터·Flask `url_map` 대비 정밀도 100%, 기록을 오프라인 테스트로 다시 확인한다.
 
+### Fixed
+
+- 이름 해석: 프로젝트 모듈의 `from x import *`를 패키지 `__init__`을 거쳐 거듭 따라가고 리터럴 `__all__`·밑줄 규칙을 지킨다.
+  외부·`__all__` 미확정 모듈의 `*`는 가림(그래프 `star-import`)이다. routes·schema는 별 import를 전혀 따라가지 않았고
+  그래프는 한 단계만 따라갔다.
+- schema: `django.forms` 필드(`forms.CharField` 등)를 선언한 ModelForm·Form을 모델로 오인해 없는 테이블을 내던 문제,
+  `from app import models` 뒤 `models.Book.objects`처럼 모듈 속성으로 닿은 모델을 풀지 않던 문제(바깥 함수까지 지역에서 다시
+  묶으면 풀지 않는다), 조건부 `INSTALLED_APPS.remove(...)`가 앱 목록 전체를 불완전하게 만들던 문제(무조건 `remove`는 적용).
+- routes(Django): 맨 앞 include 문자열이 설정값(`path(settings.BASE_PATH, include(...))`)이면 하위 경로가 모두 dynamic이던
+  문제 → 그 조각을 떼고 `pathAnchor: "base"`와 `unresolved-route-prefix:`. `django.contrib.auth.views` 클래스(`LogoutView`는
+  `http_method_names`로 post만)와 `Base…View`·`ProcessFormView`·`DeletionMixin`·템플릿·날짜 믹스인을 알려진 클래스 표에
+  더했다(Django 5.2.17 설치본 조사). 호출 그래프 프레임워크 표도 같은 클래스로 다시 만들어 상속 핸들러 route usr가 그래프
+  정점이 된다. 설정 모듈을 찾지 못한 한계 문구에 `--settings` 안내를 더했다.
+- routes(Flask): 앱 팩토리 안의 import(`from app.auth import bp as auth_bp`, `from . import main`)를 따라가 `register_blueprint`
+  대상과 `url_prefix`를 푼다. import 뒤 대입·반복 변수·with 대상으로 다시 묶은 이름은 풀지 않는다.
+- `graph`: 16 Mi 문자 출력 상한을 넘을 때 "isthmus rejects" 대신 상한과 `reach`/`impact` 사용을 안내한다.
+
 ### Changed
 
+- 배포 메타데이터: Python 3.10~3.13·Django·Flask·`Typing :: Typed` 분류자, Repository·Changelog URL. README의 문서 링크를
+  PyPI에서도 열리도록 절대 URL로 바꾸고, 설치 절에 PyPI 릴리스 전까지의 GitHub·wheel 설치(`uv tool install`·`pipx install`)를 적었다.
 - isthmus 공유 적합성 벡터를 `f9dcd1d`로 다시 벤더링했다(`http-dispatch.json` 추가).
 - README·`docs/HTTP-ROUTES.md`·`docs/PERSISTENCE.md`: isthmus `main`(`f9dcd1d`)이 `platform: "python"`(http
   `registration-order`, persistence, python 순회 분석)을 받는다는 호환 정보와 호출 그래프 구현을 반영했다.
