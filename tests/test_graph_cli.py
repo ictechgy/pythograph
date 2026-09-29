@@ -240,6 +240,8 @@ def test_oversized_output_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
     code, out, err = run_cli(["graph", "--project", RESOLUTION])
     assert (code, out) == (2, "")
     assert "exceed" in err
+    assert "reach/impact" in err
+    assert "isthmus rejects" not in err
 
 
 def _git(root: Path, *arguments: str) -> None:
