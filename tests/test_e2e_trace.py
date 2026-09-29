@@ -8,6 +8,8 @@
 2. 기록한 isthmus trace 출력에서 세 질문의 기대 경로(`experiments/e2e/expectations.py`)를 확인한다:
    (a) API → DB 테이블·DB 의존자, (b) API → 클라이언트 호출부 → 영향 심볼, (c) 테이블 → API → 클라이언트.
 3. 기록한 trace context가 기대 목록에서 만든 context와 같은지 확인한다.
+4. Android(Retrofit) 주문·결제 호출이 host link에 귀속돼 체인에 붙는지 확인한다. 이 기록은 kartograph `4c09d91`
+   (#122 route-call usr, #123 baseUrl 결합) 이후 판으로 만든 것이다 — 옛 판으로 다시 기록하면 여기서 실패한다.
 """
 
 from __future__ import annotations
@@ -153,6 +155,41 @@ def test_questions_a_and_b_route_selection() -> None:
 def test_question_c_relation_selection() -> None:
     """(c) 테이블 → API → 클라이언트의 기대 경로가 일치한다."""
     assert EXPECTATIONS.check_relations(_recorded("relations.trace.json")) == []
+
+
+#: Android Retrofit 호출이 붙어야 하는 route와 (호출 심볼, 깊이별 영향 심볼)이다.
+ANDROID_RETROFIT_CHAINS = {
+    ("GET", "/api/orders/{}/"): (
+        EXPECTATIONS.ANDROID["get_order"],
+        [(EXPECTATIONS.ANDROID["load"], 1), (EXPECTATIONS.ANDROID["order_refresh"], 2)],
+    ),
+    ("POST", "/api/checkout/"): (
+        EXPECTATIONS.ANDROID["checkout"],
+        [(EXPECTATIONS.ANDROID["submit"], 1), (EXPECTATIONS.ANDROID["pay"], 2)],
+    ),
+}
+
+
+def test_android_retrofit_facts_are_attributed() -> None:
+    """기록한 Android Retrofit route-call이 usr와 authority·root 앵커를 싣는다(kartograph #122·#123 이후 모양)."""
+    facts = {fact["symbol"]["usr"]: fact for fact in _recorded("android.http.json")["facts"]}
+    for usr, _ in ANDROID_RETROFIT_CHAINS.values():
+        assert facts[usr]["authority"] == "api.example.com"
+        assert facts[usr]["pathAnchor"] == "root"
+
+
+def test_android_retrofit_calls_join_chains() -> None:
+    """Android 주문·결제 호출이 체인에 붙고, 귀속되지 않아 빠진 호출 gap이 없다."""
+    routes = _recorded("routes.trace.json")
+    for (method, template), (usr, affected) in ANDROID_RETROFIT_CHAINS.items():
+        chain = next(
+            item for item in routes["chains"] if item["selector"] == {"route": {"method": method, "template": template}}
+        )
+        route = next(item for item in chain["routes"] if item["scope"] == "android->api")
+        calls = {call["call"]["symbol"]["usr"]: call["affected"] for call in route["calls"]}
+        assert sorted((hop["usr"], hop["depth"]) for hop in calls[usr]) == sorted(affected)
+    for name in ("routes.trace.json", "relations.trace.json"):
+        assert all(gap["code"] != "unattributed-calls-omitted" for gap in _recorded(name)["gaps"])
 
 
 def test_checker_detects_broken_paths() -> None:

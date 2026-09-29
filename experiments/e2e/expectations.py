@@ -46,6 +46,7 @@ def trace_contexts():
         {"method": "GET", "template": "/api/orders/{}/"},
         {"method": "POST", "template": "/api/orders/{}/cancel/"},
         {"method": "GET", "template": "/api/products/"},
+        {"method": "POST", "template": "/api/checkout/"},
     ]
     relations = [{"member": "server", "name": "store_auditentry"}, {"member": "server", "name": "store_product"}]
     base = {"format": "isthmus-trace-context", "version": 1, "members": members, "links": links}
@@ -64,8 +65,15 @@ IOS = {
     "catalog": "s:10ShopClient16CatalogViewModelC7refreshyyYaKF",
 }
 
-# Android(kartograph) 심볼이다.
+# Android(kartograph) 심볼이다. Retrofit 인터페이스 메서드의 usr와 baseUrl 결합(authority·root 템플릿)은 kartograph
+# `4c09d91`(#122·#123)부터 나온다 — 그 전 판으로 기록하면 주문·결제 호출이 host link에 귀속되지 않는다.
 ANDROID = {
+    "get_order": "method:com/example/shop/OrdersService#getOrder(I)Lretrofit2/Call;",
+    "load": "method:com/example/shop/OrderRepository#load(I)Ljava/util/Map;",
+    "order_refresh": "method:com/example/shop/OrderViewModel#refresh(I)V",
+    "checkout": "method:com/example/shop/OrdersService#checkout(Ljava/util/Map;)Lretrofit2/Call;",
+    "submit": "method:com/example/shop/CheckoutRepository#submit()Ljava/util/Map;",
+    "pay": "method:com/example/shop/CheckoutViewModel#pay()V",
     "products": "method:com/example/shop/ProductsClient#list()Ljava/lang/String;",
     "catalog": "method:com/example/shop/CatalogViewModel#refresh()V",
 }
@@ -78,7 +86,10 @@ ROUTE_EXPECTATIONS = [
         "store/views.py#OrderViewSet.retrieve",
         [("store/selectors.py#orders_for_customer", "main.store_order", None)],
         {"main.store_order": ["main.store_open_orders", "main.store_orderline"]},
-        {"ios->api": [(IOS["fetch"], [(IOS["load"], 1), (IOS["appear"], 2)])], "android->api": []},
+        {
+            "ios->api": [(IOS["fetch"], [(IOS["load"], 1), (IOS["appear"], 2)])],
+            "android->api": [(ANDROID["get_order"], [(ANDROID["load"], 1), (ANDROID["order_refresh"], 2)])],
+        },
     ),
     (
         ("POST", "/api/orders/{}/cancel/"),
@@ -118,6 +129,24 @@ ROUTE_EXPECTATIONS = [
             "android->api": [(ANDROID["products"], [(ANDROID["catalog"], 1)])],
         },
     ),
+    (
+        ("POST", "/api/checkout/"),
+        "store/views.py#CheckoutView.post",
+        [
+            (
+                "store/services.py#OrderService.place",
+                "main.store_order",
+                ["store/views.py#CheckoutView.post", "store/services.py#OrderService.place"],
+            ),
+            (
+                "store/services.py#OrderService.place",
+                "main.store_orderline",
+                ["store/views.py#CheckoutView.post", "store/services.py#OrderService.place"],
+            ),
+        ],
+        {"main.store_order": ["main.store_open_orders", "main.store_orderline"], "main.store_orderline": []},
+        {"ios->api": [], "android->api": [(ANDROID["checkout"], [(ANDROID["submit"], 1), (ANDROID["pay"], 2)])]},
+    ),
 ]
 
 # relation 선택의 기대 경로다: (relation, 핸들러, route, {scope: [(호출 심볼, [(영향 심볼, 깊이)])]}).
@@ -140,8 +169,8 @@ RELATION_EXPECTATIONS = [
 ]
 
 # 기대하는 gap 코드(개수)다. 빈 목록·gap 없음이 완전성의 증거가 아니듯, 여기 없는 gap이 생기면 원인을 확인해야 한다.
-ROUTE_GAPS = {"reach-possibly-incomplete": 2, "unattributed-calls-omitted": 3}
-RELATION_GAPS = {"non-http-entry": 3, "unattributed-calls-omitted": 2}
+ROUTE_GAPS = {"reach-possibly-incomplete": 2}
+RELATION_GAPS = {"non-http-entry": 3}
 
 
 def _gap_problems(trace, expected, label):

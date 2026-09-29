@@ -20,7 +20,7 @@
         "call"
       ],
       "roots": [
-        0
+        2
       ],
       "symbol": {
         "kind": "method",
@@ -32,10 +32,112 @@
         "usr": "method:com/example/shop/CatalogViewModel#refresh()V"
       },
       "via": "method:com/example/shop/ProductsClient#list()Ljava/lang/String;"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "line": 19,
+          "path": "src/main/kotlin/com/example/shop/Repositories.kt"
+        },
+        "qualifiedName": "com.example.shop.CheckoutRepository.submit",
+        "usr": "method:com/example/shop/CheckoutRepository#submit()Ljava/util/Map;"
+      },
+      "via": "method:com/example/shop/OrdersService#checkout(Ljava/util/Map;)Lretrofit2/Call;"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "line": 10,
+          "path": "src/main/kotlin/com/example/shop/Repositories.kt"
+        },
+        "qualifiedName": "com.example.shop.OrderRepository.load",
+        "usr": "method:com/example/shop/OrderRepository#load(I)Ljava/util/Map;"
+      },
+      "via": "method:com/example/shop/OrdersService#getOrder(I)Lretrofit2/Call;"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "line": 26,
+          "path": "src/main/kotlin/com/example/shop/ViewModels.kt"
+        },
+        "qualifiedName": "com.example.shop.CheckoutViewModel.pay",
+        "usr": "method:com/example/shop/CheckoutViewModel#pay()V"
+      },
+      "via": "method:com/example/shop/CheckoutRepository#submit()Ljava/util/Map;"
+    },
+    {
+      "depth": 2,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "line": 14,
+          "path": "src/main/kotlin/com/example/shop/ViewModels.kt"
+        },
+        "qualifiedName": "com.example.shop.OrderViewModel.refresh",
+        "usr": "method:com/example/shop/OrderViewModel#refresh(I)V"
+      },
+      "via": "method:com/example/shop/OrderRepository#load(I)Ljava/util/Map;"
     }
   ],
   "revision": "a11d000000000000000000000000000000000e2e",
   "roots": [
+    {
+      "id": "method:com/example/shop/OrdersService#getOrder(I)Lretrofit2/Call;",
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
+        },
+        "qualifiedName": "com.example.shop.OrdersService.getOrder",
+        "usr": "method:com/example/shop/OrdersService#getOrder(I)Lretrofit2/Call;"
+      }
+    },
+    {
+      "id": "method:com/example/shop/OrdersService#checkout(Ljava/util/Map;)Lretrofit2/Call;",
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "path": "src/main/kotlin/com/example/shop/OrdersService.kt"
+        },
+        "qualifiedName": "com.example.shop.OrdersService.checkout",
+        "usr": "method:com/example/shop/OrdersService#checkout(Ljava/util/Map;)Lretrofit2/Call;"
+      }
+    },
     {
       "id": "method:com/example/shop/ProductsClient#list()Ljava/lang/String;",
       "symbol": {
