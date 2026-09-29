@@ -9,6 +9,8 @@
 
 `django.`로 시작하는 외부 클래스 중 이름이 `Field`로 끝나거나 `ForeignKey`·`ForeignObject`인 것, 그리고 그것을
 상속한 프로젝트 클래스만 필드로 본다. 다른 외부 필드 클래스는 컬럼 규칙을 확인할 수 없어 `unknown` 종류다.
+폼 필드 모듈(점 경로에 `forms` 조각이 있는 `django.forms.CharField`·`django.contrib.postgres.forms.…` 등)의
+클래스는 이름이 `Field`로 끝나도 모델 필드가 아니다(`django/forms/fields.py`는 컬럼을 만들지 않는다).
 """
 
 from __future__ import annotations
@@ -29,6 +31,10 @@ _RELATION_FIELDS = {
     "OneToOneField": "o2o",
     "ManyToManyField": "m2m",
 }
+
+
+#: 폼 필드 모듈을 가리키는 점 경로 조각이다. ModelForm의 `forms.CharField`를 모델 필드로 오인하지 않기 위해 쓴다.
+_FORM_MODULE_PART = "forms"
 
 
 @dataclass(frozen=True)
@@ -101,7 +107,9 @@ def _external_field_kind(dotted: str) -> str | None:
     Returns:
         종류 또는 None.
     """
-    name = dotted.rsplit(".", 1)[-1]
+    module, _, name = dotted.rpartition(".")
+    if _FORM_MODULE_PART in module.split("."):
+        return None
     if not dotted.startswith("django."):
         return "unknown" if name.endswith("Field") else None
     if name in _RELATION_FIELDS:

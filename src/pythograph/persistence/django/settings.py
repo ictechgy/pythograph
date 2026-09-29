@@ -2,8 +2,9 @@
 
 routes의 설정 모듈 찾기(`DJANGO_SETTINGS_MODULE` 기본값, `--settings`)를 그대로 쓴다. `INSTALLED_APPS`는 무조건
 대입뿐 아니라 `+=`·`.append`·`.extend`·`.insert`와 조건문 안 변경까지 순서대로 따라간다. 조건문 안에서 더한
-앱도 "설치될 수 있는 앱"으로 넣는다(그 앱의 모델이 존재한다면 라벨은 그 앱의 것이다). 평가하지 못한 원소가
-있으면 목록이 불완전하다고 표시한다.
+앱도 "설치될 수 있는 앱"으로 넣는다(그 앱의 모델이 존재한다면 라벨은 그 앱의 것이다). 같은 이유로 조건문 안의
+`.remove`·`.pop`은 무시해 목록을 상위 집합으로 두고, 무조건 `remove`는 적용한다. 평가하지 못한 원소가 있으면 목록이
+불완전하다고 표시한다.
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ _ENGINES: dict[str, DjangoBackend] = {
     "django.contrib.gis.db.backends.mysql": MYSQL,
     "django.contrib.gis.db.backends.oracle": ORACLE,
 }
+
+
+#: 원소를 빼기만 하는 `INSTALLED_APPS` 메서드다(`list.remove`·`list.pop`).
+_REMOVING_METHODS = frozenset({"remove", "pop"})
 
 
 @dataclass
@@ -165,7 +170,7 @@ class _AppsReader:
                 # `INSTALLED_APPS, MIDDLEWARE = setup(INSTALLED_APPS, MIDDLEWARE)`는 원소를 더할 수 있다.
                 self.settings.apps_complete = False
             elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
-                self._method_call(path, statement.value)
+                self._method_call(path, statement.value, nested)
             else:
                 for block in _nested_blocks(statement):
                     self._statements(path, block, nested=True)
@@ -185,12 +190,13 @@ class _AppsReader:
         elif _targets_name(targets, "DATABASES") or any(_subscripts_name(target, "DATABASES") for target in targets):
             self.databases_changed = True
 
-    def _method_call(self, path: str, call: ast.Call) -> None:
-        """`INSTALLED_APPS.append/extend/insert(...)`를 적용한다.
+    def _method_call(self, path: str, call: ast.Call, nested: bool) -> None:
+        """`INSTALLED_APPS.append/extend/insert/remove/pop(...)`를 적용한다.
 
         Args:
             path: 모듈 경로.
             call: 호출 식.
+            nested: 조건·반복 블록 안인지.
         """
         function = call.func
         if not (
@@ -205,6 +211,25 @@ class _AppsReader:
             self._extend(path, call.args[0])
         elif function.attr == "insert" and len(call.args) == 2:
             self._extend(path, ast.List(elts=[call.args[1]], ctx=ast.Load()))
+        elif function.attr in _REMOVING_METHODS and nested:
+            # 조건부로 빼는 변경은 무시한다. 목록은 "설치될 수 있는 앱"의 상위 집합으로 남고,
+            # 뺀 앱에 모델이 있다면 라벨은 그 앱의 것이다.
+            return
+        elif function.attr == "remove" and len(call.args) == 1:
+            self._remove(path, call.args[0])
+        else:
+            self.settings.apps_complete = False
+
+    def _remove(self, path: str, node: ast.expr) -> None:
+        """무조건 `INSTALLED_APPS.remove("앱")`을 적용한다. 값을 읽지 못하면 목록을 불완전하다고 표시한다.
+
+        Args:
+            path: 모듈 경로.
+            node: 뺄 원소 식.
+        """
+        value = self.evaluator.value(path, node)
+        if isinstance(value, str) and value in self.settings.installed_apps:
+            self.settings.installed_apps.remove(value)
         else:
             self.settings.apps_complete = False
 
