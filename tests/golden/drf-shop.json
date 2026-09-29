@@ -1,0 +1,1886 @@
+{
+  "dispatch": "registration-order",
+  "facts": [
+    {
+      "channel": "/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 26,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 1
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#home",
+        "usr": "shop/views.py#home"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/^(?P<code>(?!admin)[a-z]+)/promo/$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 13,
+        "line": 45,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 50
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#promo",
+        "usr": "shop/views.py#promo"
+      }
+    },
+    {
+      "channel": "/about/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 27,
+        "path": "shop/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 2
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.TemplateView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/archive/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 13,
+        "line": 43,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 48
+      },
+      "paramConstraints": [
+        {
+          "kind": "slug",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#archive",
+        "usr": "shop/views.py#archive"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/catalog/brands/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 23,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 10
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#BrandView.get",
+        "usr": "catalog/views.py#BrandView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 17,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 4
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#item_list",
+        "usr": "catalog/views.py#item_list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 17,
+        "path": "catalog/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 4
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#item_list",
+        "usr": "catalog/views.py#item_list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/featured/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 19,
+        "path": "catalog/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 6
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#featured_items",
+        "usr": "catalog/views.py#featured_items"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 18,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 5
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#item_by_key",
+        "usr": "catalog/views.py#item_by_key"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/{}/edit/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 20,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 7
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#ItemEditView.get",
+        "usr": "catalog/views.py#ItemEditView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/items/{}/edit/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 20,
+        "path": "catalog/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 7
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#ItemEditView.post",
+        "usr": "catalog/views.py#ItemEditView.post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/limited/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 26,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 13
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#LimitedView.get",
+        "usr": "catalog/views.py#LimitedView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/products/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 21,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 8
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#ProductListView.get",
+        "usr": "catalog/views.py#ProductListView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/products/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 22,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 9
+      },
+      "paramConstraints": [
+        {
+          "kind": "uuid",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#ProductDetailView.get",
+        "usr": "catalog/views.py#ProductDetailView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/reviews/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 25,
+        "path": "catalog/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 12
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#submit_review",
+        "usr": "catalog/views.py#submit_review"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/sections/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 12,
+        "path": "catalog/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 14
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#section_detail",
+        "usr": "catalog/views.py#section_detail"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/catalog/tags/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 24,
+        "path": "catalog/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 11
+      },
+      "paramConstraints": [
+        {
+          "kind": "slug",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "catalog/views.py#tag_detail",
+        "usr": "catalog/views.py#tag_detail"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/docs/{**}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 50,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 52
+      },
+      "paramConstraints": [
+        {
+          "kind": "path",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#docs_page",
+        "usr": "shop/views.py#docs_page"
+      }
+    },
+    {
+      "channel": "/files/{}.json",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 49,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 51
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#file_json",
+        "usr": "shop/views.py#file_json"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/health/live/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 19,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 42
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#health_live",
+        "usr": "shop/views.py#health_live"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/health/ready/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 20,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 43
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#health_ready",
+        "usr": "shop/views.py#health_ready"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/inline/a/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 36,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 44
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#inline_a",
+        "usr": "shop/views.py#inline_a"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/inline/b/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 22,
+        "line": 37,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 45
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#inline_b",
+        "usr": "shop/views.py#inline_b"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/legacy/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 13,
+        "line": 42,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 47
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[0-9]{4}",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#legacy_year",
+        "usr": "shop/views.py#legacy_year"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/old-home/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "shop/urls.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 3
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.RedirectView.delete"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/old-home/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "shop/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 3
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.RedirectView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/old-home/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "shop/urls.py"
+      },
+      "method": "PATCH",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 3
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.RedirectView.patch"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/old-home/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "shop/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 3
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.RedirectView.post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/old-home/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "shop/urls.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 3
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "django.views.generic.RedirectView.put"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 13,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 38
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "rest_framework.routers.APIRootView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 13,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 39
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "rest_framework.routers.APIRootView.get"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/^carts/(?P<code>[A-Z0-9]{6})\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 16,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 33
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.retrieve",
+        "usr": "orders/views.py#CartViewSet.retrieve"
+      }
+    },
+    {
+      "channel": "/orders/api/^invoices/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 15,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 27
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#InvoiceViewSet.retrieve",
+        "usr": "orders/views.py#InvoiceViewSet.retrieve"
+      }
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.destroy",
+        "usr": "orders/views.py#OrderViewSet.destroy"
+      }
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.retrieve",
+        "usr": "orders/views.py#OrderViewSet.retrieve"
+      }
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "PATCH",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.partial_update",
+        "usr": "orders/views.py#OrderViewSet.partial_update"
+      }
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "dynamic": true,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.update",
+        "usr": "orders/views.py#OrderViewSet.update"
+      }
+    },
+    {
+      "channel": "/orders/api/carts.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 16,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 29
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.list",
+        "usr": "orders/views.py#CartViewSet.list"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/carts/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 16,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 28
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.list",
+        "usr": "orders/views.py#CartViewSet.list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/carts/recent.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 70,
+        "path": "orders/views.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 31
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.recent",
+        "usr": "orders/views.py#CartViewSet.recent"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/carts/recent/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 70,
+        "path": "orders/views.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 30
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.recent",
+        "usr": "orders/views.py#CartViewSet.recent"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/carts/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 16,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 32
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.retrieve",
+        "usr": "orders/views.py#CartViewSet.retrieve"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/carts/{}/lock.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 75,
+        "path": "orders/views.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 35
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        },
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 4
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.unlock",
+        "usr": "orders/views.py#CartViewSet.unlock"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/carts/{}/lock.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 75,
+        "path": "orders/views.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 35
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        },
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 4
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.lock",
+        "usr": "orders/views.py#CartViewSet.lock"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/carts/{}/lock/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 75,
+        "path": "orders/views.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 34
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.unlock",
+        "usr": "orders/views.py#CartViewSet.unlock"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/carts/{}/lock/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 75,
+        "path": "orders/views.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 34
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.lock",
+        "usr": "orders/views.py#CartViewSet.lock"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/carts/{}/set-price.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 65,
+        "path": "orders/views.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 37
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        },
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 4
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.set_price",
+        "usr": "orders/views.py#CartViewSet.set_price"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/carts/{}/set-price/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 6,
+        "line": 65,
+        "path": "orders/views.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 36
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[A-Z0-9]{6}",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CartViewSet.set_price",
+        "usr": "orders/views.py#CartViewSet.set_price"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/invoices.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 15,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 25
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#InvoiceViewSet.list",
+        "usr": "orders/views.py#InvoiceViewSet.list"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/invoices/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 15,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 24
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#InvoiceViewSet.list",
+        "usr": "orders/views.py#InvoiceViewSet.list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/invoices/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 15,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 26
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/.]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#InvoiceViewSet.retrieve",
+        "usr": "orders/views.py#InvoiceViewSet.retrieve"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 21
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.list",
+        "usr": "orders/views.py#OrderViewSet.list"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/orders.{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 21
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[a-z0-9]+",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.create",
+        "usr": "orders/views.py#OrderViewSet.create"
+      },
+      "trailingSlash": "optional"
+    },
+    {
+      "channel": "/orders/api/orders/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 20
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.list",
+        "usr": "orders/views.py#OrderViewSet.list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 20
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.create",
+        "usr": "orders/views.py#OrderViewSet.create"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 22
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/.]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.destroy",
+        "usr": "orders/views.py#OrderViewSet.destroy"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 22
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/.]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.retrieve",
+        "usr": "orders/views.py#OrderViewSet.retrieve"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "PATCH",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 22
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/.]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.partial_update",
+        "usr": "orders/views.py#OrderViewSet.partial_update"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 17,
+        "line": 14,
+        "path": "orders/urls.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 22
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[^/.]+",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderViewSet.update",
+        "usr": "orders/views.py#OrderViewSet.update"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 27,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 18
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineListCreate.get",
+        "usr": "orders/views.py#LineListCreate.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 27,
+        "path": "orders/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 18
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineListCreate.post",
+        "usr": "orders/views.py#LineListCreate.post"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "orders/urls.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 19
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineDetail.delete",
+        "usr": "orders/views.py#LineDetail.delete"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 19
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineDetail.get",
+        "usr": "orders/views.py#LineDetail.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "orders/urls.py"
+      },
+      "method": "PATCH",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 19
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineDetail.patch",
+        "usr": "orders/views.py#LineDetail.patch"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/lines/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 28,
+        "path": "orders/urls.py"
+      },
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 19
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#LineDetail.put",
+        "usr": "orders/views.py#LineDetail.put"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/ping/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 25,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 16
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#api_ping",
+        "usr": "orders/views.py#api_ping"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/status/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 26,
+        "path": "orders/urls.py"
+      },
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 17
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderStatusView.delete",
+        "usr": "orders/views.py#OrderStatusView.delete"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/status/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 26,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 17
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 2
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#OrderStatusView.get",
+        "usr": "orders/views.py#OrderStatusView.get"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/summary/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 24,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 15
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#order_summary",
+        "usr": "orders/views.py#order_summary"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/summary/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 24,
+        "path": "orders/urls.py"
+      },
+      "method": "POST",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 15
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#order_summary",
+        "usr": "orders/views.py#order_summary"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/v2/coupons",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 24,
+        "line": 20,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 40
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CouponViewSet.list",
+        "usr": "orders/views.py#CouponViewSet.list"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/orders/v2/coupons/{}",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 24,
+        "line": 20,
+        "path": "orders/urls.py"
+      },
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 41
+      },
+      "paramConstraints": [
+        {
+          "kind": "int",
+          "segment": 3
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "orders/views.py#CouponViewSet.retrieve",
+        "usr": "orders/views.py#CouponViewSet.retrieve"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/pages/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 25,
+        "line": 53,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 53
+      },
+      "paramConstraints": [
+        {
+          "kind": "slug",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#page_detail",
+        "usr": "shop/views.py#page_detail"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/reports/{}/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 10,
+        "line": 41,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 46
+      },
+      "paramConstraints": [
+        {
+          "kind": "regex",
+          "pattern": "[0-9]{4}",
+          "segment": 1
+        }
+      ],
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#yearly_report",
+        "usr": "shop/views.py#yearly_report"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/v1/ping/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 13,
+        "line": 44,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 49
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#ping",
+        "usr": "shop/views.py#ping"
+      },
+      "trailingSlash": "strict"
+    },
+    {
+      "channel": "/v2/ping/",
+      "dynamic": false,
+      "kind": "route-decl",
+      "location": {
+        "column": 13,
+        "line": 44,
+        "path": "shop/urls.py"
+      },
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 49
+      },
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shop/views.py#ping",
+        "usr": "shop/views.py#ping"
+      },
+      "trailingSlash": "strict"
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitationScopes": [
+    {
+      "limitationIndex": 0,
+      "templatePrefixes": [
+        "/media"
+      ]
+    },
+    {
+      "limitationIndex": 1,
+      "templatePrefixes": [
+        "/static"
+      ]
+    },
+    {
+      "limitationIndex": 2,
+      "templatePrefixes": [
+        "/admin"
+      ]
+    },
+    {
+      "limitationIndex": 5,
+      "templates": [
+        "/beta/"
+      ]
+    }
+  ],
+  "limitations": [
+    "framework-provided-routes: django.conf.urls.static serves files under a URL prefix in DEBUG",
+    "framework-provided-routes: django.contrib.staticfiles serves STATIC_URL files in DEBUG",
+    "framework-provided-routes: the Django admin site serves routes under its URL prefix",
+    "missing-route-usrs: 8 route handlers are outside the project and have no pythograph symbol id",
+    "route-coverage: 1 URL patterns are emitted as dynamic: the regular expression uses assert_not, which is not modeled",
+    "route-coverage: 1 URL patterns are registered under a condition",
+    "route-coverage: 3 URL patterns are emitted as dynamic: a path segment holds more than one parameter"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "roles": [
+    "server"
+  ],
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

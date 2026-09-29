@@ -1,0 +1,3131 @@
+{
+  "dynamicFacts": [
+    {
+      "channel": "/^(?P<code>(?!admin)[a-z]+)/promo/$",
+      "method": "ANY",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 50
+      },
+      "pathAnchor": "root",
+      "usr": "shop/views.py#promo"
+    },
+    {
+      "channel": "/orders/api/^carts/(?P<code>[A-Z0-9]{6})\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 33
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#CartViewSet.retrieve"
+    },
+    {
+      "channel": "/orders/api/^invoices/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 27
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#InvoiceViewSet.retrieve"
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "DELETE",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#OrderViewSet.destroy"
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "GET",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#OrderViewSet.retrieve"
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "PATCH",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#OrderViewSet.partial_update"
+    },
+    {
+      "channel": "/orders/api/^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
+      "method": "PUT",
+      "order": {
+        "group": "django:shop.urls",
+        "index": 23
+      },
+      "pathAnchor": "root",
+      "usr": "orders/views.py#OrderViewSet.update"
+    }
+  ],
+  "endpoints": [
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#home",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 23,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": ""
+        }
+      ],
+      "route": ""
+    },
+    {
+      "entries": [
+        {
+          "handler": "external:django.views.generic.base:TemplateView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 24,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "about/"
+        }
+      ],
+      "route": "about/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "external:django.views.generic.base:RedirectView.get",
+          "method": "GET"
+        },
+        {
+          "handler": "external:django.views.generic.base:RedirectView.post",
+          "method": "POST"
+        },
+        {
+          "handler": "external:django.views.generic.base:RedirectView.put",
+          "method": "PUT"
+        },
+        {
+          "handler": "external:django.views.generic.base:RedirectView.patch",
+          "method": "PATCH"
+        },
+        {
+          "handler": "external:django.views.generic.base:RedirectView.delete",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 25,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "old-home/"
+        }
+      ],
+      "route": "old-home/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#item_list",
+          "method": "GET"
+        },
+        {
+          "handler": "catalog/views.py#item_list",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 26,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "items/"
+        }
+      ],
+      "route": "catalog/items/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#item_by_key",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 27,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "items/<str:key>/"
+        }
+      ],
+      "route": "catalog/items/<str:key>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#featured_items",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 28,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "items/featured/"
+        }
+      ],
+      "route": "catalog/items/featured/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#ItemEditView.get",
+          "method": "GET"
+        },
+        {
+          "handler": "catalog/views.py#ItemEditView.post",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 29,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "items/<int:pk>/edit/"
+        }
+      ],
+      "route": "catalog/items/<int:pk>/edit/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#ProductListView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 30,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "products/"
+        }
+      ],
+      "route": "catalog/products/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#ProductDetailView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 31,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "products/<uuid:id>/"
+        }
+      ],
+      "route": "catalog/products/<uuid:id>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#BrandView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 32,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "brands/<name>/"
+        }
+      ],
+      "route": "catalog/brands/<name>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#tag_detail",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 33,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "tags/<slug:slug>/"
+        }
+      ],
+      "route": "catalog/tags/<slug:slug>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#submit_review",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 34,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "reviews/"
+        }
+      ],
+      "route": "catalog/reviews/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#LimitedView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 35,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "limited/"
+        }
+      ],
+      "route": "catalog/limited/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "catalog/views.py#section_detail",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 36,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "catalog/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "sections/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "<int:pk>/"
+        }
+      ],
+      "route": "catalog/sections/<int:pk>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#order_summary",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#order_summary",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 37,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "summary/"
+        }
+      ],
+      "route": "orders/summary/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#api_ping",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 38,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "ping/"
+        }
+      ],
+      "route": "orders/ping/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#OrderStatusView.get",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#OrderStatusView.delete",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 39,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "status/<int:pk>/"
+        }
+      ],
+      "route": "orders/status/<int:pk>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#LineListCreate.get",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#LineListCreate.post",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 40,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "lines/"
+        }
+      ],
+      "route": "orders/lines/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#LineDetail.get",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#LineDetail.put",
+          "method": "PUT"
+        },
+        {
+          "handler": "orders/views.py#LineDetail.patch",
+          "method": "PATCH"
+        },
+        {
+          "handler": "orders/views.py#LineDetail.delete",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 41,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "lines/<int:pk>/"
+        }
+      ],
+      "route": "orders/lines/<int:pk>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#OrderViewSet.list",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.create",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 42,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^orders/$"
+        }
+      ],
+      "route": "orders/api/orders/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#OrderViewSet.list",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.create",
+          "method": "POST"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 43,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^orders\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/orders\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#OrderViewSet.retrieve",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.update",
+          "method": "PUT"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.partial_update",
+          "method": "PATCH"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.destroy",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 44,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^orders/(?P<pk>[^/.]+)/$"
+        }
+      ],
+      "route": "orders/api/orders/(?P<pk>[^/.]+)/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#OrderViewSet.retrieve",
+          "method": "GET"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.update",
+          "method": "PUT"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.partial_update",
+          "method": "PATCH"
+        },
+        {
+          "handler": "orders/views.py#OrderViewSet.destroy",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 45,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/orders/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#InvoiceViewSet.list",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 46,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^invoices/$"
+        }
+      ],
+      "route": "orders/api/invoices/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#InvoiceViewSet.list",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 47,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^invoices\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/invoices\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#InvoiceViewSet.retrieve",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 48,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^invoices/(?P<pk>[^/.]+)/$"
+        }
+      ],
+      "route": "orders/api/invoices/(?P<pk>[^/.]+)/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#InvoiceViewSet.retrieve",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 49,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^invoices/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/invoices/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.list",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 50,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/$"
+        }
+      ],
+      "route": "orders/api/carts/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.list",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 51,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/carts\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.recent",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 52,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/recent/$"
+        }
+      ],
+      "route": "orders/api/carts/recent/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.recent",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 53,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/recent\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/carts/recent\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.retrieve",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 54,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})/$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.retrieve",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 55,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.lock",
+          "method": "PUT"
+        },
+        {
+          "handler": "orders/views.py#CartViewSet.unlock",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [],
+      "index": 56,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})/lock/$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.lock",
+          "method": "PUT"
+        },
+        {
+          "handler": "orders/views.py#CartViewSet.unlock",
+          "method": "DELETE"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 57,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})/lock\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.set_price",
+          "method": "POST"
+        }
+      ],
+      "flags": [],
+      "index": 58,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})/set-price/$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})/set-price/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CartViewSet.set_price",
+          "method": "POST"
+        }
+      ],
+      "flags": [
+        "drf-format-suffix"
+      ],
+      "index": 59,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^carts/(?P<code>[A-Z0-9]{6})/set-price\\.(?P<format>[a-z0-9]+)/?$"
+        }
+      ],
+      "route": "orders/api/carts/(?P<code>[A-Z0-9]{6})/set-price\\.(?P<format>[a-z0-9]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "external:rest_framework.routers:APIRootView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-api-root"
+      ],
+      "index": 60,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": ""
+        }
+      ],
+      "route": "orders/api/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "external:rest_framework.routers:APIRootView.get",
+          "method": "GET"
+        }
+      ],
+      "flags": [
+        "drf-api-root",
+        "drf-format-suffix"
+      ],
+      "index": 61,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "api/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "<drf_format_suffix:format>"
+        }
+      ],
+      "route": "orders/api/<drf_format_suffix:format>"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CouponViewSet.list",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 62,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "v2/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^coupons$"
+        }
+      ],
+      "route": "orders/v2/coupons$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "orders/views.py#CouponViewSet.retrieve",
+          "method": "GET"
+        }
+      ],
+      "flags": [],
+      "index": 63,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "orders/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "v2/"
+        },
+        {
+          "kind": "RegexPattern",
+          "pattern": "^coupons/(?P<pk>[0-9]+)$"
+        }
+      ],
+      "route": "orders/v2/coupons/(?P<pk>[0-9]+)$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#health_live",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 64,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "health/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "live/"
+        }
+      ],
+      "route": "health/live/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#health_ready",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 65,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "health/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "ready/"
+        }
+      ],
+      "route": "health/ready/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#inline_a",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 66,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "inline/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "a/"
+        }
+      ],
+      "route": "inline/a/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#inline_b",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 67,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "inline/"
+        },
+        {
+          "kind": "RoutePattern",
+          "pattern": "b/<int:pk>/"
+        }
+      ],
+      "route": "inline/b/<int:pk>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#yearly_report",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 68,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "reports/<yyyy:year>/"
+        }
+      ],
+      "route": "reports/<yyyy:year>/"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#legacy_year",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 69,
+      "pieces": [
+        {
+          "kind": "RegexPattern",
+          "pattern": "^legacy/(?P<year>[0-9]{4})/$"
+        }
+      ],
+      "route": "^legacy/(?P<year>[0-9]{4})/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#archive",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 70,
+      "pieces": [
+        {
+          "kind": "RegexPattern",
+          "pattern": "^archive/(?P<slug>[-a-zA-Z0-9_]+)/?$"
+        }
+      ],
+      "route": "^archive/(?P<slug>[-a-zA-Z0-9_]+)/?$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#ping",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 71,
+      "pieces": [
+        {
+          "kind": "RegexPattern",
+          "pattern": "^(?:v1|v2)/ping/$"
+        }
+      ],
+      "route": "^(?:v1|v2)/ping/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#promo",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 72,
+      "pieces": [
+        {
+          "kind": "RegexPattern",
+          "pattern": "^(?P<code>(?!admin)[a-z]+)/promo/$"
+        }
+      ],
+      "route": "^(?P<code>(?!admin)[a-z]+)/promo/$"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#file_json",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 73,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "files/<str:name>.json"
+        }
+      ],
+      "route": "files/<str:name>.json"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#docs_page",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 74,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "docs/<path:rest>"
+        }
+      ],
+      "route": "docs/<path:rest>"
+    },
+    {
+      "entries": [
+        {
+          "handler": "shop/views.py#page_detail",
+          "method": "ANY"
+        }
+      ],
+      "flags": [],
+      "index": 75,
+      "pieces": [
+        {
+          "kind": "RoutePattern",
+          "pattern": "pages/<slug:slug>/"
+        }
+      ],
+      "route": "pages/<slug:slug>/"
+    }
+  ],
+  "fixture": "drf-shop",
+  "framework": "django",
+  "limitations": [
+    "framework-provided-routes: django.conf.urls.static serves files under a URL prefix in DEBUG",
+    "framework-provided-routes: django.contrib.staticfiles serves STATIC_URL files in DEBUG",
+    "framework-provided-routes: the Django admin site serves routes under its URL prefix",
+    "missing-route-usrs: 8 route handlers are outside the project and have no pythograph symbol id",
+    "route-coverage: 1 URL patterns are emitted as dynamic: the regular expression uses assert_not, which is not modeled",
+    "route-coverage: 1 URL patterns are registered under a condition",
+    "route-coverage: 3 URL patterns are emitted as dynamic: a path segment holds more than one parameter"
+  ],
+  "probes": [
+    {
+      "fact": {
+        "channel": "/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 1
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#home"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#home",
+      "resolvedRoute": "",
+      "sample": "/",
+      "shadowedBy": null,
+      "trailingSlashOk": null,
+      "traversalIndex": 23,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/about/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 2
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:TemplateView.get",
+      "resolvedRoute": "about/",
+      "sample": "/about/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 24,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/archive/{}",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 48
+        },
+        "paramConstraints": [
+          {
+            "kind": "slug",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "shop/views.py#archive"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#archive",
+      "resolvedRoute": "^archive/(?P<slug>[-a-zA-Z0-9_]+)/?$",
+      "sample": "/archive/abc-1",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 70,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/brands/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 10
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#BrandView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#BrandView.get",
+      "resolvedRoute": "catalog/brands/<name>/",
+      "sample": "/catalog/brands/abc/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 32,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 4
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#item_list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#item_list",
+      "resolvedRoute": "catalog/items/",
+      "sample": "/catalog/items/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 26,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 4
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#item_list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#item_list",
+      "resolvedRoute": "catalog/items/",
+      "sample": "/catalog/items/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 26,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/featured/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 6
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#featured_items"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#featured_items",
+      "resolvedRoute": "catalog/items/featured/",
+      "sample": "/catalog/items/featured/",
+      "shadowedBy": "catalog/items/<str:key>/",
+      "trailingSlashOk": true,
+      "traversalIndex": 28,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 5
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#item_by_key"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#item_by_key",
+      "resolvedRoute": "catalog/items/<str:key>/",
+      "sample": "/catalog/items/abc/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 27,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/{}/edit/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 7
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#ItemEditView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#ItemEditView.get",
+      "resolvedRoute": "catalog/items/<int:pk>/edit/",
+      "sample": "/catalog/items/7/edit/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 29,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/items/{}/edit/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 7
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#ItemEditView.post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#ItemEditView.post",
+      "resolvedRoute": "catalog/items/<int:pk>/edit/",
+      "sample": "/catalog/items/7/edit/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 29,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/limited/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 13
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#LimitedView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#LimitedView.get",
+      "resolvedRoute": "catalog/limited/",
+      "sample": "/catalog/limited/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 35,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/products/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 8
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#ProductListView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#ProductListView.get",
+      "resolvedRoute": "catalog/products/",
+      "sample": "/catalog/products/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 30,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/products/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 9
+        },
+        "paramConstraints": [
+          {
+            "kind": "uuid",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#ProductDetailView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#ProductDetailView.get",
+      "resolvedRoute": "catalog/products/<uuid:id>/",
+      "sample": "/catalog/products/123e4567-e89b-12d3-a456-426614174000/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 31,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/reviews/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 12
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#submit_review"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#submit_review",
+      "resolvedRoute": "catalog/reviews/",
+      "sample": "/catalog/reviews/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 34,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/sections/{}/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 14
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#section_detail"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#section_detail",
+      "resolvedRoute": "catalog/sections/<int:pk>/",
+      "sample": "/catalog/sections/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 36,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/catalog/tags/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 11
+        },
+        "paramConstraints": [
+          {
+            "kind": "slug",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "catalog/views.py#tag_detail"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "catalog/views.py#tag_detail",
+      "resolvedRoute": "catalog/tags/<slug:slug>/",
+      "sample": "/catalog/tags/abc-1/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 33,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/docs/{**}",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 52
+        },
+        "paramConstraints": [
+          {
+            "kind": "path",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "usr": "shop/views.py#docs_page"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#docs_page",
+      "resolvedRoute": "docs/<path:rest>",
+      "sample": "/docs/a/b",
+      "shadowedBy": null,
+      "trailingSlashOk": null,
+      "traversalIndex": 74,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/files/{}.json",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 51
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#file_json"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#file_json",
+      "resolvedRoute": "files/<str:name>.json",
+      "sample": "/files/abc.json",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 73,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/health/live/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 42
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#health_live"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#health_live",
+      "resolvedRoute": "health/live/",
+      "sample": "/health/live/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 64,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/health/ready/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 43
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#health_ready"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#health_ready",
+      "resolvedRoute": "health/ready/",
+      "sample": "/health/ready/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 65,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/inline/a/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 44
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#inline_a"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#inline_a",
+      "resolvedRoute": "inline/a/",
+      "sample": "/inline/a/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 66,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/inline/b/{}/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 45
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#inline_b"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#inline_b",
+      "resolvedRoute": "inline/b/<int:pk>/",
+      "sample": "/inline/b/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 67,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/legacy/{}/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 47
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[0-9]{4}",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#legacy_year"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#legacy_year",
+      "resolvedRoute": "^legacy/(?P<year>[0-9]{4})/$",
+      "sample": "/legacy/2024/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 69,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/old-home/",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 3
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:RedirectView.delete",
+      "resolvedRoute": "old-home/",
+      "sample": "/old-home/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 25,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/old-home/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 3
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:RedirectView.get",
+      "resolvedRoute": "old-home/",
+      "sample": "/old-home/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 25,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/old-home/",
+        "method": "PATCH",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 3
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:RedirectView.patch",
+      "resolvedRoute": "old-home/",
+      "sample": "/old-home/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 25,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/old-home/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 3
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:RedirectView.post",
+      "resolvedRoute": "old-home/",
+      "sample": "/old-home/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 25,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/old-home/",
+        "method": "PUT",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 3
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:django.views.generic.base:RedirectView.put",
+      "resolvedRoute": "old-home/",
+      "sample": "/old-home/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 25,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 38
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:rest_framework.routers:APIRootView.get",
+      "resolvedRoute": "orders/api/",
+      "sample": "/orders/api/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 60,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/.{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 39
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": null
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "external:rest_framework.routers:APIRootView.get",
+      "resolvedRoute": "orders/api/<drf_format_suffix:format>",
+      "sample": "/orders/api/.abc",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 61,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts.{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 29
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#CartViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.list",
+      "resolvedRoute": "orders/api/carts\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/carts.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 51,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 28
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.list",
+      "resolvedRoute": "orders/api/carts/$",
+      "sample": "/orders/api/carts/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 50,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/recent.{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 31
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#CartViewSet.recent"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.recent",
+      "resolvedRoute": "orders/api/carts/recent\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/carts/recent.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 53,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/recent/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 30
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.recent"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.recent",
+      "resolvedRoute": "orders/api/carts/recent/$",
+      "sample": "/orders/api/carts/recent/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 52,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 32
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.retrieve"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.retrieve",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/$",
+      "sample": "/orders/api/carts/ABC123/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 54,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/lock.{}",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 35
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          },
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 4
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#CartViewSet.unlock"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.unlock",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/carts/ABC123/lock.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 57,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/lock.{}",
+        "method": "PUT",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 35
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          },
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 4
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#CartViewSet.lock"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.lock",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/carts/ABC123/lock.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 57,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/lock/",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 34
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.unlock"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.unlock",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock/$",
+      "sample": "/orders/api/carts/ABC123/lock/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 56,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/lock/",
+        "method": "PUT",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 34
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.lock"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.lock",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/lock/$",
+      "sample": "/orders/api/carts/ABC123/lock/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 56,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/set-price.{}",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 37
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          },
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 4
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#CartViewSet.set_price"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.set_price",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/set-price\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/carts/ABC123/set-price.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 59,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/carts/{}/set-price/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 36
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[A-Z0-9]{6}",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CartViewSet.set_price"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CartViewSet.set_price",
+      "resolvedRoute": "orders/api/carts/(?P<code>[A-Z0-9]{6})/set-price/$",
+      "sample": "/orders/api/carts/ABC123/set-price/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 58,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/invoices.{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 25
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#InvoiceViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#InvoiceViewSet.list",
+      "resolvedRoute": "orders/api/invoices\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/invoices.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 47,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/invoices/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 24
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#InvoiceViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#InvoiceViewSet.list",
+      "resolvedRoute": "orders/api/invoices/$",
+      "sample": "/orders/api/invoices/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 46,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/invoices/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 26
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/.]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#InvoiceViewSet.retrieve"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#InvoiceViewSet.retrieve",
+      "resolvedRoute": "orders/api/invoices/(?P<pk>[^/.]+)/$",
+      "sample": "/orders/api/invoices/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 48,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders.{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 21
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#OrderViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.list",
+      "resolvedRoute": "orders/api/orders\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/orders.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 43,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders.{}",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 21
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[a-z0-9]+",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "optional",
+        "usr": "orders/views.py#OrderViewSet.create"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.create",
+      "resolvedRoute": "orders/api/orders\\.(?P<format>[a-z0-9]+)/?$",
+      "sample": "/orders/api/orders.7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 43,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 20
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.list",
+      "resolvedRoute": "orders/api/orders/$",
+      "sample": "/orders/api/orders/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 42,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 20
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.create"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.create",
+      "resolvedRoute": "orders/api/orders/$",
+      "sample": "/orders/api/orders/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 42,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/{}/",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 22
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/.]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.destroy"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.destroy",
+      "resolvedRoute": "orders/api/orders/(?P<pk>[^/.]+)/$",
+      "sample": "/orders/api/orders/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 44,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 22
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/.]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.retrieve"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.retrieve",
+      "resolvedRoute": "orders/api/orders/(?P<pk>[^/.]+)/$",
+      "sample": "/orders/api/orders/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 44,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/{}/",
+        "method": "PATCH",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 22
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/.]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.partial_update"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.partial_update",
+      "resolvedRoute": "orders/api/orders/(?P<pk>[^/.]+)/$",
+      "sample": "/orders/api/orders/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 44,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/api/orders/{}/",
+        "method": "PUT",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 22
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[^/.]+",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderViewSet.update"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderViewSet.update",
+      "resolvedRoute": "orders/api/orders/(?P<pk>[^/.]+)/$",
+      "sample": "/orders/api/orders/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 44,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 18
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineListCreate.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineListCreate.get",
+      "resolvedRoute": "orders/lines/",
+      "sample": "/orders/lines/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 40,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 18
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineListCreate.post"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineListCreate.post",
+      "resolvedRoute": "orders/lines/",
+      "sample": "/orders/lines/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 40,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/{}/",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 19
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineDetail.delete"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineDetail.delete",
+      "resolvedRoute": "orders/lines/<int:pk>/",
+      "sample": "/orders/lines/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 41,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 19
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineDetail.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineDetail.get",
+      "resolvedRoute": "orders/lines/<int:pk>/",
+      "sample": "/orders/lines/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 41,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/{}/",
+        "method": "PATCH",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 19
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineDetail.patch"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineDetail.patch",
+      "resolvedRoute": "orders/lines/<int:pk>/",
+      "sample": "/orders/lines/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 41,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/lines/{}/",
+        "method": "PUT",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 19
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#LineDetail.put"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#LineDetail.put",
+      "resolvedRoute": "orders/lines/<int:pk>/",
+      "sample": "/orders/lines/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 41,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/ping/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 16
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#api_ping"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#api_ping",
+      "resolvedRoute": "orders/ping/",
+      "sample": "/orders/ping/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 38,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/status/{}/",
+        "method": "DELETE",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 17
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderStatusView.delete"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderStatusView.delete",
+      "resolvedRoute": "orders/status/<int:pk>/",
+      "sample": "/orders/status/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 39,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/status/{}/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 17
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 2
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#OrderStatusView.get"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#OrderStatusView.get",
+      "resolvedRoute": "orders/status/<int:pk>/",
+      "sample": "/orders/status/7/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 39,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/summary/",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 15
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#order_summary"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#order_summary",
+      "resolvedRoute": "orders/summary/",
+      "sample": "/orders/summary/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 37,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/summary/",
+        "method": "POST",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 15
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#order_summary"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#order_summary",
+      "resolvedRoute": "orders/summary/",
+      "sample": "/orders/summary/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 37,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/v2/coupons",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 40
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CouponViewSet.list"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CouponViewSet.list",
+      "resolvedRoute": "orders/v2/coupons$",
+      "sample": "/orders/v2/coupons",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 62,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/orders/v2/coupons/{}",
+        "method": "GET",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 41
+        },
+        "paramConstraints": [
+          {
+            "kind": "int",
+            "segment": 3
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "orders/views.py#CouponViewSet.retrieve"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "orders/views.py#CouponViewSet.retrieve",
+      "resolvedRoute": "orders/v2/coupons/(?P<pk>[0-9]+)$",
+      "sample": "/orders/v2/coupons/7",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 63,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/pages/{}/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 53
+        },
+        "paramConstraints": [
+          {
+            "kind": "slug",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#page_detail"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#page_detail",
+      "resolvedRoute": "pages/<slug:slug>/",
+      "sample": "/pages/abc-1/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 75,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/reports/{}/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 46
+        },
+        "paramConstraints": [
+          {
+            "kind": "regex",
+            "pattern": "[0-9]{4}",
+            "segment": 1
+          }
+        ],
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#yearly_report"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#yearly_report",
+      "resolvedRoute": "reports/<yyyy:year>/",
+      "sample": "/reports/2024/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 68,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/v1/ping/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 49
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#ping"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#ping",
+      "resolvedRoute": "^(?:v1|v2)/ping/$",
+      "sample": "/v1/ping/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 71,
+      "verified": true
+    },
+    {
+      "fact": {
+        "channel": "/v2/ping/",
+        "method": "ANY",
+        "order": {
+          "group": "django:shop.urls",
+          "index": 49
+        },
+        "pathAnchor": "root",
+        "trailingSlash": "strict",
+        "usr": "shop/views.py#ping"
+      },
+      "handlerMatches": true,
+      "methodAllowed": true,
+      "resolvedHandler": "shop/views.py#ping",
+      "resolvedRoute": "^(?:v1|v2)/ping/$",
+      "sample": "/v2/ping/",
+      "shadowedBy": null,
+      "trailingSlashOk": true,
+      "traversalIndex": 71,
+      "verified": true
+    }
+  ],
+  "skipped": {
+    "admin": 23
+  }
+}
