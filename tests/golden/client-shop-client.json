@@ -33,6 +33,22 @@
       }
     },
     {
+      "channel": null,
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 11,
+        "path": "shopclient/legacy.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/legacy.py#legacy_status",
+        "usr": "shopclient/legacy.py#legacy_status"
+      }
+    },
+    {
       "authority": "gateway.example.test",
       "channel": null,
       "channelPrefix": "/gw",
@@ -168,23 +184,6 @@
       "symbol": {
         "qualifiedName": "shopclient/legacy.py#legacy_ping",
         "usr": "shopclient/legacy.py#legacy_ping"
-      }
-    },
-    {
-      "authority": "legacy.example.test",
-      "channel": "/app/status",
-      "dynamic": false,
-      "kind": "route-call",
-      "location": {
-        "column": 10,
-        "line": 11,
-        "path": "shopclient/legacy.py"
-      },
-      "method": "GET",
-      "pathAnchor": "root",
-      "symbol": {
-        "qualifiedName": "shopclient/legacy.py#legacy_status",
-        "usr": "shopclient/legacy.py#legacy_status"
       }
     },
     {
@@ -335,7 +334,6 @@
       }
     },
     {
-      "authority": "legacy.example.test",
       "channel": "/root",
       "dynamic": false,
       "kind": "route-call",
@@ -345,7 +343,7 @@
         "path": "shopclient/legacy.py"
       },
       "method": "GET",
-      "pathAnchor": "root",
+      "pathAnchor": "base",
       "symbol": {
         "qualifiedName": "shopclient/legacy.py#legacy_root",
         "usr": "shopclient/legacy.py#legacy_root"
@@ -612,7 +610,7 @@
   "format": "bridge-facts",
   "generatedAt": "2026-01-01T00:00:00.000Z",
   "limitations": [
-    "ambiguous-base-join: 1 calls append a relative path to an unknown base by string concatenation",
+    "ambiguous-base-join: 2 calls join a path to a base URL in a way whose result cannot be proven (unknown base, '..', '//', urljoin, or an unproven library version)",
     "http-wrapper-undeclared: 2 functions pass a parameter into an HTTP request URL; declare them in an http-wrappers file to resolve their callers",
     "http-wrapper-unresolved: wrappers[3] names no Python definition in the scanned sources",
     "route-call-coverage: 1 calls use urllib3 request APIs that pythograph does not model",

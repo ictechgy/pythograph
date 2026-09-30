@@ -1,0 +1,89 @@
+{
+  "facts": [
+    {
+      "authority": "api.example.com",
+      "channel": "/api/checkout/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 32,
+        "path": "shopcli/api.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#checkout",
+        "usr": "shopcli/api.py#checkout"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/orders/{}/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 18,
+        "path": "shopcli/api.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#OrdersApi.fetch",
+        "usr": "shopcli/api.py#OrdersApi.fetch"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/orders/{}/cancel/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 22,
+        "path": "shopcli/api.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#OrdersApi.cancel",
+        "usr": "shopcli/api.py#OrdersApi.cancel"
+      }
+    },
+    {
+      "authority": "api.example.com",
+      "channel": "/api/products/",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 27,
+        "path": "shopcli/api.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#list_products",
+        "usr": "shopcli/api.py#list_products"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [],
+  "platform": "python",
+  "project": "/e2e/clients/python",
+  "roles": [
+    "client"
+  ],
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

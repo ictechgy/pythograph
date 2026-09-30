@@ -7,9 +7,9 @@
 | 라이브러리 | 요청 API | base 결합 | 점 세그먼트 |
 |---|---|---|---|
 | requests | 최상위 동사 함수·`request`, `Session`(=`session()`) 메서드 | base 없음 | 지운다(urllib3 `parse_url`) |
-| httpx | 최상위 동사 함수·`request`·`stream`, `Client`·`AsyncClient` 메서드 | `httpx-merge` | 지운다 |
-| aiohttp | `ClientSession` 메서드, 최상위 `request` | `rfc3986`(3.11+의 경로 있는 base, 끝 `/` 필수) | 지운다(yarl) |
-| urllib | `urllib.request.urlopen(url 또는 Request)` | base 없음, `urllib.parse.urljoin`은 `rfc3986` | 지우지 않는다 |
+| httpx | 최상위 동사 함수·`request`·`stream`, `Client`·`AsyncClient` 메서드 | `httpx-base-url` | 지운다 |
+| aiohttp | `ClientSession` 메서드, 최상위 `request` | `aiohttp-base-url`(버전 제약) | 지운다(yarl) |
+| urllib | `urllib.request.urlopen(url 또는 Request)` | base 없음(`urljoin`은 주장하지 않는다) | 지우지 않는다 |
 """
 
 from __future__ import annotations
@@ -21,9 +21,10 @@ from pythograph.graph.index import Definition
 from pythograph.graph.scope import Resolver
 from pythograph.graph.values import ClassValue, ExternalValue, InstanceValue, ModuleValue
 from pythograph.routes.client.compose import (
+    AIOHTTP_ABSOLUTE_BYPASS,
+    JOIN_AIOHTTP,
     JOIN_HTTPX,
-    JOIN_RFC3986,
-    JOIN_STRING,
+    JOIN_NONE,
     UNKNOWN_BASE,
     BaseUrl,
     base_from_parts,
@@ -114,13 +115,28 @@ class ClientKind:
         library: `requests`·`httpx`·`aiohttp`·`urllib`.
         style: 상대 경로 결합 방식(`JOIN_*`).
         base: base URL 판정. None이면 base가 없다(상대 URL 요청은 라이브러리가 거부한다).
-        invalid: base 설정이 라이브러리에서 오류를 낸다(aiohttp base 경로가 `/`로 끝나지 않음).
+        version: 프로젝트가 증명한 라이브러리 최소 (메이저, 마이너)(aiohttp 버전 제약용, 모르면 None).
     """
 
     library: str
     style: str
     base: BaseUrl | None = None
-    invalid: bool = False
+    version: tuple[int, int] | None = None
+
+    def absolute_allowed(self) -> bool:
+        """절대 URL 요청이 base를 건너뛰어 그대로 나가는지 본다.
+
+        aiohttp base 세션은 3.12부터 절대 URL에 base를 건너뛴다(그 전에는 assert로 실패). 경로 있는 base가 `/`로 끝나지
+        않으면 세션 생성부터 실패한다.
+
+        Returns:
+            그대로 나가면 True.
+        """
+        if self.library != "aiohttp" or self.base is None:
+            return True
+        if self.base.known and self.base.path not in ("", "/") and not self.base.path.endswith("/"):
+            return False
+        return self.version is not None and self.version >= AIOHTTP_ABSOLUTE_BYPASS
 
 
 def module_client(library: str) -> ClientKind:
@@ -132,7 +148,7 @@ def module_client(library: str) -> ClientKind:
     Returns:
         판정.
     """
-    return ClientKind(library, JOIN_STRING)
+    return ClientKind(library, JOIN_NONE)
 
 
 def is_unmodeled_call(dotted: str) -> bool:
@@ -155,7 +171,13 @@ def is_unmodeled_call(dotted: str) -> bool:
 class ClientTracker:
     """식이 가리키는 클라이언트 객체를 찾는다."""
 
-    def __init__(self, resolver: Resolver, builder: PartBuilder, base_rewritten: bool) -> None:
+    def __init__(
+        self,
+        resolver: Resolver,
+        builder: PartBuilder,
+        base_rewritten: bool,
+        aiohttp_version: tuple[int, int] | None = None,
+    ) -> None:
         """추적기를 만든다.
 
         Args:
@@ -163,10 +185,12 @@ class ClientTracker:
             builder: URL 조각 도우미.
             base_rewritten: 프로젝트가 어떤 객체의 `base_url` 속성을 대입하는지(httpx `Client.base_url` setter).
                 참이면 httpx 리터럴 base를 믿지 않는다.
+            aiohttp_version: 선언 파일이 증명한 aiohttp 최소 (메이저, 마이너)(모르면 None).
         """
         self.resolver = resolver
         self.builder = builder
         self.base_rewritten = base_rewritten
+        self.aiohttp_version = aiohttp_version
         self._attributes: dict[tuple[str, str, bool], ClientKind | None] = {}
 
     def client_of(self, scope: Definition, expr: ast.expr, depth: int = 0) -> ClientKind | None:
@@ -207,13 +231,13 @@ class ClientTracker:
         if library is None:
             return None
         if library == "requests":
-            return ClientKind("requests", JOIN_STRING)
+            return ClientKind("requests", JOIN_NONE)
         position = 0 if library == "aiohttp" else None
         base_expr, blocked = _base_argument(call, position)
         if base_expr is None:
-            return ClientKind(library, style_for(library), UNKNOWN_BASE if blocked else None)
+            return self.kind(library, UNKNOWN_BASE if blocked else None)
         if isinstance(base_expr, ast.Constant) and base_expr.value is None:
-            return ClientKind(library, style_for(library))
+            return self.kind(library, None)
         base = base_from_parts(self.builder.parts(scope, base_expr))
         return self._checked(library, base)
 
@@ -229,12 +253,20 @@ class ClientTracker:
         """
         if library == "httpx" and self.base_rewritten:
             base = UNKNOWN_BASE
-        if library == "aiohttp" and base.known:
-            path = base.path or "/"
-            if not path.endswith("/"):
-                return ClientKind(library, JOIN_RFC3986, base, invalid=True)
-            base = BaseUrl(True, path, base.authority, base.rooted)
-        return ClientKind(library, style_for(library), base)
+        return self.kind(library, base)
+
+    def kind(self, library: str, base: BaseUrl | None) -> ClientKind:
+        """라이브러리 판정을 만든다(aiohttp면 증명한 버전을 싣는다).
+
+        Args:
+            library: 라이브러리 이름.
+            base: base 판정.
+
+        Returns:
+            판정.
+        """
+        version = self.aiohttp_version if library == "aiohttp" else None
+        return ClientKind(library, style_for(library), base, version)
 
     def _name(self, scope: Definition, name: str, depth: int) -> ClientKind | None:
         """이름이 가리키는 클라이언트를 찾는다(지역 묶음 → 모듈 전역).
@@ -373,7 +405,7 @@ class ClientTracker:
         library = CLIENT_CLASSES.get(resolved.dotted) if isinstance(resolved, ExternalValue) else None
         if library is None:
             return None
-        return ClientKind(library, style_for(library), None if library == "requests" else UNKNOWN_BASE)
+        return self.kind(library, None if library == "requests" else UNKNOWN_BASE)
 
 
 def style_for(library: str) -> str:
@@ -385,7 +417,7 @@ def style_for(library: str) -> str:
     Returns:
         결합 방식 이름.
     """
-    return {"httpx": JOIN_HTTPX, "aiohttp": JOIN_RFC3986}.get(library, JOIN_STRING)
+    return {"httpx": JOIN_HTTPX, "aiohttp": JOIN_AIOHTTP}.get(library, JOIN_NONE)
 
 
 def _base_argument(call: ast.Call, position: int | None) -> tuple[ast.expr | None, bool]:
@@ -427,7 +459,7 @@ def _merge_kinds(kinds: list[ClientKind]) -> ClientKind | None:
     if all(kind == first for kind in kinds):
         return first
     if first.library == "requests":
-        return ClientKind("requests", JOIN_STRING)
+        return ClientKind("requests", JOIN_NONE)
     return ClientKind(first.library, first.style, UNKNOWN_BASE)
 
 

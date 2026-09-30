@@ -125,38 +125,114 @@ def _manifest_majors(path: str, text: str) -> list[tuple[str, int | None]]:
     Returns:
         (이름, 메이저 또는 None) 목록.
     """
+    return [(name, spec_major(spec)) for name, spec in _manifest_specs(path, text)]
+
+
+def _manifest_specs(path: str, text: str) -> list[tuple[str, str]]:
+    """선언 파일 하나에서 (패키지, 버전 지정자)를 읽는다. 잠금 파일의 정확한 버전은 `==버전`이다.
+
+    Args:
+        path: 파일 경로.
+        text: 내용.
+
+    Returns:
+        (이름, 지정자) 목록.
+    """
     name = PurePosixPath(path).name
     if name in ("uv.lock", "poetry.lock", "pdm.lock"):
-        return [(match["name"], _major(match["version"])) for match in _LOCK_PACKAGE.finditer(text)]
+        return [(match["name"], "==" + match["version"]) for match in _LOCK_PACKAGE.finditer(text)]
     if name == "Pipfile.lock":
         return _pipfile_lock(text)
-    results = [(match["name"], spec_major(match["spec"])) for match in _REQUIREMENT.finditer(text)]
+    results = [(match["name"], match["spec"]) for match in _REQUIREMENT.finditer(text)]
     if name in ("pyproject.toml", "Pipfile"):
-        results.extend((match["name"], spec_major(match["spec"])) for match in _POETRY.finditer(text))
+        results.extend((match["name"], match["spec"]) for match in _POETRY.finditer(text))
     return results
 
 
-def _pipfile_lock(text: str) -> list[tuple[str, int | None]]:
+def _pipfile_lock(text: str) -> list[tuple[str, str]]:
     """`Pipfile.lock`(JSON)의 정확한 버전을 읽는다.
 
     Args:
         text: 내용.
 
     Returns:
-        (이름, 메이저) 목록.
+        (이름, 지정자) 목록.
     """
     try:
         document = json.loads(text)
     except ValueError:
         return []
-    results: list[tuple[str, int | None]] = []
+    results: list[tuple[str, str]] = []
     for section in ("default", "develop"):
         packages = document.get(section, {}) if isinstance(document, dict) else {}
         for package, info in packages.items() if isinstance(packages, dict) else []:
             version = info.get("version") if isinstance(info, dict) else None
             if isinstance(version, str):
-                results.append((package, spec_major(version)))
+                results.append((package, version))
     return results
+
+
+def declared_minimum(project: Project, package: str) -> tuple[int, int] | None:
+    """선언 파일이 증명하는 패키지의 최소 (메이저, 마이너)를 돌려준다.
+
+    선언이 모두 하한을 가질 때만 그 하한 중 가장 낮은 것을 쓴다(`==3.14.3`, `~=3.11`, `>=3.12,<4`, poetry `^3.11`).
+    선언이 없거나 하나라도 하한이 없으면 None이다.
+
+    Args:
+        project: 분석 대상 프로젝트.
+        package: 정규화한 패키지 이름.
+
+    Returns:
+        (메이저, 마이너) 또는 None.
+    """
+    minimums: list[tuple[int, int] | None] = []
+    for path in _manifest_files(project):
+        text = project.read_text(path, MAX_MANIFEST_BYTES)
+        if text is None:
+            continue
+        minimums.extend(
+            spec_minimum(spec) for name, spec in _manifest_specs(path, text) if normalize_name(name) == package
+        )
+    if not minimums or any(item is None for item in minimums):
+        return None
+    return min(item for item in minimums if item is not None)
+
+
+def spec_minimum(spec: str) -> tuple[int, int] | None:
+    """버전 지정자의 하한 (메이저, 마이너)를 돌려준다.
+
+    Args:
+        spec: 지정자(`==3.14.3`, `>=3.11`, `~=3.12.1`, `^3.11`, `~3.11`).
+
+    Returns:
+        하한, 없으면 None.
+    """
+    text = spec.replace(" ", "")
+    if text[:1] in "^~" and text[1:2].isdigit():
+        return _major_minor(text[1:])
+    lowers = []
+    for clause in filter(None, text.split(",")):
+        match = re.match(r"(===|==|~=|>=|>)(.+)", clause)
+        if match is not None:
+            lowers.append(_major_minor(match.group(2)))
+    found = [item for item in lowers if item is not None]
+    return max(found) if found else None
+
+
+def _major_minor(version: str) -> tuple[int, int] | None:
+    """버전 문자열의 (메이저, 마이너)를 구한다(마이너가 없거나 `*`면 0).
+
+    Args:
+        version: 버전 문자열.
+
+    Returns:
+        (메이저, 마이너) 또는 None.
+    """
+    parts = version.split(".")
+    if not parts[0].isdigit():
+        return None
+    minor = parts[1] if len(parts) > 1 else "0"
+    return int(parts[0]), int(minor) if minor.isdigit() else 0
 
 
 def _major(version: str) -> int | None:

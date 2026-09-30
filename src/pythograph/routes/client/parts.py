@@ -22,7 +22,8 @@ from pythograph.graph.index import Definition
 from pythograph.graph.scope import Binding, Resolver
 from pythograph.graph.values import ClassValue, InstanceValue, ModuleValue
 from pythograph.routes.client.compose import Literal, Part, QueryTail, Value
-from pythograph.source.evaluate import Evaluator
+from pythograph.routes.client.constants import ModuleConstants
+from pythograph.routes.client.formats import Field, Piece, format_pieces, percent_pieces
 from pythograph.source.symbols import ValueSymbol
 
 #: 조각을 따라가는 최대 깊이다(순환·과도한 재귀 방지).
@@ -56,10 +57,12 @@ class AttributeWrites:
     Attributes:
         untyped: 수신자 타입을 모르는 대입의 속성 이름. 어느 클래스의 속성이든 바꿀 수 있어 값을 모른다.
         typed: (프로젝트 클래스 id, 속성 이름) — 그 클래스(또는 하위 클래스) 객체에 쓴 대입.
+        module: (모듈 경로, 이름) — 모듈 속성 대입(`constants.API_ROOT = …`). 그 이름은 상수가 아니다.
     """
 
     untyped: set[str] = field(default_factory=set)
     typed: set[tuple[str, str]] = field(default_factory=set)
+    module: set[tuple[str, str]] = field(default_factory=set)
 
     def touches(self, resolver: Resolver, owner: Definition, name: str) -> bool:
         """클래스 속성을 바깥에서 쓸 수 있는지 본다.
@@ -130,24 +133,25 @@ def _record_write(
     value = resolver.value(scope, receiver)
     if isinstance(value, (ClassValue, InstanceValue)):
         writes.typed.add((value.definition.id, name))
-    elif not isinstance(value, ModuleValue):
+    elif isinstance(value, ModuleValue):
+        writes.module.add((value.path, name))
+    else:
         writes.untyped.add(name)
 
 
 class PartBuilder:
     """URL 식을 조각으로 바꾸는 도우미."""
 
-    def __init__(self, resolver: Resolver, evaluator: Evaluator, writes: AttributeWrites) -> None:
+    def __init__(self, resolver: Resolver, writes: AttributeWrites) -> None:
         """도우미를 만든다.
 
         Args:
             resolver: 정적 값 해석기.
-            evaluator: 모듈 수준 상수 평가기.
             writes: 속성 대입 색인.
         """
         self.resolver = resolver
-        self.evaluator = evaluator
         self.writes = writes
+        self.constants = ModuleConstants(resolver.symbols, writes.module)
         self._with_items: dict[str, dict[str, list[ast.expr]]] = {}
         self._attribute_cache: dict[tuple[str, str, bool], str | None] = {}
 
@@ -170,6 +174,10 @@ class PartBuilder:
             return self._joined(scope, expr, depth)
         if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
             return self.parts(scope, expr.left, depth + 1) + self.parts(scope, expr.right, depth + 1)
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Mod):
+            return self._percent(scope, expr, depth)
+        if isinstance(expr, ast.Call):
+            return self._format(scope, expr, depth)
         if isinstance(expr, ast.Name):
             return self._name(scope, expr.id, depth)
         if isinstance(expr, ast.Attribute):
@@ -226,8 +234,7 @@ class PartBuilder:
         """
         binding = self.local_binding(scope, name)
         if binding is None:
-            text = self.evaluator.string(scope.path, ast.Name(id=name, ctx=ast.Load()))
-            return (Literal(text),) if text is not None else (Value(),)
+            return self.module_constant(scope.path, name, depth)
         if binding.kind == "param":
             return (Value(parameter=name),)
         if binding.kind != "assign" or binding.value is None:
@@ -314,9 +321,148 @@ class PartBuilder:
         if isinstance(receiver, (ClassValue, InstanceValue)):
             return self.class_attribute(receiver.definition, expr.attr, receiver.exact, depth)
         symbol = self.resolver.symbols.resolve_expr(scope.path, expr)
-        if isinstance(symbol, ValueSymbol):
-            return self.evaluator.string(symbol.path, symbol.node)
+        if isinstance(symbol, ValueSymbol) and self.constants.proven(symbol.path, symbol.name):
+            return _joined_literal(self._symbol_parts(symbol, depth))
         return None
+
+    def module_constant(self, path: str, name: str, depth: int) -> tuple[Part, ...]:
+        """모듈 전역 이름을 증명한 상수면 그 값 조각으로 바꾼다.
+
+        쓰는 모듈에서 그 이름이 한 번만 묶이고(import 포함), 정의한 모듈에서도 한 번만 묶인 상수여야 한다.
+
+        Args:
+            path: 이름을 쓰는 모듈 경로.
+            name: 이름.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플(상수가 아니면 값 조각).
+        """
+        symbol = self.resolver.symbols.resolve_name(path, name)
+        if not isinstance(symbol, ValueSymbol) or not self.constants.proven(path, name):
+            return (Value(),)
+        if not self.constants.proven(symbol.path, symbol.name):
+            return (Value(),)
+        return self._symbol_parts(symbol, depth)
+
+    def _symbol_parts(self, symbol: ValueSymbol, depth: int) -> tuple[Part, ...]:
+        """모듈 변수의 값 식을 그 모듈 범위에서 조각으로 바꾼다.
+
+        Args:
+            symbol: 모듈 변수.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플.
+        """
+        module = self.resolver.index.definitions.get(f"{symbol.path}#<module>")
+        return self.parts(module, symbol.node, depth + 1) if module is not None else (Value(),)
+
+    def _percent(self, scope: Definition, expr: ast.BinOp, depth: int) -> tuple[Part, ...]:
+        """`"…%s…" % 값` 서식을 조각으로 바꾼다.
+
+        Args:
+            scope: 범위.
+            expr: `%` 식.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플(확정하지 못하면 값 조각 하나).
+        """
+        template = expr.left.value if isinstance(expr.left, ast.Constant) else None
+        if not isinstance(template, str):
+            return (Value(),)
+        right = expr.right
+        keyed = isinstance(right, ast.Dict)
+        pieces = percent_pieces(template, keyed)
+        if pieces is None:
+            return (Value(),)
+        if isinstance(right, ast.Dict):
+            if any(key is None for key in right.keys):
+                return (Value(),)
+            named = {
+                key.value: value
+                for key, value in zip(right.keys, right.values, strict=True)
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+            return self._fill(scope, pieces, [], named, depth)
+        values = list(right.elts) if isinstance(right, ast.Tuple) else [right]
+        return self._fill(scope, pieces, values, {}, depth)
+
+    def _format(self, scope: Definition, call: ast.Call, depth: int) -> tuple[Part, ...]:
+        """`"…{}…".format(값)`을 조각으로 바꾼다. 그 밖의 호출은 값 조각이다.
+
+        Args:
+            scope: 범위.
+            call: 호출식.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플.
+        """
+        func = call.func
+        template = None
+        if isinstance(func, ast.Attribute) and func.attr == "format" and isinstance(func.value, ast.Constant):
+            template = func.value.value
+        if not isinstance(template, str) or any(isinstance(item, ast.Starred) for item in call.args):
+            return (Value(),)
+        if any(keyword.arg is None for keyword in call.keywords):
+            return (Value(),)
+        pieces = format_pieces(template)
+        if pieces is None:
+            return (Value(),)
+        named = {str(keyword.arg): keyword.value for keyword in call.keywords}
+        return self._fill(scope, pieces, list(call.args), named, depth)
+
+    def _fill(
+        self,
+        scope: Definition,
+        pieces: list[Piece],
+        positional: list[ast.expr],
+        named: dict[str, ast.expr],
+        depth: int,
+    ) -> tuple[Part, ...]:
+        """서식 조각의 값 자리를 인자 조각으로 채운다.
+
+        값을 그대로 넣는 자리의 인자는 따라간 조각(상수면 리터럴), 형식 지정자가 있는 자리는 값 조각이다. 인자를
+        찾지 못하면(서식 오류) 식 전체를 값 조각으로 본다.
+
+        Args:
+            scope: 범위.
+            pieces: 서식 조각.
+            positional: 위치 인자.
+            named: 키워드 인자.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플.
+        """
+        result: list[Part] = []
+        for piece in pieces:
+            if isinstance(piece, str):
+                result.append(Literal(piece))
+                continue
+            argument = _field_argument(piece, positional, named)
+            if argument is None:
+                return (Value(),)
+            result.extend(self.parts(scope, argument, depth + 1) if piece.plain else self._opaque(scope, argument))
+        return tuple(result)
+
+    def _opaque(self, scope: Definition, argument: ast.expr) -> tuple[Part, ...]:
+        """모양이 바뀔 수 있는 값 자리를 값 조각으로 만든다(매개변수면 이름을 남긴다).
+
+        Args:
+            scope: 범위.
+            argument: 인자 식.
+
+        Returns:
+            값 조각 하나.
+        """
+        if isinstance(argument, ast.Name):
+            binding = self.local_binding(scope, argument.id)
+            if binding is not None and binding.kind == "param":
+                return (Value(parameter=argument.id),)
+        return (Value(),)
 
     def class_attribute(self, owner: Definition, name: str, exact: bool, depth: int = 0) -> str | None:
         """클래스 속성·인스턴스 필드가 모든 대입에서 같은 리터럴이면 그 값을 돌려준다(캐시).
@@ -360,6 +506,36 @@ class PartBuilder:
                 return None
             values.add("".join(part.text for part in parts if isinstance(part, Literal)))
         return values.pop() if len(values) == 1 else None
+
+
+def _joined_literal(parts: tuple[Part, ...]) -> str | None:
+    """조각이 모두 리터럴이면 이어 붙인 문자열을 돌려준다.
+
+    Args:
+        parts: 조각.
+
+    Returns:
+        문자열 또는 None.
+    """
+    if all(isinstance(part, Literal) for part in parts):
+        return "".join(part.text for part in parts if isinstance(part, Literal))
+    return None
+
+
+def _field_argument(field: Field, positional: list[ast.expr], named: dict[str, ast.expr]) -> ast.expr | None:
+    """서식 값 자리에 들어갈 인자를 찾는다.
+
+    Args:
+        field: 값 자리.
+        positional: 위치 인자.
+        named: 키워드 인자.
+
+    Returns:
+        인자 식 또는 None.
+    """
+    if isinstance(field.key, int):
+        return positional[field.key] if field.key < len(positional) else None
+    return named.get(field.key)
 
 
 def related_classes(resolver: Resolver, owner: Definition, exact: bool) -> list[Definition]:

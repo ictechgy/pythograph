@@ -70,7 +70,11 @@ SKIPPED = {
     "dispatch.shadow": "consumer-only shadowing diagnostics",
     "framework.openapi.": "another producer (openapi)",
     "framework.spring.": "another producer (kartograph)",
+    "scope.dynamic-": "dynamicScope validation (pythograph does not emit dynamicScope yet)",
 }
+
+#: 이 생산자의 `appliesTo` 대상이다(`producer`와 `producer:pythograph`).
+PRODUCER_TARGETS = ("producer", "producer:pythograph")
 
 
 def _cases() -> list[dict[str, Any]]:
@@ -95,7 +99,7 @@ def _applicable() -> list[dict[str, Any]]:
     return [
         case
         for case in _cases()
-        if case["ruleId"] in APPLICABLE and any(target == "producer" for target in case["appliesTo"])
+        if case["ruleId"] in APPLICABLE and any(target in PRODUCER_TARGETS for target in case["appliesTo"])
     ]
 
 
@@ -123,7 +127,7 @@ def test_every_case_is_applicable_or_classified() -> None:
 
 def test_applicable_case_count() -> None:
     """실행하는 생산자 사례 수가 벤더링한 벡터와 맞는다(조용히 줄지 않게)."""
-    assert len(_applicable()) == 119
+    assert len(_applicable()) == 135
 
 
 @pytest.mark.parametrize(
@@ -248,14 +252,32 @@ def test_compose_parts(case: dict[str, Any]) -> None:
     assert result.query_tail_stripped == expect.get("queryTailStripped", False)
 
 
+def _minimum(range_text: str | None) -> tuple[int, int]:
+    """벡터의 `versionRange`(`>=3.11`)에서 최소 (메이저, 마이너)를 읽는다. 없으면 확인한 최신 버전으로 본다.
+
+    Args:
+        range_text: 버전 범위 문자열 또는 None.
+
+    Returns:
+        (메이저, 마이너).
+    """
+    if range_text is None:
+        return (3, 14)
+    major, minor = range_text.removeprefix(">=").split(".")[:2]
+    return int(major), int(minor)
+
+
 @pytest.mark.parametrize("case", _cases_for("compose.base-join"), ids=lambda case: case["id"])
 def test_compose_base_join(case: dict[str, Any]) -> None:
-    """base 결합(`rfc3986`·`slash-join`·`dio-concat`)이 벡터와 같다."""
+    """base 결합(`rfc3986`·`slash-join`·`dio-concat`·`httpx-base-url`·`aiohttp-base-url`)이 벡터와 같다.
+
+    `versionRange`가 있는 사례는 그 하한을 증명한 프로젝트로 실행한다(aiohttp 버전 제약).
+    """
     data = case["input"]
     base = UNKNOWN_BASE if data["base"] is None else base_from_parts([Literal(data["base"])])
     raw = compose_path([Literal(data["path"])]).raw
     assert raw is not None
-    composed = finish(join_path(data["join"], base, raw), False)
+    composed = finish(join_path(data["join"], base, raw, _minimum(case.get("versionRange"))), False)
     if case.get("expectDynamic"):
         assert composed.dynamic
         assert composed.ambiguous == (case.get("expectLimitation") == "ambiguous-base-join:")

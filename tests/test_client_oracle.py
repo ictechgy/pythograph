@@ -81,13 +81,14 @@ def test_golden_document() -> None:
 
 
 def test_recorded_requests_match_facts() -> None:
-    """기록한 실제 요청이 모두 사실과 맞는다(불일치·누락 0, dynamic은 세 시나리오)."""
+    """기록한 실제 요청이 모두 사실과 맞는다(불일치·누락 0, dynamic은 네 시나리오)."""
     recorded = json.loads((ORACLE / "recorded.json").read_text(encoding="utf-8"))
     rows = _load("compare").compare(recorded, _fixture_document())
     results = [row[3] for row in rows]
     assert results.count("mismatch") == 0 and results.count("missing") == 0, [row for row in rows if row[3] != "match"]
-    assert results.count("match") == 32
+    assert results.count("match") == 31
     assert {row[0] for row in rows if row[3] == "dynamic"} == {
+        "shopclient/legacy.py#legacy_status",
         "shopclient/dynamic.py#download",
         "shopclient/dynamic.py#proxy_get",
         "shopclient/dynamic.py#glued",

@@ -43,16 +43,23 @@ _WEBHOOK_AFTER_PREFIX = frozenset({"discord.com", "discordapp.com"})
 #: 고엔트로피로 보는 최소 세그먼트 길이다.
 _MASK_MIN_LENGTH = 16
 
-#: 결합 방식 이름: RFC 3986 상대 해석(aiohttp `base_url`, `urllib.parse.urljoin`).
+#: 결합 방식 이름(url-compose 벡터의 `join`): RFC 3986 5.2 상대 해석.
 JOIN_RFC3986 = "rfc3986"
-#: 결합 방식 이름: httpx `Client(base_url)`의 `_merge_url`.
-JOIN_HTTPX = "httpx-merge"
+#: 결합 방식 이름: httpx `Client(base_url=)`의 `_merge_url`(httpx 0.28.1).
+JOIN_HTTPX = "httpx-base-url"
+#: 결합 방식 이름: aiohttp `ClientSession(base_url=)`(yarl `URL.join`, 버전 제약 포함).
+JOIN_AIOHTTP = "aiohttp-base-url"
 #: 결합 방식 이름: axios류 슬래시 결합(계약 벡터 실행용).
 JOIN_SLASH = "slash-join"
 #: 결합 방식 이름: dio 단순 연결(계약 벡터 실행용).
 JOIN_DIO = "dio-concat"
-#: 결합 방식 이름: base 없이 문자열로 만든 전체 URL(requests·httpx·aiohttp 최상위 호출, urllib).
-JOIN_STRING = "string-concat"
+#: base가 없는 클라이언트(requests, 최상위 httpx·aiohttp 호출, urllib)다. 벡터 이름이 아니라 내부 표식이다.
+JOIN_NONE = "no-base"
+
+#: aiohttp가 경로 있는 base와 `/` 없는 상대 경로를 받기 시작한 버전이다.
+AIOHTTP_PATH_BASE = (3, 11)
+#: aiohttp base 세션이 절대 URL 요청에 base를 건너뛰기 시작한 버전이다.
+AIOHTTP_ABSOLUTE_BYPASS = (3, 12)
 
 
 @dataclass(frozen=True)
@@ -386,13 +393,17 @@ def _whole_segment(before: str, following: Part | None) -> bool:
     return isinstance(following, Literal) and following.text[:1] in ("/", "?", "#")
 
 
-def join_path(style: str, base: BaseUrl, path: str) -> Joined:
+def join_path(style: str, base: BaseUrl, path: str, version: tuple[int, int] | None = None) -> Joined:
     """상대 경로(원문 템플릿)를 라이브러리 결합 방식으로 base와 잇는다.
+
+    `//`로 시작하는 경로는 httpx가 host로, yarl이 절대 URL로 읽어 경로를 주장하지 않는다(dynamic +
+    `ambiguous-base-join:`).
 
     Args:
         style: `JOIN_*` 결합 방식 이름.
         base: base 판정.
         path: 원문 경로(값 자리는 `PLACEHOLDER`).
+        version: 프로젝트가 증명한 라이브러리 최소 (메이저, 마이너)(aiohttp만 쓴다, 모르면 None).
 
     Returns:
         결합 결과.
@@ -401,25 +412,37 @@ def join_path(style: str, base: BaseUrl, path: str) -> Joined:
         ValueError: 모르는 결합 방식.
     """
     if path.startswith("//"):
-        return Joined(None, "base")
+        return _ambiguous()
     if style == JOIN_RFC3986:
         return _join_rfc3986(base, path)
     if style == JOIN_HTTPX:
         return _join_httpx(base, path)
+    if style == JOIN_AIOHTTP:
+        return _join_aiohttp(base, path, version)
     if style == JOIN_SLASH:
         return _join_slash(base, path)
     if style == JOIN_DIO:
         return _join_dio(base, path)
-    if style == JOIN_STRING:
+    if style == JOIN_NONE:
         return Joined(None, "base")
     raise ValueError(f"unknown join style {style}")
 
 
-def _join_rfc3986(base: BaseUrl, path: str) -> Joined:
-    """RFC 3986 5.2 상대 해석(yarl `URL.join`, `urllib.parse.urljoin`)이다.
+def _ambiguous() -> Joined:
+    """결합 결과를 주장하지 않는 dynamic(`ambiguous-base-join:`)이다.
 
-    `/`로 시작하는 경로는 base 경로를 모두 바꾸므로 base를 몰라도 root다. 상대 경로는 base의 마지막 `/`까지에
-    붙이고 점 세그먼트를 지운다. base를 모르면 base 앵커이고, 점 세그먼트가 base 경로로 올라갈 수 있으면 dynamic이다.
+    Returns:
+        결합 결과.
+    """
+    return Joined(None, "base", ambiguous=True)
+
+
+def _join_rfc3986(base: BaseUrl, path: str) -> Joined:
+    """RFC 3986 5.2 상대 해석(5.2.2 → 5.2.3 merge → 5.2.4 점 세그먼트 제거)이다.
+
+    `/`로 시작하는 경로는 base 경로를 모두 바꾸므로 base를 몰라도 root다. 상대 경로는 base 경로의 마지막 `/`까지에
+    붙인다(경로 없는 base면 `/` 뒤). base를 모르면 base 디렉터리 뒤 꼬리(base 앵커)이고 `./`는 지운다 — `..`나 빈
+    참조는 지울 세그먼트를 몰라 주장하지 않는다.
 
     Args:
         base: base 판정.
@@ -444,6 +467,8 @@ def _join_rfc3986(base: BaseUrl, path: str) -> Joined:
 def _join_httpx(base: BaseUrl, path: str) -> Joined:
     """httpx `Client._merge_url`: base 끝에 `/`를 보장하고 경로 앞 `/`를 모두 떼어 붙인 뒤 점 세그먼트를 지운다.
 
+    `..`는 base 경로 밖으로도 나가고 가운데 `//`는 줄이지 않는다. base를 모르면 앞 `/`를 뗀 경로가 base 앵커 꼬리다.
+
     Args:
         base: base 판정.
         path: 원문 경로.
@@ -456,6 +481,30 @@ def _join_httpx(base: BaseUrl, path: str) -> Joined:
         return _unknown_relative(relative)
     prefix = base.path if base.path.endswith("/") else base.path + "/"
     return Joined(prefix + relative, _base_anchor(base), base.authority, remove_dots=True)
+
+
+def _join_aiohttp(base: BaseUrl, path: str, version: tuple[int, int] | None) -> Joined:
+    """aiohttp `ClientSession._build_url`: yarl `URL.join`(RFC 3986)에 버전 제약을 더한다.
+
+    3.8~3.10은 base가 경로 없는 origin이어야 하고 요청 경로가 `/`로 시작해야 한다(assert). 3.11부터 경로 있는 base(끝
+    `/` 필수, 아니면 세션 생성이 `ValueError`)와 `/` 없는 상대 경로를 받는다. 3.11 이상을 증명하지 못하면 그 두 경우를
+    주장하지 않는다.
+
+    Args:
+        base: base 판정.
+        path: 원문 경로.
+        version: 증명한 aiohttp 최소 (메이저, 마이너).
+
+    Returns:
+        결합 결과.
+    """
+    modern = version is not None and version >= AIOHTTP_PATH_BASE
+    has_path = base.known and base.path not in ("", "/")
+    if has_path and (not base.path.endswith("/") or not modern):
+        return _ambiguous()
+    if not path.startswith("/") and not modern:
+        return _ambiguous()
+    return _join_rfc3986(base, path)
 
 
 def _join_slash(base: BaseUrl, path: str) -> Joined:
@@ -486,15 +535,18 @@ def _join_dio(base: BaseUrl, path: str) -> Joined:
         결합 결과.
     """
     if not base.known:
-        return Joined(path, "base") if path.startswith("/") else Joined(None, "base", ambiguous=True)
+        return Joined(path, "base") if path.startswith("/") else _ambiguous()
     if not base.path and not path.startswith("/"):
-        return Joined(None, "base", ambiguous=True)
+        return _ambiguous()
     joined = (base.path + path).replace("//", "/")
     return Joined(joined, _base_anchor(base), base.authority, remove_dots=True)
 
 
 def _unknown_relative(path: str) -> Joined:
-    """base를 모르는 상대 경로를 base 앵커로 잇는다. 점 세그먼트가 있으면 base로 올라갈 수 있어 dynamic이다.
+    """base를 모르는 상대 경로를 base 앵커 꼬리로 잇는다.
+
+    `.` 세그먼트는 지운다(모르는 base 디렉터리를 바꾸지 않는다). `..`나 빈 경로는 모르는 base의 어느 세그먼트를
+    지우거나 가리키는지 알 수 없어 dynamic + `ambiguous-base-join:`이다.
 
     Args:
         path: 앞 `/` 없는 원문 경로.
@@ -502,9 +554,13 @@ def _unknown_relative(path: str) -> Joined:
     Returns:
         결합 결과.
     """
-    if any(segment in (".", "..") for segment in path.split("/")):
-        return Joined(None, "base")
-    return Joined("/" + path, "base")
+    segments = path.split("/")
+    if not path or ".." in segments:
+        return _ambiguous()
+    kept = [segment for index, segment in enumerate(segments) if segment != "." or index == len(segments) - 1]
+    if kept and kept[-1] == ".":
+        kept[-1] = ""
+    return Joined("/" + "/".join(kept), "base")
 
 
 def _base_anchor(base: BaseUrl) -> str:

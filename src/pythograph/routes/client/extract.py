@@ -18,7 +18,6 @@ from pythograph.graph.scope import Resolver
 from pythograph.graph.values import ClassValue, ExternalValue, FunctionValue, MethodValue
 from pythograph.routes.client.compose import (
     DYNAMIC_URL,
-    JOIN_RFC3986,
     UNKNOWN_BASE,
     ComposedUrl,
     Joined,
@@ -26,7 +25,6 @@ from pythograph.routes.client.compose import (
     Part,
     PathResult,
     Value,
-    base_from_parts,
     compose_path,
     finish,
     join_path,
@@ -46,7 +44,6 @@ from pythograph.routes.client.libraries import (
     ClientTracker,
     is_unmodeled_call,
     module_client,
-    style_for,
 )
 from pythograph.routes.client.model import ClientExtraction, RouteCall
 from pythograph.routes.client.parts import PartBuilder, collect_attribute_writes, own_nodes
@@ -58,7 +55,7 @@ from pythograph.routes.client.wrappers import (
     find_argument,
 )
 from pythograph.routes.django.urlconf import node_location
-from pythograph.source.evaluate import Evaluator
+from pythograph.routes.versions import declared_minimum
 from pythograph.source.project import Project, ReadFailure, is_test_path
 from pythograph.source.symbols import SymbolTable
 
@@ -105,9 +102,10 @@ def extract_client_calls(project: Project, options: ClientOptions) -> ClientExtr
     index = DefinitionIndex(project, symbols, options.include_tests)
     resolver = Resolver(index, symbols)
     writes = collect_attribute_writes(resolver)
-    builder = PartBuilder(resolver, Evaluator(symbols), writes)
+    builder = PartBuilder(resolver, writes)
     rewritten = "base_url" in writes.untyped or any(name == "base_url" for _, name in writes.typed)
-    scanner = _Scanner(resolver, builder, ClientTracker(resolver, builder, rewritten), options.wrappers)
+    tracker = ClientTracker(resolver, builder, rewritten, declared_minimum(project, "aiohttp"))
+    scanner = _Scanner(resolver, builder, tracker, options.wrappers)
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
         scanner.scan(definition)
     scanner.report(index)
@@ -206,8 +204,7 @@ class _Scanner:
         if name in UNMODELED_CLIENT_METHODS:
             self.counters.unmodeled[library] += 1
         elif name in CLIENT_METHODS and (name != "stream" or library == "httpx"):
-            base = None if library == "requests" else UNKNOWN_BASE
-            kind = ClientKind(library, style_for(library), base)
+            kind = self.tracker.kind(library, None if library == "requests" else UNKNOWN_BASE)
             self._request(scope, call, kind, CLIENT_METHODS[name])
         return True
 
@@ -303,7 +300,7 @@ class _Scanner:
         return verb if verb in _VERBS else None
 
     def _url(self, scope: Definition, expr: ast.expr, parts: tuple[Part, ...], kind: ClientKind) -> ComposedUrl:
-        """URL 식을 사실 필드로 만든다. `urllib.parse.urljoin(base, path)`는 RFC 3986으로 먼저 잇는다.
+        """URL 식을 사실 필드로 만든다. `urllib.parse.urljoin(base, path)`는 결합 결과를 주장하지 않는다(`urljoin_url`).
 
         Args:
             scope: 범위.
@@ -320,7 +317,7 @@ class _Scanner:
         return url_from_parts(kind, parts)
 
     def _urljoin(self, scope: Definition, expr: ast.expr) -> ComposedUrl | None:
-        """`urljoin(base, path)` 식(또는 한 번 묶인 지역 이름)이면 RFC 3986 결합 결과를 돌려준다.
+        """`urljoin(base, path)` 식(또는 한 번 묶인 지역 이름)이면 경로 인자만으로 사실 필드를 만든다.
 
         Args:
             scope: 범위.
@@ -335,9 +332,7 @@ class _Scanner:
         callee = self.resolver.value(scope, call.func)
         if not (isinstance(callee, ExternalValue) and callee.dotted in ("urllib.parse.urljoin", "urlparse.urljoin")):
             return None
-        base = base_from_parts(self.builder.parts(scope, call.args[0]))
-        kind = ClientKind("urllib", JOIN_RFC3986, base if base.known else UNKNOWN_BASE)
-        return url_from_parts(kind, self.builder.parts(scope, call.args[1]), remove_dots=True)
+        return urljoin_url(self.builder.parts(scope, call.args[1]))
 
     def _single_call(self, scope: Definition, expr: ast.expr) -> ast.Call | None:
         """식이 호출식이거나 호출식에 한 번 묶인 지역 이름이면 그 호출식을 돌려준다.
@@ -566,7 +561,8 @@ class _Scanner:
         if self.counters.ambiguous:
             gaps.add_gap(
                 "ambiguous-base-join:",
-                f"{self.counters.ambiguous} calls append a relative path to an unknown base by string concatenation",
+                f"{self.counters.ambiguous} calls join a path to a base URL in a way whose result cannot be proven "
+                "(unknown base, '..', '//', urljoin, or an unproven library version)",
             )
         if self.counters.sinks:
             gaps.add_gap(
@@ -610,15 +606,39 @@ def url_from_parts(kind: ClientKind, parts: tuple[Part, ...], remove_dots: bool 
     dots = REMOVES_DOTS[kind.library] if remove_dots is None else remove_dots
     split = split_url(parts)
     if split.kind in ("absolute", "dynamic-host"):
+        if not kind.absolute_allowed():
+            return DYNAMIC_URL
         anchor = "root" if split.kind == "absolute" else "base"
         authority = split.authority if split.kind == "absolute" else None
         return _compose(compose_path(split.path), lambda raw: Joined(raw, anchor, authority, remove_dots=dots))
     if split.kind == "base-value":
         return _compose(compose_path(split.path), _after_value)
-    if split.kind == "relative" and kind.base is not None and not kind.invalid:
+    if split.kind == "relative" and kind.base is not None:
         base = kind.base
-        return _compose(compose_path(split.path), lambda raw: join_path(kind.style, base, raw))
+        return _compose(compose_path(split.path), lambda raw: join_path(kind.style, base, raw, kind.version))
     return DYNAMIC_URL
+
+
+def urljoin_url(parts: tuple[Part, ...]) -> ComposedUrl:
+    """`urllib.parse.urljoin(base, path)`의 경로 인자로 사실 필드를 만든다.
+
+    계약(HTTP-WRAPPERS "그 밖")은 벡터가 없는 결합의 결과를 주장하지 않는다: 절대 URL 인자는 그대로 요청 URL이라
+    `compose.strip`, `/`로 시작하는 리터럴은 base 앵커 꼬리(urljoin이 점 세그먼트를 지운 경로), 그 밖은 dynamic +
+    `ambiguous-base-join:`이다. (모의 서버 오라클은 CPython `urljoin`이 RFC 3986처럼 동작함을 확인했지만 벡터가 생길
+    때까지 root로 올리지 않는다.)
+
+    Args:
+        parts: urljoin 두 번째 인자의 조각.
+
+    Returns:
+        경로 필드.
+    """
+    split = split_url(parts)
+    if split.kind in ("absolute", "dynamic-host"):
+        return url_from_parts(module_client("urllib"), parts)
+    if split.kind == "relative" and isinstance(split.path[0], Literal) and split.path[0].text.startswith("/"):
+        return _compose(compose_path(split.path), lambda raw: Joined(raw, "base", remove_dots=True))
+    return ComposedUrl(None, "base", ambiguous=True)
 
 
 def wrapper_url(anchor: str, parts: tuple[Part, ...]) -> ComposedUrl:
