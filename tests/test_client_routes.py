@@ -829,3 +829,70 @@ def test_declared_minimum_needs_every_declaration_bounded(make_project: MakeProj
     }
     summary = rows(client_document(make_project(files)))
     assert summary["with_path"][1] == ("dynamic", None)
+
+
+def test_hidden_rebindings_are_not_proven(make_project: MakeProject) -> None:
+    """리뷰 회귀: 모듈 함수의 `self` 매개변수·중첩 함수의 대입, 기본값 안 바다코끼리 재대입은 값을 모르게 한다."""
+    root = make_project(
+        {
+            "app/__init__.py": "",
+            "app/one.py": """
+                import httpx
+
+                class Api:
+                    def __init__(self):
+                        self.base = "https://good.example.com"
+
+                def reset(self):
+                    self.base = "https://evil.example.com"
+
+                def users(api: Api):
+                    return httpx.get(api.base + "/v1/users")
+            """,
+            "app/two.py": """
+                import httpx
+
+                class Api2:
+                    def __init__(self):
+                        self.base = "https://good.example.com"
+
+                        def patch():
+                            self.base = "https://evil.example.com"
+
+                        patch()
+
+                    def users(self):
+                        return httpx.get(self.base + "/v1/users")
+            """,
+            "app/three.py": """
+                import requests
+
+                API = "https://good.example.com"
+
+                def handler(a=(API := "https://evil.example.com")):
+                    return a
+
+                def users3():
+                    return requests.get(API + "/v1/users")
+            """,
+        }
+    )
+    summary = rows(client_document(root))
+    for name in ("users", "Api2.users", "users3"):
+        assert summary[name] == ("GET", "/v1/users", "base", None), name
+
+
+def test_urljoin_absolute_keeps_dot_segments(make_project: MakeProject) -> None:
+    """CPython urljoin은 절대 URL 인자를 그대로 돌려주고 urllib는 점 세그먼트를 보존해 보낸다(리뷰 지적 반박)."""
+    root = make_project(
+        {
+            "app/legacy.py": """
+                import urllib.parse
+                import urllib.request
+
+                def call():
+                    return urllib.request.urlopen(urllib.parse.urljoin("https://x.example.com/", "https://h.example.com/a/../b"))
+            """
+        }
+    )
+    assert rows(client_document(root))["call"] == ("GET", "/a/../b", "root", "h.example.com")

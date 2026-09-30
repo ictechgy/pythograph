@@ -119,7 +119,11 @@ def _written_attribute(node: ast.AST) -> tuple[ast.expr, str] | None:
 def _record_write(
     resolver: Resolver, scope: Definition, receiver: ast.expr, name: str, writes: AttributeWrites
 ) -> None:
-    """바깥 대입 하나를 기록한다. `self`·`cls` 대입은 클래스 대입 수집이 따로 본다.
+    """바깥 대입 하나를 기록한다.
+
+    메서드 자신의 첫 매개변수(`self`·`cls`) 대입은 클래스 대입 수집(`self_assignments`)이 따로 보므로 뺀다. 이름만으로
+    빼지 않는다 — 모듈 함수의 `self` 매개변수나 메서드 안 중첩 함수의 `self`(바깥 메서드의 수신자) 대입은 그 수집이 보지
+    못하므로 여기서 기록해야 한다.
 
     Args:
         resolver: 값 해석기.
@@ -128,7 +132,7 @@ def _record_write(
         name: 속성 이름.
         writes: 채울 색인.
     """
-    if isinstance(receiver, ast.Name) and receiver.id in ("self", "cls"):
+    if isinstance(receiver, ast.Name) and receiver.id == _first_parameter(scope):
         return
     value = resolver.value(scope, receiver)
     if isinstance(value, (ClassValue, InstanceValue)):
@@ -137,6 +141,22 @@ def _record_write(
         writes.module.add((value.path, name))
     else:
         writes.untyped.add(name)
+
+
+def _first_parameter(scope: Definition) -> str | None:
+    """메서드 범위면 첫 위치 매개변수 이름을 돌려준다.
+
+    Args:
+        scope: 범위.
+
+    Returns:
+        이름, 메서드가 아니거나 매개변수가 없으면 None.
+    """
+    node = scope.node
+    if scope.kind != "method" or not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return None
+    positional = node.args.posonlyargs + node.args.args
+    return positional[0].arg if positional else None
 
 
 class PartBuilder:

@@ -85,8 +85,38 @@ def _count_module(tree: ast.Module, counts: Counter[str], declared: set[str]) ->
         for name in _bound_names(node):
             counts[name] += 1
         if isinstance(node, _NESTED_SCOPES):
+            pending.extend(_definition_time_nodes(node))
             continue
         pending.extend(child for child in ast.iter_child_nodes(node) if not _is_comprehension(child))
+
+
+def _definition_time_nodes(node: ast.AST) -> list[ast.AST]:
+    """정의 시점에 바깥(모듈) 범위에서 평가되는 식을 돌려준다: 장식자, 기본값, 주석, 클래스 기반·키워드.
+
+    이 식 안의 바다코끼리 대입은 모듈 이름을 다시 묶는다.
+
+    Args:
+        node: 함수·클래스·람다 정의.
+
+    Returns:
+        식 목록.
+    """
+    if isinstance(node, ast.Lambda):
+        return [*node.args.defaults, *(item for item in node.args.kw_defaults if item is not None)]
+    found: list[ast.AST] = list(getattr(node, "decorator_list", []))
+    if isinstance(node, ast.ClassDef):
+        found.extend(node.bases)
+        found.extend(keyword.value for keyword in node.keywords)
+        return found
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        arguments = node.args
+        found.extend(arguments.defaults)
+        found.extend(item for item in arguments.kw_defaults if item is not None)
+        every = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs, arguments.vararg, arguments.kwarg]
+        found.extend(item.annotation for item in every if item is not None and item.annotation is not None)
+        if node.returns is not None:
+            found.append(node.returns)
+    return found
 
 
 def _is_comprehension(node: ast.AST) -> bool:
