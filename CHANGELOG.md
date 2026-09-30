@@ -4,11 +4,13 @@
 
 ## [Unreleased]
 
-### Changed
+## [0.2.0] - 2026-10-01
 
-- isthmus 공유 적합성 벡터를 `2954375`(#134, aiohttp `versionRange` 보강)로 다시 벤더링했다. pythograph 동작은 그대로다.
+0.1.0 이후 #7–#12를 담는다. 클라이언트 route-call(`routes --role client`, #10)로 파이썬 호출부를 서버 route에 잇고, `bound` 근거
+등급과 대형 그래프 스냅샷 상한 분리(#9)로 호출 그래프를 넓혔다. isthmus 공유 벡터를 두 번 다시 벤더링했고(#8, #12), 문서를
+정리했다(#7, #11). python route-decl·route-call 문서를 받는 isthmus 발행 버전은 isthmus-cli 0.10.0이다.
 
-### Added (클라이언트 route-call)
+### Added (클라이언트 route-call, #10)
 
 - `pythograph routes --role client`: requests(최상위 함수·`Session`)·httpx(최상위 함수·`Client`·`AsyncClient`의 `base_url`)·
   aiohttp(`ClientSession`의 `base_url`·`aiohttp.request`)·`urllib.request.urlopen`(`Request(method=)`·`data`) 호출과
@@ -31,7 +33,7 @@
 - isthmus 공유 적합성 벡터를 `3a45450`(#133)으로 다시 벤더링했다. 실행하는 생산자 사례는 `producer`·`producer:pythograph`
   135건(url-compose 57건 포함)이며 모두 통과한다. `scope.dynamic-*`은 `dynamicScope`를 아직 내지 않아 건너뛴다.
 
-### Added (bound 근거 등급·대형 그래프 스냅샷)
+### Added (bound 근거 등급·대형 그래프 스냅샷, #9)
 
 - `bound` 근거 등급(tsograph와 같은 계약): 타입 모르는 수신자·인스턴스 속성 수신자·재정의 후보가 있는 주석 수신자의 메서드
   호출은 수신자로 들어오는 관찰된 값이 모두 프로젝트 클래스 인스턴스일 때만 구현마다 `bound` 간선을 둔다. 전체 프로그램 값
@@ -50,7 +52,7 @@
 - `graph` 스냅샷 출력 상한을 isthmus 입력 상한(16 Mi 문자)에서 떼어 256 Mi 문자로 올렸다(스냅샷은 isthmus 입력이 아니다,
   직렬화 봉우리 약 2바이트/문자). netbox 규모 스냅샷(21 Mi 문자)이 이제 끝까지 나온다. `reach`·`impact`는 16 Mi 그대로다.
 
-### Fixed (direct 등급)
+### Fixed (direct 등급, #9)
 
 - 모듈 전역·클래스 본문 속성을 다시 쓰는 곳(두 번째 모듈 수준 대입, `global` 대입, `globals()`, 같은 이름의 속성 쓰기·리터럴
   `setattr`, 클래스 본문 중복 대입)이 있거나 값이 서술자면 정확한 수신자로 보지 않는다. 전에는 마지막 무조건 대입 값을 정확한
@@ -59,9 +61,14 @@
 
 ### Changed
 
-- README 설치 절을 PyPI(`uv tool install pythograph`·`pipx install pythograph`) 기준으로 바꿨다.
-- isthmus 공유 적합성 벡터를 `76b6141`로 다시 벤더링했다. `url-compose.json`에 Spring base 결합 케이스 13개
+- isthmus 공유 적합성 벡터를 `76b6141`로 다시 벤더링했다(#8). `url-compose.json`에 Spring base 결합 케이스 13개
   (`base-join/spring-*`, `producer:kartograph`)가 더해져 sha256만 바뀌었고, pythograph는 `compose.*`를 건너뛰므로 실행 사례(78건)는 같다.
+- isthmus 공유 적합성 벡터를 `2954375`(#134, aiohttp `versionRange` 보강)로 다시 벤더링했다(#12). pythograph 동작은 그대로다.
+- README 설치 절을 PyPI(`uv tool install pythograph`·`pipx install pythograph`) 기준으로 바꿨다(#7).
+- AGENTS.md·DOGFOOD.md 로드맵 문구를 동기화했다(#11): 구현된 `bound` 근거 등급을 장기 범위에서 빼고, netbox `graph` 출력 상한
+  초과가 #9 재측정에서 해결됐음을 연결했다.
+- README(en/ko)의 isthmus 호환 절: python route-decl·route-call을 받는 발행 버전으로 개발 commit(`3a45450`) 대신 isthmus-cli
+  0.10.0(npm)을 적었다.
 
 ## [0.1.0] - 2026-09-30
 

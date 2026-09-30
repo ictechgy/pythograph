@@ -96,7 +96,7 @@ Example (synthetic, compacted; the real output is key-sorted JSON with two-space
   "platform": "python",
   "roles": ["server"],
   "target": "http",
-  "tool": { "name": "pythograph", "version": "0.1.0" },
+  "tool": { "name": "pythograph", "version": "0.2.0" },
   "version": 1
 }
 ```
