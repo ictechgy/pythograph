@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from pythograph.graph.index import Definition, DefinitionIndex
 from pythograph.graph.scope import Resolver
-from pythograph.graph.values import ClassValue, ExternalValue, FunctionValue, MethodValue
+from pythograph.graph.values import ClassValue, ExternalValue, FunctionValue, InstanceValue, MethodValue
 from pythograph.routes.client.compose import (
     DYNAMIC_URL,
     UNKNOWN_BASE,
@@ -179,34 +179,35 @@ class _Scanner:
             self._urlopen(scope, call)
         elif dotted == "urllib.request.Request":
             self.counters.requests_built.setdefault(id(call), False)
-        elif self._inherited_client_method(scope, call, dotted):
-            return
+        elif dotted.startswith("external.") and isinstance(call.func, ast.Attribute):
+            self._inherited_client_method(scope, call, call.func)
         elif is_unmodeled_call(dotted):
             self.counters.unmodeled[dotted.split(".")[0]] += 1
 
-    def _inherited_client_method(self, scope: Definition, call: ast.Call, dotted: str) -> bool:
+    def _inherited_client_method(self, scope: Definition, call: ast.Call, func: ast.Attribute) -> None:
         """프로젝트 하위 클래스가 물려받은 클라이언트 메서드 호출(`class Api(httpx.Client)`)을 판정한다.
 
-        base는 하위 클래스의 `__init__`이 정할 수 있어 모른다고 본다.
+        수신자 클래스 MRO의 첫 외부 기반이 클라이언트 클래스일 때만이다. base는 하위 클래스의 `__init__`이 정할 수
+        있어 모른다고 본다.
 
         Args:
             scope: 범위.
             call: 호출식.
-            dotted: `<클라이언트 클래스>.<메서드>` 모양의 외부 점 경로.
-
-        Returns:
-            클라이언트 메서드였으면 True.
+            func: 피호출 속성 식.
         """
-        owner, _, name = dotted.rpartition(".")
-        library = CLIENT_CLASSES.get(owner)
+        receiver = self.resolver.value(scope, func.value)
+        if not isinstance(receiver, (ClassValue, InstanceValue)):
+            return
+        externals = [entry for entry in self.resolver.linearizer.mro(receiver.definition) if entry.kind == "external"]
+        library = CLIENT_CLASSES.get(externals[0].key) if externals else None
+        name = func.attr
         if library is None:
-            return False
+            return
         if name in UNMODELED_CLIENT_METHODS:
             self.counters.unmodeled[library] += 1
         elif name in CLIENT_METHODS and (name != "stream" or library == "httpx"):
             kind = self.tracker.kind(library, None if library == "requests" else UNKNOWN_BASE)
             self._request(scope, call, kind, CLIENT_METHODS[name])
-        return True
 
     def _method_call(self, scope: Definition, call: ast.Call, func: ast.Attribute) -> None:
         """수신자 객체의 메서드 호출을 판정한다.
@@ -369,7 +370,8 @@ class _Scanner:
         kind = module_client("urllib")
         if request is None:
             parts = self.builder.parts(scope, target) if target is not None else (Value(),)
-            opaque = target is None or (parts == (Value(),) and self._urljoin(scope, target) is None)
+            single_value = len(parts) == 1 and isinstance(parts[0], Value)
+            opaque = target is None or (single_value and self._urljoin(scope, target) is None)
             method = None if opaque else _method_from_data(data)
             url = self._url(scope, target, parts, kind) if target is not None else DYNAMIC_URL
             self._emit(scope, call, method, url, parts)

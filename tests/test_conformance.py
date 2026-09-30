@@ -17,6 +17,8 @@ from typing import Any
 import pytest
 
 from pythograph.exchange.order import order_problem
+from pythograph.exchange.scope import scope_applies, scope_problem
+from pythograph.exchange.template import normalize_uri_path, template_problem
 from pythograph.routes.client.compose import (
     UNKNOWN_BASE,
     Joined,
@@ -33,8 +35,6 @@ from pythograph.routes.client.compose import (
     split_url,
 )
 from pythograph.routes.client.wrappers import ArgumentSpec, CallArgument, MethodToken, WrapperDecl, bind_method
-from pythograph.exchange.scope import scope_applies, scope_problem
-from pythograph.exchange.template import normalize_uri_path, template_problem
 
 #: 벤더링한 벡터 디렉터리다.
 CONFORMANCE = Path(__file__).resolve().parent.parent / "conformance"
@@ -372,8 +372,8 @@ def test_wrapper_location(case: dict[str, Any], tmp_path: Path) -> None:
         "def send(method, path):\n    return method, path\n"
         + filler
         + "def caller():\n    return send(\n"
-        + "        \"GET\",\n"
-        + "        \"/x\",\n    )\n"
+        + '        "GET",\n'
+        + '        "/x",\n    )\n'
     )
     (tmp_path / "api.py").write_text(source, encoding="utf-8")
     lines = source.splitlines()
