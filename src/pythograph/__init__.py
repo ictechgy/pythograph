@@ -4,4 +4,4 @@
 """
 
 #: 배포 버전. `pyproject.toml`의 `project.version`과 같아야 한다(테스트가 대조한다).
-__version__ = "0.1.0"
+__version__ = "0.2.0"
