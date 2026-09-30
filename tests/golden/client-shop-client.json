@@ -1,0 +1,633 @@
+{
+  "facts": [
+    {
+      "channel": null,
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 16,
+        "path": "shopclient/dynamic.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/dynamic.py#proxy_get",
+        "usr": "shopclient/dynamic.py#proxy_get"
+      }
+    },
+    {
+      "channel": null,
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 26,
+        "path": "shopclient/dynamic.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/dynamic.py#glued",
+        "usr": "shopclient/dynamic.py#glued"
+      }
+    },
+    {
+      "channel": null,
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 11,
+        "path": "shopclient/legacy.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/legacy.py#legacy_status",
+        "usr": "shopclient/legacy.py#legacy_status"
+      }
+    },
+    {
+      "authority": "gateway.example.test",
+      "channel": null,
+      "channelPrefix": "/gw",
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 34,
+        "path": "shopclient/api.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/api.py#Endpoint.perform",
+        "usr": "shopclient/api.py#Endpoint.perform"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": null,
+      "channelPrefix": "/v1/files/",
+      "dynamic": true,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 11,
+        "path": "shopclient/dynamic.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/dynamic.py#download",
+        "usr": "shopclient/dynamic.py#download"
+      }
+    },
+    {
+      "authority": "inventory.example.test",
+      "channel": "/api/items/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 17,
+        "path": "shopclient/httpx_clients.py"
+      },
+      "method": "PATCH",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/httpx_clients.py#patch_item",
+        "usr": "shopclient/httpx_clients.py#patch_item"
+      }
+    },
+    {
+      "authority": "recs.example.test",
+      "channel": "/api/items/{}/feedback",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 20,
+        "line": 23,
+        "path": "shopclient/aiohttp_clients.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/aiohttp_clients.py#send_feedback",
+        "usr": "shopclient/aiohttp_clients.py#send_feedback"
+      }
+    },
+    {
+      "authority": "recs.example.test",
+      "channel": "/api/recommendations",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 20,
+        "line": 9,
+        "path": "shopclient/aiohttp_clients.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/aiohttp_clients.py#recommendations",
+        "usr": "shopclient/aiohttp_clients.py#recommendations"
+      }
+    },
+    {
+      "authority": "inventory.example.test",
+      "channel": "/api/stock",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 11,
+        "path": "shopclient/httpx_clients.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/httpx_clients.py#stock",
+        "usr": "shopclient/httpx_clients.py#stock"
+      }
+    },
+    {
+      "authority": "legacy.example.test",
+      "channel": "/app/forms/submit",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 24,
+        "path": "shopclient/legacy.py"
+      },
+      "method": "PUT",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/legacy.py#legacy_submit",
+        "usr": "shopclient/legacy.py#legacy_submit"
+      }
+    },
+    {
+      "authority": "legacy.example.test",
+      "channel": "/app/ping",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 30,
+        "path": "shopclient/legacy.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/legacy.py#legacy_ping",
+        "usr": "shopclient/legacy.py#legacy_ping"
+      }
+    },
+    {
+      "channel": "/carts",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 23,
+        "path": "shopclient/callers.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#cart_list",
+        "usr": "shopclient/callers.py#cart_list"
+      }
+    },
+    {
+      "channel": "/carts/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 18,
+        "path": "shopclient/callers.py"
+      },
+      "method": "DELETE",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#cart_delete",
+        "usr": "shopclient/callers.py#cart_delete"
+      }
+    },
+    {
+      "authority": "inventory.example.test",
+      "channel": "/export",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 52,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#export_rows",
+        "usr": "shopclient/plain.py#export_rows"
+      }
+    },
+    {
+      "channel": "/items",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 28,
+        "path": "shopclient/callers.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#gateway_items",
+        "usr": "shopclient/callers.py#gateway_items"
+      }
+    },
+    {
+      "channel": "/items/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 33,
+        "path": "shopclient/callers.py"
+      },
+      "method": "DELETE",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#gateway_item_remove",
+        "usr": "shopclient/callers.py#gateway_item_remove"
+      }
+    },
+    {
+      "channel": "/orders",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 8,
+        "path": "shopclient/callers.py"
+      },
+      "method": "POST",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#gateway_order_create",
+        "usr": "shopclient/callers.py#gateway_order_create"
+      }
+    },
+    {
+      "authority": "orders.example.test",
+      "channel": "/orders",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 26,
+        "path": "shopclient/plain.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#create_order",
+        "usr": "shopclient/plain.py#create_order"
+      }
+    },
+    {
+      "channel": "/orders/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 13,
+        "path": "shopclient/callers.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/callers.py#gateway_order",
+        "usr": "shopclient/callers.py#gateway_order"
+      }
+    },
+    {
+      "authority": "recs.example.test",
+      "channel": "/popular",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 20,
+        "line": 16,
+        "path": "shopclient/aiohttp_clients.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/aiohttp_clients.py#popular",
+        "usr": "shopclient/aiohttp_clients.py#popular"
+      }
+    },
+    {
+      "channel": "/root",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 10,
+        "line": 17,
+        "path": "shopclient/legacy.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/legacy.py#legacy_root",
+        "usr": "shopclient/legacy.py#legacy_root"
+      }
+    },
+    {
+      "channel": "/status",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 21,
+        "path": "shopclient/dynamic.py"
+      },
+      "method": "GET",
+      "pathAnchor": "base",
+      "symbol": {
+        "qualifiedName": "shopclient/dynamic.py#service_status",
+        "usr": "shopclient/dynamic.py#service_status"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/categories",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 18,
+        "path": "shopclient/sessions.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/sessions.py#CatalogClient.categories",
+        "usr": "shopclient/sessions.py#CatalogClient.categories"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/categories/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 22,
+        "path": "shopclient/sessions.py"
+      },
+      "method": "DELETE",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/sessions.py#CatalogClient.remove_category",
+        "usr": "shopclient/sessions.py#CatalogClient.remove_category"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/health",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 31,
+        "path": "shopclient/plain.py"
+      },
+      "method": "HEAD",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#health",
+        "usr": "shopclient/plain.py#health"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/pages",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 37,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "queryTailStripped": true,
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#page",
+        "usr": "shopclient/plain.py#page"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/products",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 11,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#list_products",
+        "usr": "shopclient/plain.py#list_products"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/products/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 16,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#product_detail",
+        "usr": "shopclient/plain.py#product_detail"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/profile",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 40,
+        "path": "shopclient/sessions.py"
+      },
+      "method": "PUT",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/sessions.py#update_profile",
+        "usr": "shopclient/sessions.py#update_profile"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/search",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 21,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "queryTailStripped": true,
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#search_products",
+        "usr": "shopclient/plain.py#search_products"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v1/tokens/{}/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 42,
+        "path": "shopclient/plain.py"
+      },
+      "maskedSegments": 1,
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#token_status",
+        "usr": "shopclient/plain.py#token_status"
+      }
+    },
+    {
+      "authority": "api.example.test",
+      "channel": "/v2/products/{}/reviews",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 34,
+        "path": "shopclient/sessions.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/sessions.py#ReviewClient.reviews",
+        "usr": "shopclient/sessions.py#ReviewClient.reviews"
+      }
+    },
+    {
+      "authority": "shipping.example.test",
+      "channel": "/v3/labels/{}",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 32,
+        "path": "shopclient/httpx_clients.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/httpx_clients.py#ShippingClient.label",
+        "usr": "shopclient/httpx_clients.py#ShippingClient.label"
+      }
+    },
+    {
+      "authority": "shipping.example.test",
+      "channel": "/v3/quotes",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 16,
+        "line": 28,
+        "path": "shopclient/httpx_clients.py"
+      },
+      "method": "POST",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/httpx_clients.py#ShippingClient.quote",
+        "usr": "shopclient/httpx_clients.py#ShippingClient.quote"
+      }
+    },
+    {
+      "authority": "shipping.example.test",
+      "channel": "/v3/rates",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 22,
+        "line": 38,
+        "path": "shopclient/httpx_clients.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/httpx_clients.py#rates",
+        "usr": "shopclient/httpx_clients.py#rates"
+      }
+    },
+    {
+      "authority": "inventory.example.test",
+      "channel": "/warehouses",
+      "dynamic": false,
+      "kind": "route-call",
+      "location": {
+        "column": 12,
+        "line": 47,
+        "path": "shopclient/plain.py"
+      },
+      "method": "GET",
+      "pathAnchor": "root",
+      "symbol": {
+        "qualifiedName": "shopclient/plain.py#warehouses",
+        "usr": "shopclient/plain.py#warehouses"
+      }
+    }
+  ],
+  "format": "bridge-facts",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "limitations": [
+    "ambiguous-base-join: 2 calls join a path to a base URL in a way whose result cannot be proven (unknown base, '..', '//', urljoin, or an unproven library version)",
+    "http-wrapper-undeclared: 2 functions pass a parameter into an HTTP request URL; declare them in an http-wrappers file to resolve their callers",
+    "http-wrapper-unresolved: wrappers[3] names no Python definition in the scanned sources",
+    "route-call-coverage: 1 calls use urllib3 request APIs that pythograph does not model",
+    "route-call-coverage: 1 get/post/request-style calls pass a URL literal to a receiver whose HTTP client type could not be determined"
+  ],
+  "platform": "python",
+  "project": "<project>",
+  "roles": [
+    "client"
+  ],
+  "sourceSets": {
+    "tests": "excluded"
+  },
+  "target": "http",
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "version": 1
+}

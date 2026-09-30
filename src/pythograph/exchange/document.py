@@ -223,6 +223,18 @@ def _fact_sort_key(fact: dict[str, object]) -> tuple[object, ...]:
     )
 
 
+def build_limitations(gaps: list[Gap]) -> tuple[list[str], list[dict[str, object]]]:
+    """공백을 limitation 문장과 스코프 목록으로 바꾼다(route-decl·route-call 문서가 같은 규칙을 쓴다).
+
+    Args:
+        gaps: 추출기가 모은 공백.
+
+    Returns:
+        (정렬한 limitation 문장, 인덱스를 맞춘 스코프 목록).
+    """
+    return _limitations(gaps)
+
+
 def _limitations(gaps: list[Gap]) -> tuple[list[str], list[dict[str, object]]]:
     """공백을 limitation 문장과 스코프 목록으로 바꾼다.
 

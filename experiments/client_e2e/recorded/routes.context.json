@@ -1,0 +1,84 @@
+{
+  "format": "isthmus-trace-context",
+  "links": [
+    {
+      "client": "python",
+      "match": {
+        "hosts": [
+          "api.example.com"
+        ]
+      },
+      "name": "python->api",
+      "server": "server"
+    }
+  ],
+  "members": [
+    {
+      "analyses": [
+        {
+          "id": "server-forward",
+          "path": "../../e2e/recorded/server-forward.json",
+          "platform": "python",
+          "role": "forward"
+        },
+        {
+          "id": "server-reverse",
+          "path": "../../e2e/recorded/server-reverse.json",
+          "platform": "python",
+          "role": "reverse"
+        },
+        {
+          "id": "server-db",
+          "path": "../../e2e/recorded/server-db.json",
+          "platform": "sql",
+          "role": "db-dependents"
+        }
+      ],
+      "documents": [
+        "../../e2e/recorded/server.http.json",
+        "../../e2e/recorded/server.persistence.json",
+        "../../e2e/recorded/server.sql.json"
+      ],
+      "name": "server",
+      "project": "/e2e/shop-api",
+      "revision": "e2e-shop-api"
+    },
+    {
+      "analyses": [
+        {
+          "id": "python-reverse",
+          "path": "python-reverse.json",
+          "platform": "python",
+          "role": "reverse"
+        }
+      ],
+      "documents": [
+        "python.http.json"
+      ],
+      "name": "python",
+      "project": "/e2e/clients/python",
+      "revision": "e2e-python-client"
+    }
+  ],
+  "selection": {
+    "routes": [
+      {
+        "method": "GET",
+        "template": "/api/orders/{}/"
+      },
+      {
+        "method": "POST",
+        "template": "/api/orders/{}/cancel/"
+      },
+      {
+        "method": "GET",
+        "template": "/api/products/"
+      },
+      {
+        "method": "POST",
+        "template": "/api/checkout/"
+      }
+    ]
+  },
+  "version": 1
+}

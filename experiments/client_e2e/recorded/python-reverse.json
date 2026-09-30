@@ -1,0 +1,135 @@
+{
+  "direction": "dependents",
+  "dispatch": "direct",
+  "format": "language-traversal",
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "graphRevision": "sha256:15647afb1b34c272150a55bc2f797f360b9a53b2d43d76ef85c463660beaa398",
+  "limitations": [
+    "external-calls: 9 call sites resolve outside the project (standard library, installed packages, framework members, or attribute calls on untyped receivers whose name no project class, module, or attribute write defines); calls from external code back into the project are not followed"
+  ],
+  "platform": "python",
+  "project": "/e2e/clients/python",
+  "reached": [
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        1
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 9,
+          "path": "shopcli/screens.py"
+        },
+        "qualifiedName": "shopcli/screens.py#OrderScreen.show",
+        "usr": "shopcli/screens.py#OrderScreen.show"
+      },
+      "via": "shopcli/api.py#OrdersApi.fetch"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        2
+      ],
+      "symbol": {
+        "kind": "method",
+        "location": {
+          "column": 5,
+          "line": 13,
+          "path": "shopcli/screens.py"
+        },
+        "qualifiedName": "shopcli/screens.py#OrderScreen.tap_cancel",
+        "usr": "shopcli/screens.py#OrderScreen.tap_cancel"
+      },
+      "via": "shopcli/api.py#OrdersApi.cancel"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        3
+      ],
+      "symbol": {
+        "kind": "function",
+        "location": {
+          "column": 1,
+          "line": 19,
+          "path": "shopcli/screens.py"
+        },
+        "qualifiedName": "shopcli/screens.py#catalog_refresh",
+        "usr": "shopcli/screens.py#catalog_refresh"
+      },
+      "via": "shopcli/api.py#list_products"
+    },
+    {
+      "depth": 1,
+      "evidence": "direct",
+      "relationships": [
+        "call"
+      ],
+      "roots": [
+        0
+      ],
+      "symbol": {
+        "kind": "function",
+        "location": {
+          "column": 1,
+          "line": 24,
+          "path": "shopcli/screens.py"
+        },
+        "qualifiedName": "shopcli/screens.py#pay",
+        "usr": "shopcli/screens.py#pay"
+      },
+      "via": "shopcli/api.py#checkout"
+    }
+  ],
+  "revision": "e2e-python-client",
+  "roots": [
+    {
+      "id": "shopcli/api.py#checkout",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#checkout",
+        "usr": "shopcli/api.py#checkout"
+      }
+    },
+    {
+      "id": "shopcli/api.py#OrdersApi.fetch",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#OrdersApi.fetch",
+        "usr": "shopcli/api.py#OrdersApi.fetch"
+      }
+    },
+    {
+      "id": "shopcli/api.py#OrdersApi.cancel",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#OrdersApi.cancel",
+        "usr": "shopcli/api.py#OrdersApi.cancel"
+      }
+    },
+    {
+      "id": "shopcli/api.py#list_products",
+      "symbol": {
+        "qualifiedName": "shopcli/api.py#list_products",
+        "usr": "shopcli/api.py#list_products"
+      }
+    }
+  ],
+  "tool": {
+    "name": "pythograph",
+    "version": "0.1.0"
+  },
+  "truncated": false,
+  "version": 1
+}

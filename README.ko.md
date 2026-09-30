@@ -19,10 +19,10 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 | `pythograph routes --role server`: Django URLconf, Django REST framework 라우터·뷰, Flask/Werkzeug 규칙 → `route-decl` 사실 | 구현됨 |
 | `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
 | `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`bound`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
-| 클라이언트 route-call(requests, httpx) | 계획 |
+| `pythograph routes --role client`: requests·httpx·aiohttp·urllib 호출과 선언한 HTTP 래퍼 → `route-call` 사실 | 구현됨 |
 
-isthmus `main`(`f9dcd1d`)은 `platform: "python"`의 http(`registration-order` 포함)·persistence 문서와 python
-`language-traversal` 분석을 받는다([isthmus 호환](#isthmus-호환) 참고).
+isthmus `main`(`3a45450`)은 `platform: "python"`의 http 문서(서버 `route-decl`·`registration-order`, 클라이언트 `route-call`)·
+persistence 문서와 python `language-traversal` 분석을 받는다([isthmus 호환](#isthmus-호환) 참고).
 
 ## 요구 사항과 설치
 
@@ -125,6 +125,38 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 - **가려진 패턴도 선언이다.** 가림 판정은 소비자가 `order`로 한다.
 - **조건부 등록은 선언이 아니라 스코프 있는 한계다.**
 
+## `pythograph routes --role client`
+
+```sh
+pythograph routes --role client --project <root> [--wrappers <file>] [--service <name>]
+                  [--include-tests] [--generated-at <timestamp>] [--format json]
+```
+
+bridge-facts v1 문서(`platform: "python"`, `target: "http"`, `roles: ["client"]`)와 HTTP 요청 식마다 `route-call` 사실 하나를
+표준 출력에 쓴다. 확인한 라이브러리 소스를 붙인 전체 규칙, 오라클 기록, 종단 trace는
+[docs/HTTP-CLIENTS.md](docs/HTTP-CLIENTS.md)에 있다.
+
+- **라이브러리**(이름 해석으로만 판정하고 같은 이름의 프로젝트 함수는 보지 않는다): requests 2.34(최상위 함수·`Session`),
+  httpx 0.28(최상위 함수, `base_url`을 준 `Client`·`AsyncClient`), aiohttp 3.x(`base_url`을 준 `ClientSession`, `aiohttp.request`),
+  `urllib.request.urlopen`(`Request(method=)`·`data`). 클라이언트는 한 번만 묶인 지역 이름, `with`·`async with`, 모듈 변수, 모든
+  대입이 클라이언트인 인스턴스 필드·클래스 속성, 클라이언트 타입 주석, 클라이언트 클래스를 상속한 프로젝트 클래스로 따라간다.
+- **base 결합**은 isthmus 결합 방식 이름을 쓴다: `httpx-base-url`(base 끝 `/`를 보장하고 경로 앞 `/`를 모두 떼어 `/x`도 base
+  경로 뒤), `aiohttp-base-url`(RFC 3986: `/x`는 base 경로를 바꾼다. 경로 있는 base와 상대 경로는 aiohttp 3.11 이상, base 세션의
+  절대 URL은 3.12 이상을 프로젝트 잠금·요구 파일로 증명해야 주장한다), requests·urllib은 base가 없다. `urllib.parse.urljoin`은
+  아직 벡터가 없어 절대 URL과 `/`로 시작하는 경로만 주장한다.
+- **URL 문자열**: f-string, `+`, `%` 서식, `str.format`, 증명한 모듈 상수(한 번만 묶이고 다시 묶이지 않으며 `global`·모듈 속성
+  대입 없음), 값이 하나인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수. 보간은 세그먼트 전체를 채울 때만 `{}`이고
+  아니면 `dynamic`과 마스킹한 `channelPrefix`다(`channel`은 null이라 URL 원문이 도구 밖으로 나가지 않는다). host가 리터럴이면
+  `root`와 `authority`, host가 값이거나 base를 모르면 `base`다.
+- **래퍼**(`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` 항목. `owner`는 메서드·생성자(`name: "__init__"`,
+  데이터 클래스 포함)면 pythograph 클래스 id(`api/client.py#Gateway`), 모듈 함수면 모듈 경로(`api/net.py`)다. `label`은 키워드
+  인자, `index`는 위치 인자(수신자 제외)다. 모르는 필드·잘못된 항목은 64로 끝나고, 아무것도 맞지 않는 선언은
+  `http-wrapper-unresolved:`로 낸다.
+- **symbol.usr**는 감싸는 함수·메서드·클래스 본문·모듈 id로 `graph`·`reach`·`impact`와 같다.
+- **한계**: `route-call-coverage:`(urllib3·`http.client`·`send`·`build_request` 같은 모델링하지 않은 요청 API, 클라이언트 타입을
+  모르는 수신자에 넘긴 URL 리터럴, 스캔 공백), `ambiguous-base-join:`, `http-wrapper-undeclared:`(매개변수를 요청 URL로
+  흘려보내는 함수), `http-wrapper-unresolved:`.
+
 ## `pythograph schema`
 
 ```sh
@@ -212,9 +244,18 @@ pythograph impact (reach와 같은 옵션)
 route 정밀도, schemagraph·isthmus 조인율, 핸들러 → relation-use 도달률, 미해석 호출 이유, 실행 시간을 잰 도그푸딩 결과와 고친
 문제는 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-isthmus 공유 적합성 벡터(`conformance/`, isthmus `76b6141`에서 벤더링해 `conformance.lock`으로 고정)의 해당 생산자
-사례 78건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`)을 100% 통과하고,
-`dispatch.validate` 검증기는 routes 출력 golden에도 적용한다.
+isthmus 공유 적합성 벡터(`conformance/`, isthmus `3a45450`에서 벤더링해 `conformance.lock`으로 고정)의 `producer`·
+`producer:pythograph` 사례 135건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`와
+query 꼬리·보간·정규화·strip·마스킹·`rfc3986`/`httpx-base-url`/`aiohttp-base-url` 결합·래퍼 인자 바인딩의 url-compose 57건)을
+100% 통과하고, `dispatch.validate` 검증기는 routes 출력 golden에도 적용한다.
+
+**클라이언트 모의 서버 오라클.** `experiments/client_oracle/`이 합성 클라이언트 `fixtures/client/shop-client`를 스크래치 환경에서
+127.0.0.1의 `http.server`로 실행해(이름 해석·연결을 돌려 외부 요청 없음) requests·httpx·aiohttp·urllib가 실제로 보낸 요청을
+기록한다. 2026-09-30 기록: 35개 시나리오, 일치 31 · dynamic 4 · 불일치 0(`tests/test_client_oracle.py`가 오프라인으로 다시 확인).
+
+**파이썬 클라이언트 × Django 서버 trace.** `experiments/client_e2e/`가 합성 파이썬 클라이언트(`fixtures/e2e/py-client`)와 Phase 6
+Django 서버 기록을 isthmus `trace`(main `3a45450`)로 잇는다. 선택한 route 네 개 모두 파이썬 호출부가 서버 핸들러에 exact로 붙고,
+그 호출부를 부르는 화면 함수와 relation-use·테이블까지 이어진다(`tests/test_client_e2e.py`).
 
 **Phase 6 종료 조건(Django 백엔드 × iOS/Android 체인).** `experiments/e2e/`가 합성 Django+DRF 서버(`fixtures/e2e/shop-api`),
 Django DDL의 schemagraph 카탈로그, 합성 iOS(cartograph)·Android(kartograph) 클라이언트의 route-call·역방향 순회를 isthmus
@@ -235,7 +276,8 @@ isthmus error가 없다(매치 41·20).
 
 isthmus `main`(`f9dcd1d`, #128)은 `platform: "python"`을 받는다: http `route-decl`(Django의 `registration-order`와 `order`,
 가림 진단 포함), persistence `relation-use`, trace의 python `forward`·`reverse` 분석(`language-traversal` v1). 옛 isthmus용
-`--dispatch specificity`는 그대로 남아 있다.
+`--dispatch specificity`는 그대로 남아 있다. 클라이언트 `route-call` 문서(`routes --role client`)는 isthmus `3a45450`(#133)
+이상이 받는다. 그 전 판은 입력 오류로 거부한다.
 
 ## 개발
 

@@ -21,10 +21,11 @@ root's git to read `revision`).
 | `pythograph routes --role server`: Django URLconf, Django REST framework routers and views, Flask/Werkzeug rules → `route-decl` facts | Implemented |
 | `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
 | `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`bound`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
-| Client route-calls (requests, httpx) | Planned |
+| `pythograph routes --role client`: requests, httpx, aiohttp, and urllib calls plus declared HTTP wrappers → `route-call` facts | Implemented |
 
-isthmus `main` (`f9dcd1d`) accepts `platform: "python"` http documents (including `registration-order`), persistence
-documents, and python `language-traversal` analyses (see [isthmus compatibility](#isthmus-compatibility)).
+isthmus `main` (`3a45450`) accepts `platform: "python"` http documents (server `route-decl` including
+`registration-order`, and client `route-call`), persistence documents, and python `language-traversal` analyses (see
+[isthmus compatibility](#isthmus-compatibility)).
 
 ## Requirements and installation
 
@@ -168,6 +169,42 @@ Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
 - **Shadowed patterns are still declarations**; shadowing is the consumer's judgement from `order`.
 - **Conditional registrations are scoped limitations**, not declarations.
 
+## `pythograph routes --role client`
+
+```sh
+pythograph routes --role client --project <root> [--wrappers <file>] [--service <name>]
+                  [--include-tests] [--generated-at <timestamp>] [--format json]
+```
+
+Writes a bridge-facts v1 document with `platform: "python"`, `target: "http"`, `roles: ["client"]`, and one
+`route-call` fact per HTTP request expression. The full rule table with the verified library sources, the oracle
+recording, and the end-to-end trace is in
+[docs/HTTP-CLIENTS.md](https://github.com/ictechgy/pythograph/blob/main/docs/HTTP-CLIENTS.md) (Korean).
+
+- **Libraries** (resolved by name, never by a same-named project function): requests 2.34 (top-level functions and
+  `Session`), httpx 0.28 (top-level functions, `Client`/`AsyncClient` with `base_url`), aiohttp 3.x (`ClientSession`
+  with `base_url`, `aiohttp.request`), and `urllib.request.urlopen` (with `Request(method=)` and `data`). Clients are
+  followed through single-assignment locals, `with`/`async with`, module variables, instance fields and class
+  attributes whose every assignment is a client, client-typed annotations, and project subclasses of a client class.
+- **Base joins** use the isthmus style names: `httpx-base-url` (the base always ends in `/` and every leading `/` of
+  the path is stripped, so `/x` stays under the base path), `aiohttp-base-url` (RFC 3986: `/x` replaces the base path;
+  path-bearing bases and relative paths need aiohttp 3.11+, absolute URLs on a base session need 3.12+, proven from
+  the project's lock/requirement files), and none for requests and urllib. `urllib.parse.urljoin` has no vector yet,
+  so only its absolute-URL and `/`-rooted forms are claimed.
+- **URL strings**: f-strings, `+`, `%` formatting, `str.format`, provable module constants (bound exactly once, never
+  rebound, no `global` or module-attribute writes), class attributes and `__init__` fields with one literal value, and
+  proven query-tail locals. An interpolation becomes `{}` only when it fills a whole segment; otherwise the fact is
+  `dynamic` with a masked `channelPrefix` (`channel` is `null`, so no raw URL text leaves the tool). A literal host
+  gives `root` plus `authority`; a dynamic host or an unknown base gives `base`.
+- **Wrappers** (`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` entries; `owner` is a pythograph class
+  id (`api/client.py#Gateway`) for methods and constructors (`name: "__init__"`, dataclasses included) or a module path
+  (`api/net.py`) for module functions. `label` is a keyword argument, `index` a positional argument (receiver excluded).
+  Unknown fields and malformed entries exit 64; declarations that match nothing report `http-wrapper-unresolved:`.
+- **symbol.usr** is the enclosing function, method, class body, or module id — the same ids as `graph`/`reach`/`impact`.
+- **Limitations**: `route-call-coverage:` (unmodeled request APIs such as urllib3, `http.client`, `send`/`build_request`,
+  URL literals passed to receivers whose client type is unknown, scan gaps), `ambiguous-base-join:`,
+  `http-wrapper-undeclared:` (functions that pipe a parameter into a request URL), and `http-wrapper-unresolved:`.
+
 ## `pythograph schema`
 
 ```sh
@@ -271,10 +308,21 @@ directory) measured route precision against each framework's resolver, relation-
 isthmus, handler-to-relation reachability, unresolved-call reasons, and runtime; the results and the fixed issues are in
 [DOGFOOD.md](https://github.com/ictechgy/pythograph/blob/main/DOGFOOD.md) (Korean).
 
-The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `76b6141` and locked in
-`conformance.lock`) pass 100% of the applicable producer cases (78: `template.grammar`, `template.normalize`,
-`scope.validate`, `scope.applies`, `dispatch.validate`); the `dispatch.validate` checker also runs on the routes
-golden output.
+The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `3a45450` and locked in
+`conformance.lock`) pass 100% of the `producer` and `producer:pythograph` cases (135: `template.grammar`,
+`template.normalize`, `scope.validate`, `scope.applies`, `dispatch.validate`, and 57 url-compose cases for query tails,
+interpolation, normalization, stripping, masking, the `rfc3986`/`httpx-base-url`/`aiohttp-base-url` joins, and wrapper
+argument binding); the `dispatch.validate` checker also runs on the routes golden output.
+
+**Client mock-server oracle.** `experiments/client_oracle/` runs the synthetic client `fixtures/client/shop-client`
+in a scratch environment against a local `http.server` on 127.0.0.1 (name resolution and connects are redirected, no
+external traffic) and records what requests, httpx, aiohttp, and urllib actually send. Recorded 2026-09-30: 35
+scenarios, 31 matches, 4 dynamic, 0 mismatches (`tests/test_client_oracle.py` replays it offline).
+
+**Python client × Django server trace.** `experiments/client_e2e/` joins a synthetic Python client
+(`fixtures/e2e/py-client`) with the Phase 6 Django server recording through isthmus `trace` (main `3a45450`): all four
+selected routes attach the Python call site (exact match) to the server handler, reach the calling screen functions,
+and continue to the relation uses and tables (`tests/test_client_e2e.py`).
 
 **Phase 6 exit criterion (Django backend × iOS/Android chain).** `experiments/e2e/` joins a synthetic Django + DRF
 server (`fixtures/e2e/shop-api`), a schemagraph catalog of its Django DDL, and route-calls plus reverse traversals of
@@ -297,7 +345,8 @@ errors (41 and 20 matches).
 
 isthmus `main` (`f9dcd1d`, #128) accepts `platform: "python"`: http `route-decl` facts (Django's `registration-order`
 and `order`, with shadowing diagnostics), persistence `relation-use` facts, and python `forward`/`reverse` analyses
-(`language-traversal` v1) in `trace`. `--dispatch specificity` remains for older isthmus releases.
+(`language-traversal` v1) in `trace`. `--dispatch specificity` remains for older isthmus releases. Client `route-call`
+documents (`routes --role client`) need isthmus `3a45450` (#133) or later; older releases reject them as input errors.
 
 ## Development
 

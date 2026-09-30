@@ -1,0 +1,224 @@
+{
+  "format": "pythograph-client-oracle",
+  "packages": {
+    "aiohttp": "3.14.3",
+    "httpx": "0.28.1",
+    "requests": "2.34.2",
+    "urllib3": "2.8.0",
+    "yarl": "1.25.1"
+  },
+  "python": "3.12.13",
+  "scenarios": [
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/products",
+      "usr": "shopclient/plain.py#list_products"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/products/42?expand=reviews",
+      "usr": "shopclient/plain.py#product_detail"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/search?q=lamp",
+      "usr": "shopclient/plain.py#search_products"
+    },
+    {
+      "host": "orders.example.test",
+      "method": "POST",
+      "path": "/orders",
+      "usr": "shopclient/plain.py#create_order"
+    },
+    {
+      "host": "api.example.test",
+      "method": "HEAD",
+      "path": "/v1/health",
+      "usr": "shopclient/plain.py#health"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/pages?page=3",
+      "usr": "shopclient/plain.py#page"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/tokens/a1b2c3d4e5f6a7b8c9d0/t1",
+      "usr": "shopclient/plain.py#token_status"
+    },
+    {
+      "host": "inventory.example.test",
+      "method": "GET",
+      "path": "/warehouses",
+      "usr": "shopclient/plain.py#warehouses"
+    },
+    {
+      "host": "inventory.example.test",
+      "method": "GET",
+      "path": "/export",
+      "usr": "shopclient/plain.py#export_rows"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/categories",
+      "usr": "shopclient/sessions.py#CatalogClient.categories"
+    },
+    {
+      "host": "api.example.test",
+      "method": "DELETE",
+      "path": "/v1/categories/lamps",
+      "usr": "shopclient/sessions.py#CatalogClient.remove_category"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v2/products/7/reviews",
+      "usr": "shopclient/sessions.py#ReviewClient.reviews"
+    },
+    {
+      "host": "api.example.test",
+      "method": "PUT",
+      "path": "/v1/profile",
+      "usr": "shopclient/sessions.py#update_profile"
+    },
+    {
+      "host": "inventory.example.test",
+      "method": "GET",
+      "path": "/api/stock",
+      "usr": "shopclient/httpx_clients.py#stock"
+    },
+    {
+      "host": "inventory.example.test",
+      "method": "PATCH",
+      "path": "/api/items/sku-9",
+      "usr": "shopclient/httpx_clients.py#patch_item"
+    },
+    {
+      "host": "shipping.example.test",
+      "method": "POST",
+      "path": "/v3/quotes",
+      "usr": "shopclient/httpx_clients.py#ShippingClient.quote"
+    },
+    {
+      "host": "shipping.example.test",
+      "method": "GET",
+      "path": "/v3/labels/s-1",
+      "usr": "shopclient/httpx_clients.py#ShippingClient.label"
+    },
+    {
+      "host": "shipping.example.test",
+      "method": "GET",
+      "path": "/v3/rates",
+      "usr": "shopclient/httpx_clients.py#rates"
+    },
+    {
+      "host": "recs.example.test",
+      "method": "GET",
+      "path": "/api/recommendations",
+      "usr": "shopclient/aiohttp_clients.py#recommendations"
+    },
+    {
+      "host": "recs.example.test",
+      "method": "GET",
+      "path": "/popular",
+      "usr": "shopclient/aiohttp_clients.py#popular"
+    },
+    {
+      "host": "recs.example.test",
+      "method": "POST",
+      "path": "/api/items/5/feedback",
+      "usr": "shopclient/aiohttp_clients.py#send_feedback"
+    },
+    {
+      "host": "legacy.example.test",
+      "method": "GET",
+      "path": "/app/status",
+      "usr": "shopclient/legacy.py#legacy_status"
+    },
+    {
+      "host": "legacy.example.test",
+      "method": "GET",
+      "path": "/root",
+      "usr": "shopclient/legacy.py#legacy_root"
+    },
+    {
+      "host": "legacy.example.test",
+      "method": "PUT",
+      "path": "/app/forms/submit",
+      "usr": "shopclient/legacy.py#legacy_submit"
+    },
+    {
+      "host": "legacy.example.test",
+      "method": "POST",
+      "path": "/app/ping",
+      "usr": "shopclient/legacy.py#legacy_ping"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "POST",
+      "path": "/gw/orders",
+      "usr": "shopclient/callers.py#gateway_order_create"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "GET",
+      "path": "/gw/orders/11",
+      "usr": "shopclient/callers.py#gateway_order"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "DELETE",
+      "path": "/gw/carts/4",
+      "usr": "shopclient/callers.py#cart_delete"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "GET",
+      "path": "/gw/carts",
+      "usr": "shopclient/callers.py#cart_list"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "GET",
+      "path": "/gw/items",
+      "usr": "shopclient/callers.py#gateway_items"
+    },
+    {
+      "host": "gateway.example.test",
+      "method": "DELETE",
+      "path": "/gw/items/8",
+      "usr": "shopclient/callers.py#gateway_item_remove"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/files/report.json",
+      "usr": "shopclient/dynamic.py#download"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/proxied",
+      "usr": "shopclient/dynamic.py#proxy_get"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v9/status",
+      "usr": "shopclient/dynamic.py#service_status"
+    },
+    {
+      "host": "api.example.test",
+      "method": "GET",
+      "path": "/v1/items",
+      "usr": "shopclient/dynamic.py#glued"
+    }
+  ],
+  "version": 1
+}
