@@ -1,7 +1,8 @@
 """그래프 스냅샷(`pythograph-graph` v1)과 isthmus `language-traversal` v1 문서를 조립한다.
 
 - 스냅샷은 pythograph 자체 형식이다(isthmus 입력이 아니다): 정점(id·종류·위치·모드별 미해석 수·이유), 간선(출발·
-  도착·종류·등급), 집계, `direct` 모드 한계, `graphRevision`.
+  도착·종류·등급), 집계, `direct` 모드 한계, `graphRevision`. isthmus 입력 상한(16 Mi 문자)을 따를 이유가 없어
+  스냅샷만 256 Mi 문자까지 쓴다(`encode_snapshot`, 메모리 예산은 `docs/GRAPH.md`). 형식·바이트는 같다.
 - `graphRevision`은 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256이다(위치 제외). 그래서 같은 그래프의
   `graph`·`reach`·`impact`는 모드와 무관하게 같은 값을 싣는다(isthmus는 같은 플랫폼 분석끼리 비교한다).
 - 순회 문서는 `dispatch`를 싣는다. 계약상 이것은 모든 도달 정점의 근거 등급을 분류하고(`evidence`를 항상 싣는다)
@@ -15,12 +16,35 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
-from pythograph.exchange.document import format_timestamp
+from pythograph.exchange.document import DocumentLimitError, format_timestamp
 from pythograph.graph.model import CallGraph, GraphNode, NodeLocation
 from pythograph.graph.traversal import ReachedSymbol, TraversalResult
 
 #: 계약이 허용하는 `unresolvedCalls` 최댓값이다.
 MAX_UNRESOLVED_CALLS = 1_000_000
+
+#: 그래프 스냅샷 출력 상한(문자)이다. 스냅샷은 isthmus 입력이 아니므로 isthmus 상한(16 Mi) 대신 메모리 예산으로 정한다:
+#: 직렬화 봉우리는 ASCII 출력 문자당 약 2바이트(JSON 문자열 + 인코더 조각 목록, 합성 88 Mi 문자 그래프에서 측정)라
+#: 상한에서 약 0.5 GiB를 더 쓴다(비 ASCII id는 문자당 더 쓴다).
+MAX_SNAPSHOT_LENGTH = 256 * 1024 * 1024
+
+
+def encode_snapshot(document: dict[str, object]) -> str:
+    """그래프 스냅샷을 다른 문서와 같은 형식(키 정렬·두 칸 들여쓰기·끝 줄바꿈)으로 직렬화한다.
+
+    Args:
+        document: 스냅샷 문서.
+
+    Returns:
+        JSON 문자열(16 Mi 문자 이하면 `encode_document`와 바이트가 같다).
+
+    Raises:
+        DocumentLimitError: 스냅샷 상한을 넘을 때(부분 문서를 내지 않는다).
+    """
+    text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if len(text) > MAX_SNAPSHOT_LENGTH:
+        raise DocumentLimitError(f"the graph snapshot would exceed {MAX_SNAPSHOT_LENGTH} characters")
+    return text
 
 
 @dataclass(frozen=True)
