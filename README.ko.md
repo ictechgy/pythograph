@@ -244,7 +244,7 @@ pythograph impact (reach와 같은 옵션)
 route 정밀도, schemagraph·isthmus 조인율, 핸들러 → relation-use 도달률, 미해석 호출 이유, 실행 시간을 잰 도그푸딩 결과와 고친
 문제는 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-isthmus 공유 적합성 벡터(`conformance/`, isthmus `3a45450`에서 벤더링해 `conformance.lock`으로 고정)의 `producer`·
+isthmus 공유 적합성 벡터(`conformance/`, isthmus `2954375`에서 벤더링해 `conformance.lock`으로 고정)의 `producer`·
 `producer:pythograph` 사례 135건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`와
 query 꼬리·보간·정규화·strip·마스킹·`rfc3986`/`httpx-base-url`/`aiohttp-base-url` 결합·래퍼 인자 바인딩의 url-compose 57건)을
 100% 통과하고, `dispatch.validate` 검증기는 routes 출력 golden에도 적용한다.

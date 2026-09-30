@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- isthmus 공유 적합성 벡터를 `2954375`(#134, aiohttp `versionRange` 보강)로 다시 벤더링했다. pythograph 동작은 그대로다.
+
 ### Added (클라이언트 route-call)
 
 - `pythograph routes --role client`: requests(최상위 함수·`Session`)·httpx(최상위 함수·`Client`·`AsyncClient`의 `base_url`)·

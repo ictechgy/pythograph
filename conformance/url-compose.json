@@ -1913,6 +1913,7 @@
       "ruleId": "compose.base-join",
       "provenance": "contract",
       "source": "docs/HTTP-WRAPPERS.md#go-rust-python-클라이언트",
+      "versionRange": ">=3.8",
       "appliesTo": [
         "producer:pythograph"
       ],
@@ -1924,13 +1925,15 @@
       "expect": {
         "template": "/users",
         "pathAnchor": "root"
-      }
+      },
+      "note": "A rooted path works on every base_url form since aiohttp 3.8 (origin-only base in 3.8-3.10, a base path is replaced from 3.11)."
     },
     {
       "id": "base-join/aiohttp-unknown-base-relative",
       "ruleId": "compose.base-join",
       "provenance": "contract",
       "source": "docs/HTTP-WRAPPERS.md#go-rust-python-클라이언트",
+      "versionRange": ">=3.11",
       "appliesTo": [
         "producer:pythograph"
       ],
@@ -1942,7 +1945,8 @@
       "expect": {
         "template": "/users",
         "pathAnchor": "base"
-      }
+      },
+      "note": "Relative paths without a leading / are accepted since aiohttp 3.11; a producer that cannot prove 3.11+ emits dynamic + ambiguous-base-join:."
     }
   ]
 }
