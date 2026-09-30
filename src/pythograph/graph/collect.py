@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 
-from pythograph.graph.calls import CallOutcome, CallResolver, Target
+from pythograph.graph.calls import BoundSite, CallOutcome, CallResolver, Target
 from pythograph.graph.index import Definition
 from pythograph.graph.values import (
     AttributeValue,
@@ -203,7 +203,10 @@ class _ScopeVisitor(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         """호출 지점: 해석하고 피호출 식의 수신자·인자를 방문한다."""
-        outcome = self.calls.resolve(self.scope, node, self._is_shadowed(node.func))
+        shadowed = self._is_shadowed(node.func)
+        outcome = self.calls.resolve(self.scope, node, shadowed)
+        if isinstance(node.func, ast.Attribute) and not shadowed and outcome.is_bound_candidate():
+            outcome.site = BoundSite(self.scope, node, bool(self.shadowed))
         self.facts.calls.append(outcome)
         self._add_outcome(outcome)
         if isinstance(node.func, ast.Attribute):

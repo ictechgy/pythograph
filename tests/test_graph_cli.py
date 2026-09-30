@@ -144,12 +144,20 @@ def test_candidates_mode_adds_candidate_evidence() -> None:
     assert "unresolvedCalls" not in document["roots"][0]  # type: ignore[index]
 
 
-def test_bound_mode_follows_direct_graph() -> None:
-    """bound 모드는 bound 간선이 없어 direct 그래프와 같고 한계로 밝힌다."""
+def test_bound_mode_follows_bound_edges() -> None:
+    """bound 모드는 닫힌 흐름의 bound 간선(`build()` 반환 값 → `Plain.label`)을 따라가고 그 호출을 미해석에서 뺀다."""
     _, bound, _ = traversal("reach", "--dispatch", "bound", "app/core/services.py#inexact_calls")
     _, direct, _ = traversal("reach", "app/core/services.py#inexact_calls")
-    assert bound["reached"] == direct["reached"]
-    assert any(str(line).startswith("bound-dispatch:") for line in bound["limitations"])  # type: ignore[union-attr]
+    assert bound["dispatch"] == "bound"
+    reached = {entry["symbol"]["usr"]: entry for entry in bound["reached"]}  # type: ignore[union-attr]
+    assert reached["app/core/models.py#Plain.label"]["evidence"] == "bound"
+    assert set(reached_ids(direct)) < set(reached)
+    assert "app/core/models.py#Plain.label" not in reached_ids(direct)
+    assert "unresolvedCalls" not in bound["roots"][0]  # type: ignore[index]
+    assert direct["roots"][0]["unresolvedCalls"] == 1  # type: ignore[index]
+    lines = [str(line) for line in bound["limitations"]]  # type: ignore[union-attr]
+    assert any(line.startswith("bound-dispatch: 1 calls") for line in lines)
+    assert not any(str(line).startswith("bound-") for line in direct["limitations"])  # type: ignore[union-attr]
 
 
 def test_impact_is_reverse() -> None:

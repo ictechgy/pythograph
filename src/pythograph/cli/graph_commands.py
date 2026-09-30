@@ -54,8 +54,9 @@ Exit codes: 0 success, 2 unreadable project or oversized output, 64 usage error.
 
 _TRAVERSAL_OPTIONS = """Options:
   --project <root>           Project root; ids are pythograph symbol ids (routes and schema symbol.usr)
-  --dispatch <mode>          direct (default), bound (currently the direct graph), or candidates
-                             (also subclass overrides as candidate edges)
+  --dispatch <mode>          direct (default); bound (also bound edges: calls whose receiver only
+                             ever receives project class instances); or candidates (also subclass
+                             overrides as candidate edges)
   --max-depth <n>            Maximum edge count from a root, 1-128 (default 128)
   --max-reached <n>          Maximum reached symbols, 1-100000 (default 100000)
   --roots-from <file|->      More roots from a JSON string array or a bridge-facts document (- is stdin)

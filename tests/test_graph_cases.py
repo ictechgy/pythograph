@@ -347,7 +347,9 @@ def test_annotations_and_special_calls(make_project: MakeProject) -> None:
     all_edges = edges(graph)
     assert ("m.py#a", "m.py#Thing.ping", "direct") in all_edges
     assert ("m.py#a", "m.py#Other.ping", "candidate") in all_edges
-    assert ("m.py#Thing.clone", "m.py#Other.ping", "candidate") in all_edges
+    # `type(self)()`·`cls()`는 Thing과 프로젝트 하위 클래스만 만들 수 있어 재정의가 bound로 이어진다.
+    assert ("m.py#Thing.clone", "m.py#Other.ping", "bound") in all_edges
+    assert ("m.py#Thing.make", "m.py#Other.ping", "bound") in all_edges
     assert ("m.py#Thing.make", "m.py#Thing", "direct") in all_edges
     nodes = graph.node_map()
     assert nodes["m.py#a"].reasons == {"overridden-method": 3, "untyped-receiver": 1}
