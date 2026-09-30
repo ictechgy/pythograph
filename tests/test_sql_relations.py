@@ -155,3 +155,12 @@ def test_handles_unclosed_parentheses_and_duplicates() -> None:
     assert relations("SELECT * FROM a.where") == ["a"]
     assert relations('SELECT * FROM ""') == []
     assert relations('SELECT * FROM "a" AS') == ["a"]
+
+
+def test_table_valued_functions_are_not_table_names() -> None:
+    """테이블 값 함수는 관계로 추측하지 않고 미해석으로 센다."""
+    assert relations("SELECT * FROM pragma_table_info('t')") == []
+    assert relations("SELECT * FROM users JOIN main.pragma_table_info('t') p ON true") == ["users"]
+    assert relations("SELECT * FROM pragma_table_info('t') AS p, users") == ["users"]
+    assert sql_relations("SELECT * FROM pragma_table_info('t')").unresolved == 1
+    assert relations("INSERT INTO users (id) VALUES (1)") == ["users"]
