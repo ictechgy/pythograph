@@ -18,7 +18,7 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework 라우터·뷰, Flask/Werkzeug 규칙 → `route-decl` 사실 | 구현됨 |
 | `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
-| `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
+| `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`bound`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
 | 클라이언트 route-call(requests, httpx) | 계획 |
 
 isthmus `main`(`f9dcd1d`)은 `platform: "python"`의 http(`registration-order` 포함)·persistence 문서와 python
@@ -175,7 +175,15 @@ pythograph impact (reach와 같은 옵션)
   속성), `inherit`, `dispatch`·`framework`(프레임워크 디스패치). import(절대·상대·별칭·`__init__` 재수출·`*`), 모듈 속성, 생성자,
   프로젝트 클래스의 C3 MRO로 푼 `self`·`super()`, 주석·반환 주석 수신자, 모듈 수준 인스턴스, property를 따라간다.
 - **근거 등급**: 정적으로 푼 간선은 `direct`, `self`·`cls`·주석 수신자의 프로젝트 하위 클래스 재정의는 `candidate`다.
-  `bound`는 아직 만들지 않는다 — `--dispatch bound`는 `direct` 그래프와 같다.
+  타입을 모르거나 재정의될 수 있는 수신자의 메서드 호출은 수신자로 들어오는 관찰된 값이 모두 프로젝트 클래스 인스턴스일 때만
+  `bound` 간선을 둔다(`--dispatch bound`가 따라간다): 생성자, 모듈 수준 인스턴스, `__init__`에서 생성자 매개변수로 받은
+  속성(DI), 호출 지점이 모두 프로젝트 안인 함수 매개변수, 팩토리 반환 값. 열린 자리에는 `bound`가 없다: 라이브러리(프로젝트
+  루트에 `setup.py`·`setup.cfg`나 `pyproject.toml`의 `[project]`·`[tool.poetry]`)의 공개 함수·클래스·모듈 전역, 프레임워크가
+  부르는 진입점(값으로 넘긴 함수, 장식한 함수, 프레임워크 기반 클래스), 계산된 `getattr`·`setattr`과 모듈 이름공간,
+  `*args`·`**kwargs` 펼치기, 감싸는 장식자, 값을 모르는 몽키패치 쓰기, `self`·`cls`, 테스트 소스(별도 프로그램). 라이브러리
+  코드를 거쳐 돌아오는 값과 타입 모르는 수신자에 대한 계산된 이름의 쓰기는 모델링하지 않는다(`bound-assumptions:`). 공개 앱
+  네 개에서 `bound`로 이은 호출이 0건이라 기본은 `direct`를 유지한다. 모듈 전역·클래스 본문 속성은 다시 쓰이지 않을 때만
+  정확한 수신자다.
 - **추측 없음**: 대상을 모르는 호출은 이유별(`parameter`, `untyped-receiver`, `dynamic-attribute`, `getattr`,
   `dynamic-callee`, `unresolved-import`, `framework-callback` 등)로 세어 정점마다 `unresolvedCalls`로 싣는다. 타입 모르는
   수신자의 호출은 프로젝트가 그 이름을 정의·대입하지 않을 때만 외부로 확정한다.
@@ -183,6 +191,8 @@ pythograph impact (reach와 같은 옵션)
   (`dispatch`·`initial`·권한·`__init__`)와 프레임워크 구현(`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`)이 부르는 프로젝트 훅을 잇는다. 프레임워크가 클래스 속성으로 만드는 객체
   (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다.
+- **스냅샷 크기**: `graph` 스냅샷은 isthmus 입력이 아니라 256 Mi 문자까지 쓴다(직렬화 중 출력 문자당 약 2바이트를 더 쓴다).
+  `reach`·`impact`는 isthmus 입력 상한 16 Mi 문자를 그대로 둔다. 직렬화 방식은 그대로라 상한을 올린 것만으로 16 Mi 문자 이하 스냅샷은 바뀌지 않는다.
 - **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),
   `--max-depth`·`--max-reached` 잘림, `rootsTruncated`. 정점이 아닌 root는 `symbol` 없이 싣고 문서를 쓴 뒤 64로 끝난다.
   `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD, `graphRevision`은 그래프 내용 SHA-256이다.

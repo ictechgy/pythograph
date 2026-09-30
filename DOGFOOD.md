@@ -120,5 +120,60 @@ GLM 리뷰(신뢰하지 않는 입력)로 받은 지적 중 재현한 네 건(Fl
   `get_api_root_view`만 바꾸는 하위 클래스는 모델링할 여지가 있다.
 - 레지스트리 기반 URL 생성(데코레이터가 채운 레지스트리를 URLconf가 읽는 구조)은 정적으로 증명할 수 없다.
 - 알 수 없는 제3자 기반 클래스의 클래스 뷰는 `ANY` 근사다(django-filter·drf-spectacular 등의 표를 두면 줄일 수 있다).
-- 미해석 호출은 타입 모르는 수신자(`untyped-receiver`)가 대부분이다(`bound` 근거 등급 후보).
-- 대형 프로젝트의 `graph` 스냅샷 크기(16 Mi 문자 상한)와 1초를 넘는 스캔 시간.
+- 미해석 호출은 타입 모르는 수신자(`untyped-receiver`)가 대부분이다 — `bound`로 다시 쟀다(아래 재측정).
+- ~~대형 프로젝트의 `graph` 스냅샷 크기(16 Mi 문자 상한)~~ — 스냅샷 상한을 256 Mi 문자로 떼어 해결(아래 재측정). 1초를 넘는
+  스캔 시간은 남았다.
+
+## 재측정: `bound` 근거 등급과 대형 그래프 스냅샷
+
+같은 커밋의 같은 네 앱을 스크래치에 다시 복제해(`babybuddy` `3bcc2a5`, `microblog` `a975ef6`, `Django-Styleguide-Example`
+`a70ef43`, `netbox` `9bcfd73`) 파싱만 했다(설치·실행하지 않았다). 수정 전은 `main` `50d079f`, 수정 후는 `bound` 브랜치다. 도달은
+route-decl 핸들러 usr마다 모드가 허용하는 간선으로 너비 우선 탐색해 정적 relation-use를 가진 심볼에 닿는 핸들러 수다. 실행
+시간·최대 RSS는 같은 기계(Apple Silicon, Python 3.13)의 `/usr/bin/time -l`이다.
+
+### 핸들러 → relation-use 도달과 `bound`
+
+| 앱 | 도달 direct(전 → 후) | 도달 bound | 도달 candidates | `bound` 후보 | 이은 호출 | 열린 이유 상위 | 프로그램 판정 |
+|---|---|---|---|---|---|---|---|
+| Django-Styleguide-Example | 14/21 → 14/21 | 14/21 | 14/21 | 30 | 0 | framework-base 10, method-parameter 8, call-result 6, referenced 4 | application(테스트가 아닌 `factories.py`가 테스트 패키지를 import → 테스트까지 프로그램) |
+| babybuddy | 170/194 → 170/194 | 170/194 | 170/194 | 210 | 0 | call-result 117, class-attribute 23, variadic-parameter 15, loop-variable 12, method-parameter 12 | application |
+| microblog | 20/26 → 20/26 | 20/26 | 20/26 | 12 | 0 | call-result 12 | application |
+| netbox | 74/100 → 74/100 | 74/100 | 74/100 | 10,002 | 0 | call-result 3,039, class-attribute 2,691, method-parameter 1,085, dynamic-expression 787, scan-incomplete 473, code-execution 444 | library(`pyproject.toml` `[project]`) + 불완전한 스캔(4 MiB 넘는 데이터 모듈 1개) |
+
+- **이은 호출은 네 앱 모두 0건이다.** 후보의 대부분은 프레임워크가 만든 객체(`request`·`validated_data`·`options`·ORM 결과·
+  매니저)의 메서드 호출이라 흐름이 외부 호출 결과(`call-result`)·클래스 객체 속성(`class-attribute`)·메서드 매개변수·
+  `**kwargs`에서 끝난다. 프로젝트 클래스를 생성자로 주입하는 코드(DI)가 이 앱들에는 거의 없다. netbox는 라이브러리 판정
+  (플러그인이 공개 API를 import한다)·불완전한 스캔·스크립트 실행 기능의 `exec`로 모듈 수준 함수·생성자가 모두 열린다.
+- 그래서 **기본 모드는 `direct`를 유지한다**(`docs/GRAPH.md`). `bound`는 도달·등급을 바꾸지 않고 문서의 `dispatch` 선언과
+  한계 문구만 바꾼다. 합성 DI 코드에서 `bound`가 잇는 것은 `tests/test_graph_bound*.py`가 확인한다.
+- 대상을 모르는 계산된 이름의 쓰기(모델링하지 않은 틈 `unknownTargetWrites`): DSE 1, babybuddy 2, microblog 0, netbox 30 —
+  모두 `setattr(instance, field, value)` 모양의 모델 갱신이다. 막으면 `bound`가 전부 사라져 tsograph처럼 가정으로 두고 수를 싣는다.
+
+### 미해석 호출(수정 전 → 후)
+
+| 앱 | direct | bound | candidates | 간선 |
+|---|---|---|---|---|
+| Django-Styleguide-Example | 86 → 86 | 86 | 86 | 331 → 331 |
+| babybuddy | 684 → 684 | 684 | 684 | 2,677 → 2,670 |
+| microblog | 14 → 14 | 14 | 14 | 134 → 134 |
+| netbox | 11,159 → 11,167 | 11,167 | 11,085 | 64,451 → 64,446 |
+
+- direct 등급 수정(다시 쓰는 모듈 전역·클래스 본문 속성은 정확한 값이 아니다)의 영향: babybuddy는 모델 클래스 본문 속성
+  `settings = NapSettings(...)`가 다른 곳의 `x.settings = …` 쓰기 때문에 정확한 값이 아니게 되어 `attribute` 간선 7개가 빠졌다
+  (이름 기준이라 보수적이다, 핸들러 도달은 같다). netbox는 같은 이유로 16개 호출이 `dynamic-attribute`로 옮겨 direct 미해석이 8개
+  늘었다(`dynamic-callee`에서 넘어온 것 포함).
+
+### 실행 시간과 메모리(수정 후)
+
+| 앱 | graph | reach | reach `--dispatch bound` | impact |
+|---|---|---|---|---|
+| Django-Styleguide-Example | 0.25 s / 41 MiB | 0.25 s / 42 MiB | 0.25 s / 42 MiB | 0.24 s / 41 MiB |
+| babybuddy | 0.56 s / 73 MiB | 0.56 s / 71 MiB | 0.55 s / 71 MiB | 0.55 s / 72 MiB |
+| microblog | 0.14 s / 34 MiB | 0.14 s / 34 MiB | 0.14 s / 34 MiB | 0.14 s / 34 MiB |
+| netbox | **7.9 s / 513 MiB, 종료 코드 0** | 7.8 s / 487 MiB | 7.8 s / 489 MiB | 7.9 s / 490 MiB |
+
+- **netbox `graph`가 끝까지 나온다**: 스냅샷은 21,250,374 문자(16 Mi = 16,777,216 문자 초과)로 전에는 종료 코드 2였다. 스냅샷
+  상한을 256 Mi 문자로 떼었고(스냅샷은 isthmus 입력이 아니다) 직렬화가 더하는 메모리는 약 26 MiB(같은 그래프의 `reach` 대비)다.
+- `bound` 분석 비용: 같은 기계에서 netbox `reach`가 7.1–7.4 s / 458 MiB(수정 전)에서 7.8–8.0 s / 485 MiB로 늘었다. 모듈 AST 훑기를
+  하나로 합치고 `nonlocal`·테스트 소스 import 판정을 캐시해 처음 구현(9.4 s)보다 줄였다. DSE는 테스트 패키지까지 프로그램으로
+  훑어 0.16 s → 0.25 s다.

@@ -4,6 +4,32 @@
 
 ## [Unreleased]
 
+### Added (bound 근거 등급·대형 그래프 스냅샷)
+
+- `bound` 근거 등급(tsograph와 같은 계약): 타입 모르는 수신자·인스턴스 속성 수신자·재정의 후보가 있는 주석 수신자의 메서드
+  호출은 수신자로 들어오는 관찰된 값이 모두 프로젝트 클래스 인스턴스일 때만 구현마다 `bound` 간선을 둔다. 전체 프로그램 값
+  흐름(`graph/flow.py`): 생성자, 재대입한 지역 이름, 모듈 수준 인스턴스(조건부 대입·`global`·몽키패치 쓰기 합침), `__init__`
+  매개변수로 받은 속성(DI), 호출 지점이 모두 프로젝트 안인 함수 매개변수, 팩토리 반환 값. 열린 자리(`graph/exposure.py`):
+  라이브러리 공개 이름(`setup.py`·`setup.cfg`·`pyproject.toml` `[project]`/`[tool.poetry]`, 설치하지 않는 앱 표시는 제외), 값으로
+  새는 함수·클래스(뷰·시그널 등록), 장식한 함수·클래스(Celery·시그널·래퍼), 프레임워크 기반 클래스(관리 명령·뷰), 문자열로 적은
+  이름, 호출 지점 없는 함수, 메서드 매개변수, `self`·`cls`, `*args`·`**kwargs` 펼치기, 계산된 `getattr`·모듈 이름공간
+  노출(`globals()`·`sys.modules`·동적 import), 계산된 이름의 쓰기(`setattr`·`__dict__`·`vars()`·`__class__`) 대상, 속성 훅·서술자·
+  메서드 가림, 동적 생성·`exec`, 불완전한 스캔, 테스트 소스(별도 프로그램 — 테스트가 아닌 모듈이 import하면 함께 훑는다).
+  `bound`·`candidates` 모드의 미해석 수에서 이은 호출을 빼고, `statistics.boundDispatch`와 `bound-dispatch:`·`bound-assumptions:`
+  한계를 싣는다. 기본 모드는 `direct`를 유지한다(공개 앱 네 개에서 이은 호출 0건, `DOGFOOD.md`).
+- 건전성 탐침(`tests/test_graph_bound_probes.py`): 흐름을 숨기는 기법을 섞은 합성 프로그램을 테스트 안에서 실행해 런타임
+  수신자가 `bound`·direct 대상에 모두 있는지 본다(로컬 3,000개 위반 0건). 순회 오라클에 `bound` 모드·모드 사이 등급 포개짐·
+  실제 그래프 비교를 더했다.
+- `graph` 스냅샷 출력 상한을 isthmus 입력 상한(16 Mi 문자)에서 떼어 256 Mi 문자로 올렸다(스냅샷은 isthmus 입력이 아니다,
+  직렬화 봉우리 약 2바이트/문자). netbox 규모 스냅샷(21 Mi 문자)이 이제 끝까지 나온다. `reach`·`impact`는 16 Mi 그대로다.
+
+### Fixed (direct 등급)
+
+- 모듈 전역·클래스 본문 속성을 다시 쓰는 곳(두 번째 모듈 수준 대입, `global` 대입, `globals()`, 같은 이름의 속성 쓰기·리터럴
+  `setattr`, 클래스 본문 중복 대입)이 있거나 값이 서술자면 정확한 수신자로 보지 않는다. 전에는 마지막 무조건 대입 값을 정확한
+  값으로 보아 몽키패치된 전역·클래스 속성의 호출을 빠뜨렸다(건전성 탐침이 찾았다). 이름 기준이라 보수적이다(babybuddy에서
+  클래스 속성 간선 7개가 빠졌고 핸들러 도달은 같다). 새 해석기 이유는 `local-value`·`dynamic-attribute`로 묶는다.
+
 ### Changed
 
 - README 설치 절을 PyPI(`uv tool install pythograph`·`pipx install pythograph`) 기준으로 바꿨다.

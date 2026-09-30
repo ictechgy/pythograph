@@ -15,8 +15,9 @@ pythograph impact (reach와 같은 옵션)
   미해석 호출이 있으면 모드별 `unresolvedCalls`와 이유별 `unresolvedReasons`), 간선(`from`·`to`·`kinds`·`evidence`),
   `statistics`, `direct` 모드 `limitations`, `graphRevision`, `revision`.
 - `reach`: root가 기대는 정점(`direction: "dependencies"`), `impact`: root에 기대는 정점(`"dependents"`).
-- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·출력 16Mi 문자 초과(부분 문서 없음), 64 사용법 오류(표준 출력 비어
-  있음) 또는 root-not-found(문서를 쓴 뒤 64). 1은 예약이다.
+- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·출력 상한 초과(부분 문서 없음 — `graph` 스냅샷 256 Mi 문자, `reach`·
+  `impact` 16 Mi 문자), 64 사용법 오류(표준 출력 비어 있음) 또는 root-not-found(문서를 쓴 뒤 64). 1은 예약이다.
+- `--dispatch` 기본값은 `direct`다(아래 [기본 모드](#기본-모드-direct를-유지한-이유)).
 
 ## 정점
 
@@ -60,7 +61,7 @@ pythograph impact (reach와 같은 옵션)
 - 이름은 파이썬 LEGB 규칙이다: 함수 지역 → 바깥 함수(클래스 범위는 건너뛴다) → 모듈 전역 → 내장 이름. 클래스 본문은 자기
   본문 이름을 먼저 본다. `global`·`nonlocal`을 따른다.
 - 모듈 전역: 정의, import(절대·상대·`from x import y as z`, 조건문 안 포함), 모듈 속성 접근(`models.Base`), `__init__` 재수출,
-  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다. 패키지 `__init__`의 `*`를 거듭 따라가고, 대상 모듈의 리터럴 `__all__` 또는 밑줄 없는 이름만 내보낸 것으로 본다 — 외부 모듈이나 `__all__`을 확정하지 못한 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
+  단순 대입 값(`orders = OrderService()`는 정확한 인스턴스 — 아래 다시 쓰기 규칙), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다. 패키지 `__init__`의 `*`를 거듭 따라가고, 대상 모듈의 리터럴 `__all__` 또는 밑줄 없는 이름만 내보낸 것으로 본다 — 외부 모듈이나 `__all__`을 확정하지 못한 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
   (`from .missing import x`)는 외부로 보지 않고 `unresolved-import`다.
 - 지역 이름은 흐름을 따지지 않는다. 한 범위에서 두 번 이상 묶이거나 반복 변수·`with … as`·예외·풀기·match 캡처로 묶인 이름은
   모르는 값(`local-value`)이다.
@@ -71,6 +72,13 @@ pythograph impact (reach와 같은 옵션)
   외부 클래스(멤버를 모른다), 해석하지 못한 기반(프로젝트 클래스일 수도 있다)을 항목으로 둔다. 병합이 실패하거나 순환하면 왼쪽
   우선 깊이 우선으로 근사하고 `mro-approximated:`로 센다. 멤버 조회는 표에 없는 외부 클래스를 건너뛰되 기억하고, 뒤에서
   프로젝트·프레임워크 정의를 찾으면 그것을 쓴다(외부 클래스가 같은 이름을 가리는 경우는 근사다).
+- **다시 쓰는 값은 모른다.** 모듈 전역·클래스 본문 속성의 값은 다시 쓰이지 않을 때만 정확한 값이다: 모듈 수준 묶음이 둘
+  이상(조건부 대입 포함)이거나, 함수가 `global`로 다시 묶거나, 모듈이 `globals()`(모듈 수준 `vars()`·`locals()`)를 쓰거나,
+  프로젝트 어딘가에 같은 이름의 속성 쓰기(`wiring.repo = …`, `Holder.repo = …`, `obj.repo = …`, 리터럴 `setattr`)가 있거나,
+  클래스 본문이 그 이름에 두 번 대입하면 모르는 값(`local-value`·`dynamic-attribute`)이다. 클래스 본문 값이 서술자(`__get__`을
+  정의한 프로젝트 클래스 인스턴스)여도 모른다. 이름 기준이라 보수적이다(같은 이름의 무관한 쓰기도 막는다). 이런 수신자의
+  호출은 `bound` 값 흐름이 모든 쓰기를 합쳐 다시 본다. `bound` 건전성 탐침이 찾은 direct 등급의 구멍(한 번 대입한 전역·클래스
+  속성의 몽키패치·`global` 대입)을 막으려고 더했다.
 - 정확한 수신자(`Plain("p")`, 모듈 수준 인스턴스, 프레임워크가 만든 뷰 인스턴스)의 메서드 호출은 그 클래스의 멤버 정점(정의 또는
   상속 멤버)으로 간다. 상속 멤버 정점은 물려받은 정의로 `inherit` 간선을 두고, 그 본문의 `self.X` 사용을 정확한 수신자 MRO로 다시
   풀어 잇는다(다이아몬드의 `Diamond.describe`는 `Left.label`과 `Right.suffix`에 닿는다).
@@ -89,22 +97,24 @@ pythograph impact (reach와 같은 옵션)
 
 ## 미해석 호출 (`unresolvedCalls`)
 
-정점 **자신의** 호출 지점(람다·컴프리헨션 포함, 중첩 정의 본문 제외) 중 대상을 잇지 못한 수다. 모드별로 센다: `direct`·`bound`는
-재정의 후보가 있는 호출(`overridden-method`)과 하위 클래스 전용 메서드 호출(`subclass-method`)을 포함하고, `candidates`는 그 호출을
-후보 간선으로 이었으므로 뺀다. 외부 호출은 미해석이 아니다. 이유:
+정점 **자신의** 호출 지점(람다·컴프리헨션 포함, 중첩 정의 본문 제외) 중 대상을 잇지 못한 수다. 모드별로 센다: `direct`는
+재정의 후보가 있는 호출(`overridden-method`)과 하위 클래스 전용 메서드 호출(`subclass-method`)을 포함한다. `bound`는 거기서
+`bound` 간선으로 이은 호출(타입 모르는 수신자·인스턴스 속성 수신자·재정의 후보)을 빼고, `candidates`는 재정의 후보 호출과
+`bound`로 이은 호출을 모두 뺀다(등급이 포개지므로 `direct` ≥ `bound` ≥ `candidates`). 외부 호출은 미해석이 아니다. 이유
+(`unresolvedReasons`는 `direct` 기준):
 
 | 이유 | 뜻 |
 |---|---|
 | `parameter` | 매개변수(콜백)나 람다 매개변수를 호출 |
-| `local-value` | 값을 모르는 지역 이름을 호출(재대입·반복 변수·`with`·풀기·match 캡처) |
+| `local-value` | 값을 모르는 이름을 호출(재대입한 지역 이름·다시 쓰는 모듈 전역·반복 변수·`with`·풀기·match 캡처) |
 | `untyped-receiver` | 타입 모르는 수신자의 메서드 호출인데 그 이름을 프로젝트가 쓴다 |
-| `dynamic-attribute` | 프로젝트 클래스에 없는 속성(인스턴스 속성 `self.repo.save()`, 함수 속성) 호출 |
+| `dynamic-attribute` | 프로젝트 클래스에 없는 속성(인스턴스 속성 `self.repo.save()`, 함수 속성)이나 다시 쓰는 클래스 속성·서술자 호출 |
 | `dynamic-callee` | 피호출 식이 호출 결과·첨자·람다 등이다(`handlers[k]()`, `factory()()`) |
 | `getattr` | 계산된 이름의 `getattr(x, name)()` |
 | `unresolved-name`·`unresolved-import`·`star-import` | 정의를 찾지 못한 이름·프로젝트 import·외부 `*` import 뒤 이름 |
 | `unknown-base` | 해석하지 못한 기반 클래스를 지나 멤버를 찾지 못했다 |
 | `excluded-source` | 테스트 소스(정점이 아님)의 정의를 호출 |
-| `overridden-method`·`subclass-method` | 위 재정의 후보(`direct`·`bound`만) |
+| `overridden-method`·`subclass-method` | 위 재정의 후보(`direct`, `bound`로 잇지 못한 것만 `bound`) |
 | `framework-callback` | 프레임워크가 클래스 속성 값으로 만들어 부르는 프로젝트 코드(아래) |
 | `framework-implementation` | 핸들러 이름이 프레임워크 표 밖의 구현이다 |
 
@@ -142,15 +152,90 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 
 | 모드 | 따라가는 간선 | 문서 |
 |---|---|---|
-| `direct`(기본) | `direct` | 재정의 후보가 있는 호출은 미해석으로 센다 |
-| `bound` | `direct`·`bound` | pythograph는 아직 `bound` 간선을 만들지 않으므로 `direct` 그래프와 같다(`bound-dispatch:` 한계) |
-| `candidates` | 모든 간선 | 하위 클래스 재정의 후보를 `candidate`로 싣고 그 호출을 미해석에서 뺀다 |
+| `direct`(기본) | `direct` | 재정의 후보가 있는 호출과 타입 모르는 수신자 호출은 미해석으로 센다 |
+| `bound` | `direct`·`bound` | 수신자 흐름이 닫힌 호출을 관찰된 구현마다 `bound`로 잇고 미해석에서 뺀다 |
+| `candidates` | 모든 간선 | 하위 클래스 재정의 후보를 `candidate`로도 싣는다 |
 
-**`bound`를 구현하지 않은 이유.** tsograph의 `bound`는 "인터페이스 자리로 들어오는 관찰된 흐름이 모두 알려진 프로젝트 구현"이라는
-전체 프로그램 값 흐름 증명이 필요하다. 파이썬에서는 `as_view(**initkwargs)`가 `setattr`로 임의 속성을 쓰고, DI 컨테이너·목이
-흐름을 넣으며, 동적 속성 대입이 흔해서 그 보장을 지키려면 속성 쓰기·매개변수 흐름 전체를 추적해야 한다. 이 PR은 증명하지 못한
-흐름을 `bound`로 부풀리지 않고 `direct` + `candidate`만 낸다. 정확한 수신자로 확정한 호출(생성자·모듈 수준 인스턴스·프레임워크가 만든
-뷰 인스턴스)은 이미 `direct`다.
+### `bound` 간선 (tsograph `bound`와 같은 계약)
+
+타입을 모르는 수신자(매개변수, 재대입한 지역 이름, 인스턴스 속성 `self.repo`, 팩토리 결과)나 프로젝트 하위 클래스가
+재정의한 메서드를 가진 주석 수신자(`repo: Repo`)의 메서드 호출은, **수신자 자리로 들어오는 관찰된 모든 값이 알려진 프로젝트
+클래스 인스턴스**이고 각 클래스에서 그 이름이 프로젝트 메서드(정의 또는 물려받은 상속 멤버 정점)나 프레임워크 구현(상속 멤버
+정점)으로 풀릴 때만 그 구현마다 `bound` 간선을 둔다. 하나라도 열리면 간선이 없다(미해석으로 남는다). 구현은
+`graph/exposure.py`(열린 자리·호출 지점·속성 쓰기), `graph/flow.py`(값 흐름), `graph/bound.py`(대상)다.
+
+**따라가는 흐름**(전체 프로그램, 문맥·경로 무관, 테스트 소스 제외):
+
+- 생성자: `K(...)`는 정확한 K, `cls(...)`·`type(self)(...)`는 K와 프로젝트 하위 클래스. 장식한 클래스·메타클래스·프로젝트
+  `__new__`·프레임워크 `__new__`(DRF 직렬화기 `many=True`는 `ListSerializer`)·표에 없는 외부 기반 클래스는 결과를 모른다.
+- 지역 이름: 모든 대입을 합친다(`repo = SqlRepo()` 뒤 `if …: repo = MemRepo()`는 둘 다). 조건식·`or`/`and`·바다코끼리도 합친다.
+  반복 변수·`with … as`·풀기·예외·match 캡처는 모른다. 안쪽 함수가 `nonlocal`로 다시 묶으면 모른다.
+- 모듈 전역(모듈 수준 인스턴스): 모듈 수준 대입 전부(조건부 포함), `global`로 다시 묶는 함수의 대입, 그 모듈이나 타입 모르는
+  수신자(모듈 객체일 수 있다)에 대한 같은 이름 속성 쓰기(몽키패치 `wiring.repo = MemRepo()`). `from m import name`·별 import도
+  정의한 모듈까지 따라간다.
+- 함수 매개변수: 기본값 + 모든 호출 지점의 같은 자리 실인자(위치·키워드, 위치 전용·키워드 전용 구분). 호출 지점은 이름·
+  속성으로 푼 호출, 리터럴 `getattr` 호출, 타입 모르는 수신자의 같은 이름 호출(`module.store(x)` — 모듈 객체일 수 있다)이다.
+- `__init__` 매개변수: 그 정의로 생성되는 모든 클래스의 생성 지점(`K(...)`, `cls(...)`, 이름으로 닿는 `x.K(...)`),
+  `super().__init__(...)`, `K.__init__(self, ...)`, `type(h)(...)`·`h.__class__(...)`(h의 클래스를 알 때).
+- 인스턴스 속성(`__init__`에서 생성자 매개변수로 받은 속성, DI `self.repo = repo`): 수신자가 가리킬 수 있는 클래스들(정확하지
+  않으면 하위 클래스 포함)의 클래스 본문 값 + 그 클래스들의 인스턴스·클래스 객체(또는 타입 모르는 수신자)에 대한 같은 이름
+  쓰기 전부(리터럴 `setattr` 포함). 수신자 흐름이 닫혔으면 그 클래스들로 좁힌다(`svc.repo.save()`). 값에 서술자가 있으면 모른다.
+- 호출 결과: 프로젝트 함수·정확한 수신자 메서드의 모든 `return` 값(합성 루트의 팩토리). 장식한 함수·제너레이터·코루틴은 모른다.
+- `None` 상수는 흐름에 넣지 않는다(`None`의 메서드 호출은 프로젝트 코드를 부르지 않는다). 그 밖의 식(첨자·연산·리터럴)은 모른다.
+
+**열린 자리**(흐름을 모름으로 두어 `bound`를 내지 않는다):
+
+| 이유 | 자리 |
+|---|---|
+| `library-public` | 라이브러리의 공개 함수 매개변수·공개 클래스 생성자·`cls(...)`·인스턴스 속성·공개 모듈 전역. **라이브러리 판정**: 프로젝트 루트에 `setup.py`·`setup.cfg`가 있거나 `pyproject.toml`에 `[project]`·`[tool.poetry]`가 있으면 배포 가능한 패키지다(`[build-system]`이 없어도 pip는 setuptools로 설치한다). `[tool.poetry] package-mode = false`·`[tool.uv] package = false`는 설치하지 않는 앱이다. `pyproject.toml`을 읽지 못하면 라이브러리로 본다. 공개 = 경로·점 경로에 밑줄 이름이 없고 함수 안에 중첩되지 않음. 판정은 `statistics.boundDispatch.program`에 싣는다 |
+| `referenced` | 값으로 새어 나간 함수·클래스·`__init__`(인자·대입·반환·컨테이너·장식자 위치): URLconf에 넘긴 뷰, `signal.connect(handler)`, `functools.partial`, `map`, 콜백. `isinstance`·`issubclass`·`except`·비교·기반 클래스 위치는 새지 않는다 |
+| `decorated`·`decorated-class`·`metaclass` | 감싸는 장식자(`@shared_task`·`@receiver`·`@app.route`·사용자 래퍼)가 붙은 함수(매개변수·반환), 장식한 클래스(`@dataclass`의 생성된 `__init__` 포함), 메타클래스 |
+| `framework-base` | 프레임워크·외부 기반 클래스(뷰·직렬화기·모델·관리 명령)는 프레임워크가 생성하고 속성을 쓴다(`self.request`). MRO가 프로젝트 클래스로만 이뤄져야 닫힌다 |
+| `string-reference` | 이름이 문자열 리터럴(식별자·점 경로의 마지막 조각)에 나온 함수·클래스: 설정의 `"app.middleware.Audit"`, `import_string`, Celery 작업 이름. docstring·`__all__`은 뺀다 |
+| `no-call-site` | 호출 지점이 없는 함수·생성자(프레임워크·도구가 관례로 부르는 진입점 — 관리 명령 `handle`, gunicorn 훅 등) |
+| `method-parameter`·`self-receiver`·`variadic-parameter` | `__init__` 밖의 메서드 매개변수(호출자를 열거할 수 없다, tsograph와 같다), `self`·`cls`(프레임워크·ORM·DI가 하위 클래스 인스턴스를 만든다), `*args`·`**kwargs` |
+| `argument-spread` | 호출 지점의 `*args`·`**kwargs` 펼치기(어느 매개변수든 채울 수 있다) |
+| `module-namespace` | 모듈 멤버를 계산된 이름으로 가져갈 수 있다: 그 모듈을 계산된 이름으로 훑거나(`getattr(module, name)`, `inspect.getmembers`, `vars(module)`, `globals()`), 모듈 이름공간이 새어 나간 뒤(`sys.modules[...]`, 동적 import, 모듈을 값으로 씀) 타입 모르는 값을 계산된 이름으로 훑음 |
+| `untyped-reference`·`untyped-init-call`·`super-with-arguments` | 타입 모르는 수신자의 `x.f`·`x.K` 값 사용(같은 이름 함수·클래스가 새어 나갈 수 있다), `x.__init__(...)`(모든 `__init__`), 인자 있는 `super(X, y).__init__`(MRO의 `__init__`) |
+| `dynamic-construction`·`dynamic-subclass`·`code-execution` | 타입 모르는 값의 `type(x)(...)`·`x.__class__(...)`(모든 생성자), 세 인자 `type(...)`·`types.new_class`(하위 클래스 목록이 완전하지 않다 — `cls(...)`), `exec`·`eval`·`compile`(모든 함수·생성자) |
+| `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
+| `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
+| `scan-incomplete` | 파싱하지 못한 파일·심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
+| `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |
+| `call-result`·`class-attribute`·`not-instance`·`dynamic-expression` 등 | 흐름이 프로젝트 인스턴스로 끝나지 않는다(외부 호출 결과·클래스 객체 속성·함수 값·첨자) |
+
+**보장과 가정.** `bound`는 스캔한 프로젝트가 프로그램 전체라는 가정 아래 호출 지점에서 실행될 수 있는 구현을 빠뜨리지
+않는다(연결한 구현은 모두 그 자리로 흐르는 것이 관찰됐다). 문맥을 가리지 않으므로 합성 루트 두 곳에서 다른 저장소로 만든 서비스는
+두 구현에 모두 잇는다. **모델링하지 않은 틈**: 라이브러리 코드로 나갔다 돌아오는 값, 라이브러리 코드가 쓰는 속성, 수신자
+흐름이 열린(대상을 모르는) 계산된 이름의 쓰기(`setattr(obj, name, value)`에서 obj를 모를 때 — Django 서비스의
+`setattr(instance, field, value)` 모양이 흔해서 막으면 `bound`가 전부 사라진다; tsograph도 계산된 키 쓰기를 모델링하지 않는다).
+그 수는 `bound-assumptions:` 한계와 `statistics.boundDispatch.unknownTargetWrites`에 싣는다.
+
+**direct 등급의 남은 가정**(이 PR 밖, 기록만 한다): 생성자 결과 `K(...)`는 `__new__`·메타클래스와 무관하게 정확한 K로 보고,
+정확한 수신자의 메서드 호출은 인스턴스 속성이 메서드를 가리는 경우(`obj.save = fake`)를 보지 않는다. 계산된 이름의
+`setattr`로 모듈 전역을 쓰는 경우도 direct는 보지 않는다.
+
+**집계와 한계.** `statistics.boundDispatch`: `linked`(원래 미해석 이유별로 `bound`로 이은 호출 수), `open`(열린 이유별 후보 수),
+`program`(`application`·`library`), `scanIncomplete`, `wholeProgramTests`, `unknownTargetWrites`. `bound`·`candidates` 모드
+문서는 `bound-dispatch:`(이은 수·열린 수와 이유·프로그램 판정)와 `bound-assumptions:`(모델링하지 않은 틈) 한계를 싣는다.
+
+### 기본 모드: `direct`를 유지한 이유
+
+tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOGFOOD.md](../DOGFOOD.md)의 공개 앱 네 개에서 `bound`로 이은
+호출이 0건이었다(Django-Styleguide-Example 30개 후보, babybuddy 210개, microblog 12개, netbox 10,002개가 모두 열렸다 — 대부분
+프레임워크가 만든 객체(`request`·`validated_data`·직렬화기·ORM 결과)의 호출이라 `call-result`·`method-parameter`·
+`framework-base`이고, netbox는 라이브러리 판정·불완전한 스캔·`exec`로 모듈 수준 이름이 모두 열린다). 기본을 바꾸면 모든 순회
+문서의 `dispatch` 선언과 한계 문구가 바뀌지만 도달·등급은 네 앱에서 그대로다. 합성 DI 코드(생성자 주입·팩토리·모듈 수준
+인스턴스)에서는 `bound`가 잇는다 — `--dispatch bound`로 켠다. 측정이 바뀌면 다시 판단한다.
+
+## 스냅샷 크기
+
+`graph` 스냅샷은 isthmus 입력이 아니므로 isthmus 입력 상한(16 Mi 문자)이 아니라 메모리 예산으로 정한 256 Mi 문자까지 쓴다
+(`graph/document.py#MAX_SNAPSHOT_LENGTH`). 직렬화 봉우리는 ASCII 출력 문자당 약 2바이트(JSON 문자열 + 인코더 조각 목록 — 합성
+88 Mi 문자 그래프에서 측정)라 상한에서 그래프 자체에 더해 약 0.5 GiB다. 형식·키 순서·들여쓰기는 그대로라 16 Mi 문자 이하의
+스냅샷은 바이트가 같다. 넘으면 부분 문서 없이 2로 끝나고 `reach`·`impact`를 안내한다. `reach`·`impact` 문서는 isthmus가
+읽으므로 16 Mi 상한을 그대로 둔다. 스트리밍·`--compact`·조각 나누기 대신 상한을 올린 이유: netbox 규모 스냅샷이 21 Mi 문자로
+상한을 조금 넘을 뿐이고(그래프 생성이 봉우리의 대부분이다), 형식을 바꾸는 선택지는 기존 소비자와 바이트 동일성을 깬다.
 
 ## 순회 문서 (`language-traversal` v1)
 
@@ -178,7 +263,8 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
   분석 대상 코드는 실행하지 않는다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
-- `limitations`: 모드의 그래프 한계(`unresolved-calls:`, `overridden-methods:`/`candidate-dispatch:`, `bound-dispatch:`,
+- `limitations`: 모드의 그래프 한계(`unresolved-calls:`, `overridden-methods:`/`candidate-dispatch:`, `bound-dispatch:`·
+  `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
   문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`).
 - 같은 입력이면 같은 바이트다(`--generated-at`으로 시각 고정).
@@ -189,7 +275,17 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
   fixture의 모든 routes·schema usr가 정점인지.
 - `tests/test_graph_cases.py`: 디스패치 경로 훅(믹스인 뒤 `super().dispatch`), DRF 콜백 속성·직렬화기 훅, Flask `MethodView`, C3 실패·
   순환 계층, 이름 필터, 지역 이름 규칙, 주석 변형, 한계 문구.
-- `tests/test_traversal_oracle.py`: 단일 패스 = root별 오라클(무작위 그래프, 전파 중단, 결정성, 근사가 부풀리지 않음).
+- `tests/test_traversal_oracle.py`: 단일 패스 = root별 오라클(무작위 그래프, 전파 중단, 결정성, 근사가 부풀리지 않음),
+  `bound` 간선이 많은 그래프의 `bound` 모드, 모드 사이 등급 포개짐(direct ⊆ bound ⊆ candidates), 실제로 만든 그래프(bound·
+  candidate 간선 포함)의 모든 모드·방향.
+- `tests/test_graph_bound.py`·`tests/test_graph_bound_rules.py`: `bound` 양성 사례(재대입 지역 이름, 조건부 모듈 수준 인스턴스,
+  `__init__` DI, 함수 매개변수, 팩토리·합성 루트, 재정의 후보 좁히기, 상속 멤버)와 열린 자리 음성 사례(라이브러리 공개 함수,
+  Celery·시그널·뷰·관리 명령·DRF 뷰, 계산된 `getattr`·`setattr`, 몽키패치, `**kwargs`, 감싸는 장식자, 테스트 소스, 동적 생성·
+  `exec`, 클래스 불투명성, 예산·순환), 라이브러리 판정.
+- `tests/test_graph_bound_probes.py`: 건전성 탐침. 흐름을 숨기는 기법(펼치기·`partial`·`map`·고차 함수·`sys.modules`·
+  `globals()`·`exec`·장식자·`global`·몽키패치·리터럴·계산된 `setattr`·`__dict__`·`vars()`·`type(h)(…)`·`nonlocal`)을 섞은 합성
+  프로그램 150개를 **테스트 안에서만** 실행해 런타임 수신자 클래스를 모으고, `bound`로 이었거나 direct로 확정한 호출이 그 구현을
+  모두 잇는지 본다. 로컬에서 3,000개(연결 6,797곳) 위반 0건을 확인했다(direct 다시 쓰기 규칙을 빼면 600개 중 126건 위반).
 - `tests/test_e2e_trace.py`와 `experiments/e2e/`: Phase 6 종료 조건(아래).
 - 공개 샘플(HackSoftware/Django-Styleguide-Example, encode/django-rest-framework, pallets/flask, 스크래치 복제)에서 충돌 없이
   스냅샷을 만든다.
