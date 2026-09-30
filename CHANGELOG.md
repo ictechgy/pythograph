@@ -7,6 +7,8 @@
 ### Changed
 
 - README 설치 절을 PyPI(`uv tool install pythograph`·`pipx install pythograph`) 기준으로 바꿨다.
+- isthmus 공유 적합성 벡터를 `76b6141`로 다시 벤더링했다. `url-compose.json`에 Spring base 결합 케이스 13개
+  (`base-join/spring-*`, `producer:kartograph`)가 더해져 sha256만 바뀌었고, pythograph는 `compose.*`를 건너뛰므로 실행 사례(78건)는 같다.
 
 ## [0.1.0] - 2026-09-30
 
