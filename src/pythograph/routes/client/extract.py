@@ -515,7 +515,7 @@ class _Scanner:
         """
         if url.dynamic and self._inside_wrapper(scope):
             return
-        if url.dynamic and service is None and passes_parameter(parts):
+        if url.dynamic and passes_parameter(parts):
             self.counters.sinks.add(scope.id)
         if url.ambiguous:
             self.counters.ambiguous += 1
