@@ -1,6 +1,6 @@
 # isthmus 공유 적합성 벡터
 
-isthmus(`f9dcd1d093605b4748c380287d463e07ce28b17e`)의 `conformance/`를 그대로 가져온 사본이다. 정본은 isthmus가
+isthmus(`76b6141e71c84e0ab1026ad1f18f910b9d966dc8`)의 `conformance/`를 그대로 가져온 사본이다. 정본은 isthmus가
 소유하며, 이 디렉터리 파일을 직접 고치지 않는다. 갱신할 때는 isthmus main의 파일과 `SHA256SUMS`를 함께 다시
 복사하고(새 suite 파일 포함) 저장소 루트의 `conformance.lock`에 커밋과 파일별 sha256을 적은 뒤
 `uv run pytest tests/test_conformance.py`로 확인한다.
