@@ -428,7 +428,7 @@ class Resolver:
         Returns:
             값.
         """
-        if attribute.name in self.written_attributes or _class_assignments(attribute.owner, attribute.name) > 1:
+        if attribute.name in self.written_attributes or class_bindings(attribute.owner, attribute.name) > 1:
             return UnknownValue("rebound-attribute")
         value = self.value(attribute.owner, attribute.expr, depth + 1)
         if isinstance(value, InstanceValue) and self._is_descriptor(value.definition):
@@ -707,8 +707,11 @@ def _module_level_nodes(module: Definition) -> list[ast.AST]:
     return result
 
 
-def _class_assignments(owner: Definition, name: str) -> int:
-    """클래스 본문(조건문 안 포함, 메서드 제외)에서 이름에 대입한 횟수다.
+def class_bindings(owner: Definition, name: str) -> int:
+    """클래스 본문(조건문·반복문 안 포함, 메서드·중첩 정의 본문 제외)에서 이름을 묶은 횟수다.
+
+    대입·누적·반복 변수·`with … as`·바다코끼리 대상과 import 별칭을 센다. 클래스 멤버 표(`class_members`)는 단순
+    대입의 마지막 값만 가지므로, 둘 이상이거나 멤버 표에 없는 묶음이 있으면 그 속성 값을 모른다.
 
     Args:
         owner: 클래스 정의.
@@ -725,6 +728,8 @@ def _class_assignments(owner: Definition, name: str) -> int:
             continue
         if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Store):
             count += 1
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            count += sum(1 for alias in node.names if (alias.asname or alias.name.split(".")[0]) == name)
         pending.extend(ast.iter_child_nodes(node))
     return count
 

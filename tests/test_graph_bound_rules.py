@@ -769,3 +769,98 @@ def lambdas(flag):
     assert outcome(graph, "app.py#lambdas")[0] == set()
     assert reasons.get("property") == 1
     assert reasons.get("lambda-scope") == 1
+
+
+def test_dunder_setattr_calls_are_writes(make_project: MakeProject) -> None:
+    """`object.__setattr__(h, "repo", v)`·`super().__setattr__("repo", v)`·`h.__setattr__(name, v)`도 쓰기다."""
+    graph = build(
+        make_project,
+        """
+class Holder:
+    def __init__(self):
+        super().__setattr__("repo", SqlRepo())
+
+    def site(self):
+        return self.repo.save(1)
+
+
+def main():
+    holder = Holder()
+    object.__setattr__(holder, "repo", MemRepo())
+""",
+    )
+    assert outcome(graph, "app.py#Holder.site") == ({SQL, MEM}, {})
+    dirty = build(
+        make_project,
+        """
+class Holder:
+    def __init__(self):
+        self.repo = SqlRepo()
+
+    def site(self):
+        return self.repo.save(1)
+
+
+def main(name, value):
+    holder = Holder()
+    holder.__setattr__(name, value)
+""",
+    )
+    assert outcome(dirty, "app.py#Holder.site") == (set(), {"computed-attribute-write": 1})
+
+
+def test_redefined_functions_are_open(make_project: MakeProject) -> None:
+    """조건부로 다시 정의한 함수는 색인이 첫 정의만 보므로(다른 정의의 장식자가 다를 수 있다) 연다."""
+    graph = build(
+        make_project,
+        """
+import os
+
+
+def wrap(function):
+    return function
+
+
+if os.environ.get("X"):
+    def store(repo):
+        return repo.save(1)
+else:
+    @wrap
+    def store(repo):
+        return repo.save(2)
+
+
+def main():
+    return store(SqlRepo())
+""",
+    )
+    assert outcome(graph, "app.py#store") == (set(), {"redefined": 1})
+
+
+def test_class_body_rebinding_is_open(make_project: MakeProject) -> None:
+    """클래스 본문이 이름을 두 번(조건부) 묶거나 반복 변수로 묶으면 그 속성 값을 모른다(마지막 값만 보지 않는다)."""
+    graph = build(
+        make_project,
+        """
+import os
+
+
+class Holder:
+    if os.environ.get("X"):
+        repo = SqlRepo()
+    else:
+        repo = MemRepo()
+
+    for backup in (SqlRepo(), MemRepo()):
+        pass
+
+    def site(self):
+        return self.repo.save(1)
+
+    def other(self):
+        return self.backup.save(2)
+""",
+    )
+    assert outcome(graph, "app.py#Holder.site")[0] == set()
+    assert outcome(graph, "app.py#Holder.other")[0] == set()
+    assert outcome(graph, "app.py#Holder.site")[1] == {"rebound-attribute": 2}

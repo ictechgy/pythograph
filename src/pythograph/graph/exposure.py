@@ -526,14 +526,34 @@ class _ProgramVisitor(ast.NodeVisitor):
         Args:
             node: 정의 노드.
         """
+        self._redefinition(node)
         for decorator in node.decorator_list:
             self._escaping(decorator)
         arguments = node.args
         for default in [*arguments.defaults, *[item for item in arguments.kw_defaults if item is not None]]:
             self.visit(default)
 
+    def _redefinition(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+        """같은 점 경로를 다시 정의하면(조건부 정의) 색인은 첫 정의만 본다 — 다른 정의의 장식자·매개변수가 다를 수
+        있어 그 함수·클래스를 연다.
+
+        Args:
+            node: 정의 노드.
+        """
+        definition = self.resolver.index.by_node.get(node)
+        if definition is None or definition.node is node:
+            return
+        if definition.kind == "class":
+            self.facts.open_class(definition.id, "redefined")
+            init = self.resolver.index.class_members(definition).methods.get("__init__")
+            if init is not None:
+                self.facts.open_function(init.id, "redefined")
+        else:
+            self.facts.open_function(definition.id, "redefined")
+
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """중첩 클래스: 장식자·키워드(메타클래스)는 값 사용, 기반은 상속이라 새지 않는다."""
+        self._redefinition(node)
         for decorator in node.decorator_list:
             self._escaping(decorator)
         for base in node.bases:
@@ -899,7 +919,9 @@ class _ProgramVisitor(ast.NodeVisitor):
             dotted: 피호출 외부 점 경로(외부가 아니면 빈 문자열).
         """
         if dotted == "builtins.setattr" and len(node.args) >= 3:
-            self._setattr(node)
+            self._setattr(node, node.args[0], node.args[1:])
+        elif isinstance(node.func, ast.Attribute) and node.func.attr == "__setattr__":
+            self._dunder_setattr(node, dotted)
         elif dotted in _COMPUTED_ACCESS and node.args:
             self._computed_access(node, dotted)
         elif dotted == "builtins.globals" or (
@@ -913,24 +935,60 @@ class _ProgramVisitor(ast.NodeVisitor):
         elif dotted in _DYNAMIC_IMPORTS and node.args:
             self._dynamic_import(node.args[0])
 
-    def _setattr(self, node: ast.Call) -> None:
+    def _setattr(self, node: ast.Call, target: ast.expr, rest: list[ast.expr]) -> None:
         """`setattr(x, "name", v)`는 속성 쓰기, 계산된 이름은 계산된 쓰기다.
 
         Args:
-            node: setattr 호출.
+            node: 호출.
+            target: 쓰기 대상 식.
+            rest: (이름, 값) 인자.
         """
-        name = node.args[1]
+        del node
+        name = rest[0] if rest else None
+        value = rest[1] if len(rest) > 1 else None
         if (
             isinstance(name, ast.Constant)
             and isinstance(name.value, str)
             and name.value not in ("__class__", "__dict__")
         ):
-            write = AttributeWrite(
-                self.scope, node.args[0], node.args[2], self._is_shadowed(node.args[0]), self._hidden()
-            )
+            write = AttributeWrite(self.scope, target, value, self._is_shadowed(target), self._hidden())
             self.facts.writes.setdefault(name.value, []).append(write)
         else:
-            self._computed_write(node.args[0])
+            self._computed_write(target)
+
+    def _dunder_setattr(self, node: ast.Call, dotted: str) -> None:
+        """`object.__setattr__(x, name, v)`·`type.__setattr__(K, name, v)`·`x.__setattr__(name, v)`·
+        `super().__setattr__(name, v)`도 속성 쓰기다(`setattr`와 같이 다룬다).
+
+        Args:
+            node: 호출.
+            dotted: 피호출 외부 점 경로.
+        """
+        func = node.func
+        assert isinstance(func, ast.Attribute)
+        receiver = func.value
+        if dotted in ("builtins.object.__setattr__", "builtins.type.__setattr__"):
+            if node.args:
+                self._setattr(node, node.args[0], node.args[1:])
+            return
+        if isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Name) and receiver.func.id == "super":
+            receiver = ast.Name(id=self._first_parameter(), ctx=ast.Load())
+            ast.copy_location(receiver, func)
+        self._setattr(node, receiver, list(node.args))
+
+    def _first_parameter(self) -> str:
+        """감싼 메서드의 첫 매개변수 이름이다(`super().__setattr__`의 대상, 없으면 `self`).
+
+        Returns:
+            이름.
+        """
+        current: Definition | None = self.scope
+        while current is not None and current.kind != "method":
+            current = current.parent
+        node = current.node if current is not None else None
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (node.args.posonlyargs or node.args.args):
+            return (node.args.posonlyargs or node.args.args)[0].arg
+        return "self"
 
     def _computed_access(self, node: ast.Call, dotted: str) -> None:
         """계산된 이름의 조회(`getattr(x, name)`, `vars(x)`, `dir(x)`, `inspect.getmembers(x)`).

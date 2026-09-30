@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pythograph.graph.exposure import ALL_MODULES, AttributeWrite, ProgramFacts
 from pythograph.graph.framework_table import FRAMEWORK_CLASSES
 from pythograph.graph.index import Definition, DefinitionIndex
-from pythograph.graph.scope import Binding, Resolver
+from pythograph.graph.scope import Binding, Resolver, class_bindings
 from pythograph.graph.values import (
     ClassValue,
     ExternalResult,
@@ -789,7 +789,7 @@ class FlowAnalyzer:
         flows: list[Flow] = []
         for class_id in sorted(classes):
             definition = self.index.definitions[class_id]
-            reason = self.attribute_open(definition)
+            reason = self.attribute_open(definition) or self._class_body_opaque(definition, name)
             if reason is not None:
                 return opened(reason)
             member = self.linearizer.lookup(definition, name)
@@ -802,6 +802,25 @@ class FlowAnalyzer:
             if self.write_reaches(write.scope, write.receiver, classes, depth, write.lambda_receiver):
                 flows.append(self._write_flow(write, depth))
         return self._without_descriptors(union(flows))
+
+    def _class_body_opaque(self, definition: Definition, name: str) -> str | None:
+        """MRO의 프로젝트 클래스 본문이 이름을 멤버 표가 모르는 방식으로 묶는지 본다(두 번 대입, 반복 변수, import 등).
+
+        Args:
+            definition: 클래스 정의.
+            name: 속성 이름.
+
+        Returns:
+            그렇다면 `rebound-attribute`, 아니면 None.
+        """
+        for entry in self.linearizer.mro(definition):
+            if entry.definition is None:
+                continue
+            count = class_bindings(entry.definition, name)
+            known = name in self.index.class_members(entry.definition).attributes
+            if count > 1 or (count == 1 and not known):
+                return "rebound-attribute"
+        return None
 
     def _without_descriptors(self, flow: Flow) -> Flow:
         """속성 자리 흐름에 서술자(`__get__`을 정의한 프로젝트 클래스)가 있으면 연다.
