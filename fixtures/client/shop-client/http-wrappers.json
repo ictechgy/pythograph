@@ -1,0 +1,55 @@
+{
+  "format": "http-wrappers",
+  "version": 1,
+  "wrappers": [
+    {
+      "language": "python",
+      "kind": "function",
+      "owner": "shopclient/api.py",
+      "name": "send",
+      "methodArg": {"index": 0, "label": "method"},
+      "pathArg": {"index": 1, "label": "path"},
+      "methodEnum": {"GET": "GET", "POST": "POST", "DELETE": "DELETE"},
+      "pathAnchor": "base"
+    },
+    {
+      "language": "python",
+      "kind": "constructor",
+      "owner": "shopclient/api.py#Endpoint",
+      "name": "__init__",
+      "methodArg": {"index": 1, "label": "method"},
+      "pathArg": {"index": 0, "label": "path"},
+      "defaultMethod": "GET",
+      "pathAnchor": "base"
+    },
+    {
+      "language": "python",
+      "kind": "function",
+      "owner": "shopclient/api.py#Gateway",
+      "name": "call",
+      "methodArg": {"index": 1, "label": "method"},
+      "pathArg": {"index": 0, "label": "path"},
+      "defaultMethod": "GET",
+      "methodEnum": {"GET": "GET", "POST": "POST", "DELETE": "DELETE"},
+      "pathAnchor": "base"
+    },
+    {
+      "language": "python",
+      "kind": "function",
+      "owner": "shopclient/api.py",
+      "name": "retired_send",
+      "defaultMethod": "GET",
+      "pathArg": {"index": 0},
+      "pathAnchor": "base"
+    },
+    {
+      "language": "dart",
+      "kind": "function",
+      "owner": "package:shop/net.dart",
+      "name": "send",
+      "defaultMethod": "GET",
+      "pathArg": {"index": 0},
+      "pathAnchor": "base"
+    }
+  ]
+}

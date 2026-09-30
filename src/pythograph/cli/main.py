@@ -12,6 +12,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TextIO
 
 from pythograph import __version__
@@ -24,9 +25,12 @@ from pythograph.cli.graph_commands import (
     run_graph,
     run_traversal,
 )
+from pythograph.exchange.client_document import build_client_document
 from pythograph.exchange.document import DocumentHeader, DocumentLimitError, build_document, encode_document
 from pythograph.exchange.persistence import build_persistence_document
 from pythograph.persistence.command import SchemaOptions, extract_persistence
+from pythograph.routes.client.extract import ClientOptions, extract_client_calls
+from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
 
@@ -47,7 +51,7 @@ bridge-facts exchange format. The analyzed project is parsed with the standard-l
 ast only; it is never imported or executed.
 
 Commands:
-  routes     Server route declarations (route-decl facts)
+  routes     Server route declarations or client HTTP calls (route-decl / route-call facts)
   schema     Relation and column references (persistence relation-use facts)
   graph      Python call graph snapshot (pythograph-graph v1)
   reach      Symbols the roots depend on (isthmus language-traversal v1)
@@ -64,24 +68,30 @@ Exit codes: 0 success, 2 input error, 64 usage error (1 is reserved).
 ROUTES_USAGE = """Usage: pythograph routes --role server --project <root> [--service <name>] [--include-tests]
                          [--framework auto|django|flask] [--settings <module>]
                          [--dispatch specificity] [--generated-at <timestamp>] [--format json]
+       pythograph routes --role client --project <root> [--wrappers <file>] [--service <name>]
+                         [--include-tests] [--generated-at <timestamp>] [--format json]
 
-Scan a Django (+ Django REST framework) or Flask project and write an isthmus bridge-facts v1
-document (platform "python", target "http", route-decl facts) to stdout.
+Scan a Python project and write an isthmus bridge-facts v1 document (platform "python", target
+"http") to stdout: route-decl facts for a Django (+ Django REST framework) or Flask server
+(--role server), or route-call facts for requests, httpx, aiohttp, and urllib clients and
+declared HTTP wrappers (--role client).
 
 Options:
-  --role server              Declaration side to extract (server is the only role implemented)
+  --role server|client       Declaration side (server) or calling side (client)
   --project <root>           Project root; location paths are relative to it
   --service <name>           Service identity recorded on the document and every fact
-  --include-tests            Also emit routes declared in test sources, with testSource: true
-  --framework <name>         auto (default), django, or flask
-  --settings <module>        Django settings module (default: the DJANGO_SETTINGS_MODULE default
-                             in manage.py, wsgi.py, or asgi.py)
-  --dispatch specificity     Declare specificity dispatch for a Django project and omit order
-                             (an approximation for consumers without registration-order support)
+  --include-tests            Also scan test sources; their facts carry testSource: true
+  --framework <name>         (server) auto (default), django, or flask
+  --settings <module>        (server) Django settings module (default: the DJANGO_SETTINGS_MODULE
+                             default in manage.py, wsgi.py, or asgi.py)
+  --dispatch specificity     (server) Declare specificity dispatch for a Django project and omit
+                             order (an approximation for consumers without registration-order support)
+  --wrappers <file>          (client) isthmus http-wrappers v1 declarations; "python" entries apply
   --generated-at <timestamp> Fixed generatedAt (YYYY-MM-DDTHH:MM:SS.sssZ) for byte-identical output
   --format json              Output format (json is the only format)
 
-Exit codes: 0 success, 2 unreadable project or oversized output, 64 usage error.
+Exit codes: 0 success, 2 unreadable project or wrappers file, or oversized output, 64 usage error
+(including an invalid wrappers declaration).
 """
 
 SCHEMA_USAGE = """Usage: pythograph schema --project <root> [--include-tests] [--settings <module>]
@@ -115,6 +125,7 @@ _VALUE_FLAGS = (
     "--settings",
     "--dispatch",
     "--generated-at",
+    "--wrappers",
 )
 
 #: routes 명령의 불리언 옵션이다.
@@ -125,6 +136,7 @@ _BOOLEAN_FLAGS = ("--include-tests", "--help")
 class RoutesArguments:
     """검증한 routes 인자."""
 
+    role: str
     project: str
     service: str | None
     include_tests: bool
@@ -132,6 +144,7 @@ class RoutesArguments:
     settings_module: str | None
     dispatch: str | None
     generated_at: datetime | None
+    wrappers: str | None = None
 
 
 def main(
@@ -282,12 +295,6 @@ def _routes(rest: list[str]) -> str:
         return ROUTES_USAGE
     parsed = validate_routes(values, flags)
     root = resolve_project(parsed.project)
-    project = Project.open(root)
-    options = RouteOptions(parsed.framework, parsed.settings_module, parsed.include_tests, parsed.dispatch)
-    try:
-        extraction = extract_routes(project, options)
-    except FrameworkChoiceError as error:
-        raise UsageError(str(error)) from error
     header = DocumentHeader(
         tool_version=__version__,
         generated_at=parsed.generated_at or datetime.now(timezone.utc),
@@ -295,10 +302,64 @@ def _routes(rest: list[str]) -> str:
         service=parsed.service,
         include_tests=parsed.include_tests,
     )
+    if parsed.role == "client":
+        return _client_routes(parsed, root, header)
+    project = Project.open(root)
+    options = RouteOptions(parsed.framework, parsed.settings_module, parsed.include_tests, parsed.dispatch)
+    try:
+        extraction = extract_routes(project, options)
+    except FrameworkChoiceError as error:
+        raise UsageError(str(error)) from error
     try:
         return encode_document(build_document(header, extraction))
     except DocumentLimitError as error:
         raise InputError(str(error)) from error
+
+
+def _client_routes(parsed: RoutesArguments, root: Path, header: DocumentHeader) -> str:
+    """`routes --role client`를 실행한다.
+
+    Args:
+        parsed: 검증한 인자.
+        root: 프로젝트 realpath.
+        header: 문서 머리 필드.
+
+    Returns:
+        JSON 문서.
+
+    Raises:
+        UsageError: 래퍼 선언 오류.
+        InputError: 래퍼 파일을 읽지 못하거나 출력이 상한을 넘을 때.
+    """
+    wrappers = _wrappers(parsed.wrappers)
+    extraction = extract_client_calls(Project.open(root), ClientOptions(parsed.include_tests, tuple(wrappers)))
+    try:
+        return encode_document(build_client_document(header, extraction))
+    except DocumentLimitError as error:
+        raise InputError(str(error)) from error
+
+
+def _wrappers(argument: str | None) -> list[WrapperDecl]:
+    """`--wrappers` 파일을 읽는다.
+
+    Args:
+        argument: 파일 경로(없으면 None).
+
+    Returns:
+        파이썬 래퍼 선언.
+
+    Raises:
+        UsageError: 선언 오류.
+        InputError: 읽지 못할 때.
+    """
+    if argument is None:
+        return []
+    try:
+        return load_wrappers(Path(argument))
+    except WrapperDeclarationError as error:
+        raise UsageError(f"invalid --wrappers declaration: {error}") from error
+    except OSError as error:
+        raise InputError("--wrappers does not name a readable file; pass an http-wrappers v1 JSON file.") from error
 
 
 def _schema(rest: list[str]) -> str:
@@ -391,14 +452,15 @@ def validate_routes(values: dict[str, str], flags: set[str]) -> RoutesArguments:
     """
     role = values.get("--role")
     if role is None:
-        raise UsageError("--role server is required.\n" + ROUTES_USAGE)
-    if role != "server":
-        raise UsageError("--role supports only server (client route-call extraction is not implemented yet).")
+        raise UsageError("--role server or --role client is required.\n" + ROUTES_USAGE)
+    if role not in ("server", "client"):
+        raise UsageError("--role must be server or client.")
     if values.get("--format", "json") != "json":
         raise UsageError("--format supports only json.")
     project = values.get("--project")
     if project is None:
         raise UsageError("--project <root> is required.\n" + ROUTES_USAGE)
+    _check_role_options(role, values)
     framework = values.get("--framework", "auto")
     if framework not in ("auto", "django", "flask"):
         raise UsageError("--framework must be auto, django, or flask.")
@@ -406,6 +468,7 @@ def validate_routes(values: dict[str, str], flags: set[str]) -> RoutesArguments:
     if dispatch not in (None, "specificity"):
         raise UsageError("--dispatch supports only specificity (registration-order is the Django default).")
     return RoutesArguments(
+        role=role,
         project=project,
         service=_service(values.get("--service")),
         include_tests="--include-tests" in flags,
@@ -413,7 +476,25 @@ def validate_routes(values: dict[str, str], flags: set[str]) -> RoutesArguments:
         settings_module=_settings_module(values.get("--settings")),
         dispatch=dispatch,
         generated_at=parse_timestamp(values.get("--generated-at")),
+        wrappers=values.get("--wrappers"),
     )
+
+
+def _check_role_options(role: str, values: dict[str, str]) -> None:
+    """역할에 맞지 않는 옵션을 거부한다.
+
+    Args:
+        role: `server` 또는 `client`.
+        values: 값 옵션.
+
+    Raises:
+        UsageError: 다른 역할 전용 옵션을 줬을 때.
+    """
+    server_only = ("--framework", "--settings", "--dispatch")
+    if role == "client" and any(name in values for name in server_only):
+        raise UsageError("--framework, --settings, and --dispatch apply only to --role server.")
+    if role == "server" and "--wrappers" in values:
+        raise UsageError("--wrappers applies only to --role client.")
 
 
 def _service(value: str | None) -> str | None:
