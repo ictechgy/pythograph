@@ -23,9 +23,9 @@ root's git to read `revision`).
 | `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`bound`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
 | `pythograph routes --role client`: requests, httpx, aiohttp, and urllib calls plus declared HTTP wrappers → `route-call` facts | Implemented |
 
-isthmus `main` (`3a45450`) accepts `platform: "python"` http documents (server `route-decl` including
-`registration-order`, and client `route-call`), persistence documents, and python `language-traversal` analyses (see
-[isthmus compatibility](#isthmus-compatibility)).
+isthmus-cli 0.10.0 (npm) is the first release that accepts `platform: "python"` http documents (server `route-decl`
+including `registration-order`, and client `route-call`), persistence documents, and python `language-traversal`
+analyses (see [isthmus compatibility](#isthmus-compatibility)).
 
 ## Requirements and installation
 
@@ -343,10 +343,11 @@ errors (41 and 20 matches).
 
 ## isthmus compatibility
 
-isthmus `main` (`f9dcd1d`, #128) accepts `platform: "python"`: http `route-decl` facts (Django's `registration-order`
-and `order`, with shadowing diagnostics), persistence `relation-use` facts, and python `forward`/`reverse` analyses
-(`language-traversal` v1) in `trace`. `--dispatch specificity` remains for older isthmus releases. Client `route-call`
-documents (`routes --role client`) need isthmus `3a45450` (#133) or later; older releases reject them as input errors.
+isthmus-cli 0.10.0 (npm, `npm install --global isthmus-cli@0.10.0`) is the released version that accepts
+`platform: "python"`: http `route-decl` facts (Django's `registration-order` and `order`, with shadowing diagnostics),
+client `route-call` facts (`routes --role client`), persistence `relation-use` facts, and python `forward`/`reverse`
+analyses (`language-traversal` v1) in `trace`. Earlier isthmus releases reject python route-decl and route-call
+documents as input errors. `--dispatch specificity` remains for those older releases.
 
 ## Development
 

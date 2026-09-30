@@ -21,8 +21,8 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 | `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`bound`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
 | `pythograph routes --role client`: requests·httpx·aiohttp·urllib 호출과 선언한 HTTP 래퍼 → `route-call` 사실 | 구현됨 |
 
-isthmus `main`(`3a45450`)은 `platform: "python"`의 http 문서(서버 `route-decl`·`registration-order`, 클라이언트 `route-call`)·
-persistence 문서와 python `language-traversal` 분석을 받는다([isthmus 호환](#isthmus-호환) 참고).
+isthmus-cli 0.10.0(npm)은 `platform: "python"`의 http 문서(서버 `route-decl`·`registration-order`, 클라이언트 `route-call`)·
+persistence 문서와 python `language-traversal` 분석을 받는 첫 릴리스다([isthmus 호환](#isthmus-호환) 참고).
 
 ## 요구 사항과 설치
 
@@ -274,10 +274,10 @@ isthmus error가 없다(매치 41·20).
 
 ## isthmus 호환
 
-isthmus `main`(`f9dcd1d`, #128)은 `platform: "python"`을 받는다: http `route-decl`(Django의 `registration-order`와 `order`,
-가림 진단 포함), persistence `relation-use`, trace의 python `forward`·`reverse` 분석(`language-traversal` v1). 옛 isthmus용
-`--dispatch specificity`는 그대로 남아 있다. 클라이언트 `route-call` 문서(`routes --role client`)는 isthmus `3a45450`(#133)
-이상이 받는다. 그 전 판은 입력 오류로 거부한다.
+isthmus-cli 0.10.0(npm, `npm install --global isthmus-cli@0.10.0`)이 `platform: "python"`을 받는 발행 버전이다: http
+`route-decl`(Django의 `registration-order`와 `order`, 가림 진단 포함), 클라이언트 `route-call`(`routes --role client`),
+persistence `relation-use`, trace의 python `forward`·`reverse` 분석(`language-traversal` v1). 그 전 isthmus 릴리스는 python
+route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판용 `--dispatch specificity`는 그대로 남아 있다.
 
 ## 개발
 
