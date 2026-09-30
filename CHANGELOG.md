@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+### Added (클라이언트 route-call)
+
+- `pythograph routes --role client`: requests(최상위 함수·`Session`)·httpx(최상위 함수·`Client`·`AsyncClient`의 `base_url`)·
+  aiohttp(`ClientSession`의 `base_url`·`aiohttp.request`)·`urllib.request.urlopen`(`Request(method=)`·`data`) 호출과
+  `--wrappers`(isthmus `http-wrappers` v1, `"language": "python"`)로 선언한 래퍼 호출을 isthmus http `route-call` 사실로 낸다
+  (`platform: "python"`, `roles: ["client"]`). `symbol.usr`는 감싸는 선언의 pythograph id라 `graph`·`reach`·`impact` 정점과 같다.
+  규칙과 확인한 소스는 `docs/HTTP-CLIENTS.md`.
+- base 결합은 isthmus 확정 이름을 따른다: `httpx-base-url`(끝 `/` 보장, 경로 앞 `/` 모두 제거, 점 세그먼트 제거),
+  `aiohttp-base-url`(RFC 3986, 경로 있는 base·상대 경로는 3.11 이상, base 세션의 절대 URL은 3.12 이상을 선언 파일로 증명할 때만
+  주장 — `versions.declared_minimum`). `urllib.parse.urljoin`은 벡터가 없어 절대 URL과 `/` 경로만 주장한다.
+- URL 조립: f-string·`+`·`%` 서식·`str.format`, 한 번만 묶인 모듈 상수(다른 모듈 포함, `global`·모듈 속성 대입이 있으면 아님),
+  모든 대입이 같은 리터럴인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수, 고엔트로피·웹훅 마스킹. dynamic 사실은
+  `channel: null`과 마스킹한 `channelPrefix`를 싣는다.
+- 한계: `route-call-coverage:`(모델링하지 않은 요청 API, 타입 모르는 수신자의 URL 리터럴 호출, 스캔 공백),
+  `ambiguous-base-join:`, `http-wrapper-undeclared:`, `http-wrapper-unresolved:`.
+- 모의 서버 오라클(`experiments/client_oracle/`, `fixtures/client/shop-client`): 스크래치 가상 환경에서 실제 requests 2.34.2·
+  httpx 0.28.1·aiohttp 3.14.3·urllib 요청을 127.0.0.1 `http.server`에 기록해 35개 시나리오 일치 31·dynamic 4·불일치 0.
+  `tests/test_client_oracle.py`가 기록과 golden(`tests/golden/client-shop-client.json`)을 오프라인으로 다시 확인한다.
+- 파이썬 클라이언트 × Django 서버 종단 trace(`experiments/client_e2e/`, `fixtures/e2e/py-client`): isthmus main `3a45450` 빌드로
+  route 네 개 모두 호출부(exact) → 핸들러 → relation-use, 호출부 → 화면 함수가 이어진다(`tests/test_client_e2e.py`).
+- isthmus 공유 적합성 벡터를 `3a45450`(#133)으로 다시 벤더링했다. 실행하는 생산자 사례는 `producer`·`producer:pythograph`
+  135건(url-compose 57건 포함)이며 모두 통과한다. `scope.dynamic-*`은 `dynamicScope`를 아직 내지 않아 건너뛴다.
+
 ### Added (bound 근거 등급·대형 그래프 스냅샷)
 
 - `bound` 근거 등급(tsograph와 같은 계약): 타입 모르는 수신자·인스턴스 속성 수신자·재정의 후보가 있는 주석 수신자의 메서드
