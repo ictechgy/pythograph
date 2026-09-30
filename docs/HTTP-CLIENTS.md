@@ -229,9 +229,9 @@ aiohttp `//x`는 assert로 실패한다, aiohttp base `…/api`(끝 `/` 없음)�
 프로젝트로 실행하고, 없는 사례는 확인한 최신(3.14)으로 실행한다. `scope.dynamic-*`(`dynamicScope`)은 pythograph가 아직 내지 않아
 건너뛴다.
 
-벡터 관찰: `base-join/aiohttp-unknown-base-relative`(`users` → base `/users`)에는 `versionRange`가 없지만 HTTP-WRAPPERS 규칙상 `/` 없는
-상대 경로는 aiohttp 3.11 이상에서만 요청된다(3.8~3.10은 assert). pythograph는 버전을 증명하지 못하면 이 경우를 dynamic으로 낸다 —
-벡터에 `"versionRange": ">=3.11"`을 더하는 것이 규칙과 맞다.
+벡터 관찰(해소됨): isthmus #134가 `base-join/aiohttp-unknown-base-relative`에 `"versionRange": ">=3.11"`을,
+`base-join/aiohttp-unknown-base-rooted`에 `">=3.8"`을 더했다. `/` 없는 상대 경로는 aiohttp 3.11 이상에서만 요청되므로(3.8~3.10은
+assert) pythograph가 버전을 증명하지 못하면 dynamic으로 내는 동작과 이제 벡터가 일치한다.
 
 ## 종단 확인: 파이썬 클라이언트 × Django 서버
 
