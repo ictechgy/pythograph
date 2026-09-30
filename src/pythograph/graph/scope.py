@@ -8,6 +8,11 @@
 속성은 모듈 속성·재수출(`__init__`), 프로젝트 클래스의 MRO(메서드·중첩 클래스·클래스 속성·프레임워크 멤버),
 외부 이름의 점 경로로 푼다. 호출 결과는 생성자(정확한 인스턴스)와 프로젝트 클래스 반환 주석(하위 클래스 가능)만
 안다.
+
+모듈 전역과 클래스 본문 속성의 값은 다시 쓰이지 않을 때만 안다: 모듈 수준 묶음이 둘 이상(조건부 대입 포함)이거나 함수가
+`global`로 다시 묶거나, 프로젝트 어딘가에 같은 이름의 속성 쓰기(`mod.repo = …`, `obj.repo = …`, 리터럴 `setattr`)가
+있으면 모른다. 클래스 본문 값이 서술자(`__get__`을 정의한 프로젝트 클래스 인스턴스)여도 모른다. 모르는 수신자의
+호출은 `bound` 값 흐름(`flow.py`)이 모든 쓰기를 합쳐 다시 본다.
 """
 
 from __future__ import annotations
@@ -125,6 +130,11 @@ class Resolver:
         self._memo: dict[tuple[str, int], Value] = {}
         self._active: set[tuple[str, str]] = set()
         self._annotations: dict[int, tuple[ast.Constant, ast.expr | None]] = {}
+        # 다시 쓰기 규칙의 입력(`build.scan_modules`가 넣는다, None이면 모든 모듈을 본다).
+        self.written_attributes: frozenset[str] = frozenset()
+        self.global_paths: frozenset[str] | None = None
+        self.namespace_paths: frozenset[str] | None = None
+        self._global_writers: dict[str, set[str]] | None = None
 
     def _base_value(self, definition: Definition, expr: ast.expr) -> Value:
         """클래스 기반 식을 클래스를 감싼 범위에서 푼다.
@@ -352,7 +362,11 @@ class Resolver:
             return self._external_value(symbol.dotted)
         if isinstance(symbol, ValueSymbol):
             module = self.index.definitions.get(f"{symbol.path}#<module>")
-            return self.value(module, symbol.node, depth + 1) if module else UnknownValue("excluded-source")
+            if module is None:
+                return UnknownValue("excluded-source")
+            if not self._stable_global(module, symbol.name):
+                return UnknownValue("rebound-global")
+            return self.value(module, symbol.node, depth + 1)
         if isinstance(symbol, MemberSymbol):
             owner = self.index.by_node.get(symbol.owner.node)
             if owner is None:
@@ -414,7 +428,61 @@ class Resolver:
         Returns:
             값.
         """
-        return self.value(attribute.owner, attribute.expr, depth + 1)
+        if attribute.name in self.written_attributes or class_bindings(attribute.owner, attribute.name) > 1:
+            return UnknownValue("rebound-attribute")
+        value = self.value(attribute.owner, attribute.expr, depth + 1)
+        if isinstance(value, InstanceValue) and self._is_descriptor(value.definition):
+            return UnknownValue("descriptor")
+        return value
+
+    def _stable_global(self, module: Definition, name: str) -> bool:
+        """모듈 전역이 한 번만 묶이고 다른 곳에서 다시 쓰이지 않는지 본다.
+
+        Args:
+            module: 모듈 정의.
+            name: 이름.
+
+        Returns:
+            그렇다면 True.
+        """
+        if name in self.written_attributes or len(self.bindings(module).names.get(name, [])) > 1:
+            return False
+        writers = self._global_writer_names().get(module.path, set())
+        return name not in writers and _NAMESPACE_WRITE not in writers
+
+    def _global_writer_names(self) -> dict[str, set[str]]:
+        """모듈 경로 → 그 모듈 함수가 `global`로 선언하고 다시 묶는 이름이다(한 번 계산한다).
+
+        Returns:
+            사전.
+        """
+        if self._global_writers is None:
+            table: dict[str, set[str]] = {}
+            for definition in self.index.definitions.values():
+                paths = self.global_paths
+                if definition.kind in ("function", "method") and (paths is None or definition.path in paths):
+                    bindings = self.bindings(definition)
+                    table.setdefault(definition.path, set()).update(bindings.globals & set(bindings.names))
+            for module in self.index.modules:
+                candidates = self.namespace_paths
+                if (candidates is None or module.path in candidates) and _uses_namespace(module):
+                    table.setdefault(module.path, set()).add(_NAMESPACE_WRITE)
+            self._global_writers = table
+        return self._global_writers
+
+    def _is_descriptor(self, definition: Definition) -> bool:
+        """프로젝트 클래스가 `__get__`을 정의(또는 물려받음)하는지 본다(클래스 속성 읽기가 그 반환 값이 된다).
+
+        Args:
+            definition: 클래스 정의.
+
+        Returns:
+            그렇다면 True.
+        """
+        return any(
+            entry.definition is not None and "__get__" in self.index.class_members(entry.definition).methods
+            for entry in self.linearizer.mro(definition)
+        )
 
     def _class_member(self, base: ClassValue | InstanceValue, name: str) -> Value:
         """프로젝트 클래스·인스턴스의 멤버를 MRO로 푼다.
@@ -587,6 +655,83 @@ def _definition_value(definition: Definition) -> Value:
         클래스 값 또는 함수 값.
     """
     return ClassValue(definition) if definition.kind == "class" else FunctionValue(definition)
+
+
+#: 모듈 이름공간을 사전으로 다루는 모듈의 표식이다(`globals()[k] = v`로 어떤 전역이든 다시 쓸 수 있다).
+_NAMESPACE_WRITE = "<namespace>"
+
+
+def _uses_namespace(module: Definition) -> bool:
+    """모듈이 `globals()`(또는 모듈 수준 `vars()`·`locals()`)를 부르는지 본다.
+
+    Args:
+        module: 모듈 정의.
+
+    Returns:
+        그렇다면 True.
+    """
+    if any(_namespace_call(node, ("globals",)) for node in ast.walk(module.node)):
+        return True
+    return any(_namespace_call(node, ("vars", "locals")) for node in _module_level_nodes(module))
+
+
+def _namespace_call(node: ast.AST, names: tuple[str, ...]) -> bool:
+    """인자 없는 `globals()`·`vars()`·`locals()` 호출인지 본다.
+
+    Args:
+        node: 노드.
+        names: 함수 이름.
+
+    Returns:
+        그렇다면 True.
+    """
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names and not node.args
+
+
+def _module_level_nodes(module: Definition) -> list[ast.AST]:
+    """함수·클래스·람다 본문 밖(모듈 수준)의 노드다.
+
+    Args:
+        module: 모듈 정의.
+
+    Returns:
+        노드 목록.
+    """
+    result: list[ast.AST] = []
+    pending: list[ast.AST] = list(getattr(module.node, "body", []))
+    while pending:
+        node = pending.pop()
+        result.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            pending.extend(ast.iter_child_nodes(node))
+    return result
+
+
+def class_bindings(owner: Definition, name: str) -> int:
+    """클래스 본문(조건문·반복문 안 포함, 메서드·중첩 정의 본문 제외)에서 이름을 묶은 횟수다.
+
+    대입·누적·반복 변수·`with … as`·바다코끼리 대상과 import 별칭을 센다. 클래스 멤버 표(`class_members`)는 단순
+    대입의 마지막 값만 가지므로, 둘 이상이거나 멤버 표에 없는 묶음이 있으면 그 속성 값을 모른다.
+
+    Args:
+        owner: 클래스 정의.
+        name: 이름.
+
+    Returns:
+        횟수.
+    """
+    count = 0
+    pending: list[ast.AST] = list(getattr(owner.node, "body", []))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Store):
+            count += 1
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            count += sum(1 for alias in node.names if (alias.asname or alias.name.split(".")[0]) == name)
+        pending.extend(ast.iter_child_nodes(node))
+    return count
 
 
 def _node_name(node: ast.AST) -> str:

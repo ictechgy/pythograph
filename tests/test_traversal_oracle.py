@@ -5,15 +5,21 @@ root(같으면 작은 인덱스) 기준 depth, 그 root에서 depth-1에 있는 
 근거 등급은 등급별 그래프에서 root마다 거리를 구해, 정점에 깊이 상한 안에서 닿는 모든 root(자기 제외, 64개
 상한과 무관) 각각의 가장 강한 등급 중 가장 약한 것이다. `rootsTruncated`가 거짓이면 잘림 이유도 같아야 하고,
 참이면 `depth` 이유는 단일 패스 쪽이 부분집합일 수 있다(tsograph 오라클과 같은 조건).
+
+`bound` 간선이 많은 그래프의 `bound` 모드, 모드 사이 등급 포개짐(direct ⊆ bound ⊆ candidates), 실제로 만든 그래프
+(bound·candidate 간선 포함)에서도 같은 비교를 한다.
 """
 
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import pytest
 
+from pythograph.graph.build import build_graph
 from pythograph.graph.model import EVIDENCE_ORDER, CallGraph, GraphEdge, GraphNode, NodeLocation, weakest_evidence
 from pythograph.graph.traversal import (
     MAX_ROOTS_PER_NODE,
@@ -23,6 +29,7 @@ from pythograph.graph.traversal import (
     traverse,
     utf16_key,
 )
+from pythograph.source.project import Project
 
 
 @dataclass
@@ -226,3 +233,114 @@ def test_evidence_approximation_never_overstates(seed: int) -> None:
     for strict, loose in zip(exact.reached, approximate.reached, strict=True):
         assert EVIDENCE_ORDER.index(loose.evidence) >= EVIDENCE_ORDER.index(strict.evidence)
     assert not exact.evidence_approximated
+
+
+def bound_heavy_case(generator: random.Random) -> tuple[CallGraph, TraversalRequest]:
+    """`bound` 간선이 많은 무작위 그래프와 `bound` 모드 요청이다(등급 비중 direct 3 : bound 5 : candidate 2).
+
+    Args:
+        generator: 난수 생성기.
+
+    Returns:
+        (그래프, 요청).
+    """
+    graph, request = random_case(generator, generator.randint(4, 20), generator.choice([0.08, 0.2]), 5)
+    edges = [replace(edge, evidence=generator.choices(EVIDENCE_ORDER, weights=(3, 5, 2))[0]) for edge in graph.edges]
+    return CallGraph(graph.nodes, edges, graph.limitations, {}), replace(request, dispatch="bound", max_reached=100_000)
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_bound_mode_matches_oracle(seed: int) -> None:
+    """`bound` 간선이 많은 그래프의 `bound` 모드도 root별 오라클과 같다(root별 하한 등급 포함)."""
+    graph, request = bound_heavy_case(random.Random(3000 + seed))
+    assert_equivalent(traverse(graph, request), oracle(graph, request))
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_tiers_nest_across_modes(seed: int) -> None:
+    """등급이 포개진다: direct 도달 ⊆ bound 도달 ⊆ candidates 도달, 모드가 허용하지 않는 등급은 싣지 않는다.
+
+    root 하나면 등급은 그 root에서 정점에 닿는 가장 강한 등급 그래프이므로, direct로 닿는 정점은 어느 모드에서도
+    `direct`이고 bound 모드에서 `direct`인 정점은 candidates 모드에서도 `direct`다(root가 여럿이면 다른 root가 약한
+    등급으로만 닿아 하한이 내려갈 수 있다).
+    """
+    graph, request = bound_heavy_case(random.Random(4000 + seed))
+    request = replace(request, max_depth=128, root_ids=request.root_ids[:1])
+    results = {mode: traverse(graph, replace(request, dispatch=mode)) for mode in ("direct", "bound", "candidates")}
+    reached = {mode: {entry.id: entry.evidence for entry in result.reached} for mode, result in results.items()}
+    assert set(reached["direct"]) <= set(reached["bound"]) <= set(reached["candidates"])
+    assert set(reached["direct"].values()) <= {"direct"}
+    assert set(reached["bound"].values()) <= {"direct", "bound"}
+    for node in reached["direct"]:
+        assert reached["bound"][node] == reached["candidates"][node] == "direct"
+    for node, evidence in reached["bound"].items():
+        assert evidence != "direct" or reached["candidates"][node] == "direct"
+        assert evidence != "bound" or reached["candidates"][node] == "bound"
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_bound_evidence_approximation_never_overstates(seed: int) -> None:
+    """`bound` 모드의 메모리 상한 근사도 등급을 부풀리지 않는다."""
+    graph, request = bound_heavy_case(random.Random(5000 + seed))
+    exact = traverse(graph, request)
+    approximate = traverse(graph, replace(request, evidence_memory_bytes=1))
+    assert [entry.id for entry in approximate.reached] == [entry.id for entry in exact.reached]
+    for strict, loose in zip(exact.reached, approximate.reached, strict=True):
+        assert EVIDENCE_ORDER.index(loose.evidence) >= EVIDENCE_ORDER.index(strict.evidence)
+
+
+def test_built_bound_graph_matches_oracle(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """실제로 만든 그래프(bound·candidate 간선 포함)에서도 모든 모드·방향이 오라클과 같다."""
+    root = make_project(
+        {
+            "repos.py": """
+                class Repo:
+                    def save(self):
+                        return audit()
+
+
+                class SqlRepo(Repo):
+                    def save(self):
+                        return audit()
+
+
+                class MemRepo(Repo):
+                    def save(self):
+                        return 1
+
+
+                def audit():
+                    return 2
+            """,
+            "app.py": """
+                from repos import MemRepo, Repo, SqlRepo
+
+
+                class Service:
+                    def __init__(self, repo):
+                        self.repo = repo
+
+                    def run(self):
+                        return self.repo.save()
+
+
+                def typed(repo: Repo):
+                    return repo.save()
+
+
+                def main(flag):
+                    repo = SqlRepo()
+                    if flag:
+                        repo = MemRepo()
+                    typed(SqlRepo())
+                    return Service(repo).run()
+            """,
+        }
+    )
+    graph = build_graph(Project.open(root), False)
+    assert {edge.evidence for edge in graph.edges} == {"direct", "bound", "candidate"}
+    roots = ("app.py#main", "app.py#typed", "repos.py#audit")
+    for mode in ("direct", "bound", "candidates"):
+        for direction in ("dependencies", "dependents"):
+            request = TraversalRequest(roots, direction, 128, 100_000, mode)
+            assert_equivalent(traverse(graph, request), oracle(graph, request))

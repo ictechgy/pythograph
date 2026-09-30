@@ -386,6 +386,14 @@
       "to": "app/core/models.py#Left.label"
     },
     {
+      "evidence": "bound",
+      "from": "app/core/services.py#inexact_calls",
+      "kinds": [
+        "call"
+      ],
+      "to": "app/core/models.py#Plain.label"
+    },
+    {
       "evidence": "direct",
       "from": "app/core/services.py#inexact_calls",
       "kinds": [
@@ -460,7 +468,7 @@
   ],
   "format": "pythograph-graph",
   "generatedAt": "2026-01-01T00:00:00.000Z",
-  "graphRevision": "sha256:eb0d80a4f67ce543e38abc08759743dd4fb4cfe7b64d3ad5857104ead156cb5a",
+  "graphRevision": "sha256:04b54c3f1816b67ef0a6714f3a9163f7c02b7dc1e28834551aec6ca0b2248ce9",
   "limitations": [
     "unresolved-calls: 17 call sites have no complete project target in direct mode (dynamic-callee 2, getattr 1, local-value 1, overridden-method 5, parameter 2, subclass-method 1, unresolved-import 1, unresolved-name 1, untyped-receiver 3); each symbol's unresolvedCalls counts its own",
     "overridden-methods: 6 calls through self, cls, or annotated receivers may reach methods of project subclasses; they count as unresolved here and are linked with --dispatch candidates",
@@ -846,7 +854,7 @@
         "path": "app/core/services.py"
       },
       "unresolvedCalls": {
-        "bound": 1,
+        "bound": 0,
         "candidates": 0,
         "direct": 1
       },
@@ -1004,6 +1012,19 @@
   "project": "<project>",
   "revision": "golden",
   "statistics": {
+    "boundDispatch": {
+      "linked": {
+        "overridden-method": 1
+      },
+      "open": {
+        "call-result": 1,
+        "self-receiver": 4
+      },
+      "program": "application",
+      "scanIncomplete": false,
+      "unknownTargetWrites": 0,
+      "wholeProgramTests": false
+    },
     "callSites": {
       "external": 16,
       "partial": 6,
@@ -1012,7 +1033,7 @@
     },
     "dynamicAttributeWrites": 0,
     "edges": {
-      "call": 29,
+      "call": 30,
       "callback": 2,
       "decorator": 2,
       "inherit": 12,
@@ -1020,6 +1041,7 @@
       "reference": 6
     },
     "edgesByEvidence": {
+      "bound": 1,
       "candidate": 6,
       "direct": 51
     },

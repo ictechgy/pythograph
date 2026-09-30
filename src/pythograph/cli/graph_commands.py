@@ -19,10 +19,12 @@ from pythograph.cli.common import InputError, UsageError, parse_timestamp, resol
 from pythograph.exchange.document import DocumentLimitError, encode_document
 from pythograph.graph.build import build_graph
 from pythograph.graph.document import (
+    MAX_SNAPSHOT_LENGTH,
     GraphHeader,
     TraversalInput,
     build_graph_document,
     build_traversal_document,
+    encode_snapshot,
 )
 from pythograph.graph.model import DISPATCH_MODES, CallGraph
 from pythograph.graph.revision import git_revision
@@ -49,13 +51,17 @@ Options:
   --generated-at <timestamp> Fixed generatedAt (YYYY-MM-DDTHH:MM:SS.sssZ) for byte-identical output
   --format json              Output format (json is the only format)
 
+The snapshot is not an isthmus input, so it may be up to 256 Mi characters (reach and impact
+documents keep the 16 Mi isthmus input limit).
+
 Exit codes: 0 success, 2 unreadable project or oversized output, 64 usage error.
 """
 
 _TRAVERSAL_OPTIONS = """Options:
   --project <root>           Project root; ids are pythograph symbol ids (routes and schema symbol.usr)
-  --dispatch <mode>          direct (default), bound (currently the direct graph), or candidates
-                             (also subclass overrides as candidate edges)
+  --dispatch <mode>          direct (default); bound (also bound edges: calls whose receiver only
+                             ever receives project class instances); or candidates (also subclass
+                             overrides as candidate edges)
   --max-depth <n>            Maximum edge count from a root, 1-128 (default 128)
   --max-reached <n>          Maximum reached symbols, 1-100000 (default 100000)
   --roots-from <file|->      More roots from a JSON string array or a bridge-facts document (- is stdin)
@@ -222,12 +228,12 @@ def run_graph(arguments: list[str]) -> str:
     root, header = _common(line, GRAPH_USAGE)
     graph = build_graph(Project.open(root), "--include-tests" in line.flags)
     try:
-        return encode_document(build_graph_document(header, graph))
+        return encode_snapshot(build_graph_document(header, graph))
     except DocumentLimitError as error:
         # 스냅샷은 isthmus 입력이 아니므로 상한만 알리고, isthmus가 받는 순회 문서(reach·impact)를 안내한다.
         raise InputError(
-            "the graph snapshot would exceed the 16 Mi character output limit; scan a smaller project root, "
-            "or use reach/impact, which write only the traversed symbols."
+            f"the graph snapshot would exceed the {MAX_SNAPSHOT_LENGTH // (1024 * 1024)} Mi character output limit; "
+            "scan a smaller project root, or use reach/impact, which write only the traversed symbols."
         ) from error
 
 

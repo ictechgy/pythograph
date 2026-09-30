@@ -144,12 +144,20 @@ def test_candidates_mode_adds_candidate_evidence() -> None:
     assert "unresolvedCalls" not in document["roots"][0]  # type: ignore[index]
 
 
-def test_bound_mode_follows_direct_graph() -> None:
-    """bound 모드는 bound 간선이 없어 direct 그래프와 같고 한계로 밝힌다."""
+def test_bound_mode_follows_bound_edges() -> None:
+    """bound 모드는 닫힌 흐름의 bound 간선(`build()` 반환 값 → `Plain.label`)을 따라가고 그 호출을 미해석에서 뺀다."""
     _, bound, _ = traversal("reach", "--dispatch", "bound", "app/core/services.py#inexact_calls")
     _, direct, _ = traversal("reach", "app/core/services.py#inexact_calls")
-    assert bound["reached"] == direct["reached"]
-    assert any(str(line).startswith("bound-dispatch:") for line in bound["limitations"])  # type: ignore[union-attr]
+    assert bound["dispatch"] == "bound"
+    reached = {entry["symbol"]["usr"]: entry for entry in bound["reached"]}  # type: ignore[union-attr]
+    assert reached["app/core/models.py#Plain.label"]["evidence"] == "bound"
+    assert set(reached_ids(direct)) < set(reached)
+    assert "app/core/models.py#Plain.label" not in reached_ids(direct)
+    assert "unresolvedCalls" not in bound["roots"][0]  # type: ignore[index]
+    assert direct["roots"][0]["unresolvedCalls"] == 1  # type: ignore[index]
+    lines = [str(line) for line in bound["limitations"]]  # type: ignore[union-attr]
+    assert any(line.startswith("bound-dispatch: 1 calls") for line in lines)
+    assert not any(str(line).startswith("bound-") for line in direct["limitations"])  # type: ignore[union-attr]
 
 
 def test_impact_is_reverse() -> None:
@@ -235,13 +243,55 @@ def test_output_is_deterministic() -> None:
 
 
 def test_oversized_output_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
-    """출력 상한을 넘으면 부분 문서 없이 2다."""
-    monkeypatch.setattr("pythograph.exchange.document.MAX_OUTPUT_LENGTH", 100)
+    """스냅샷 상한을 넘으면 부분 문서 없이 2다. 순회 문서는 isthmus 입력 상한(16 Mi)을 그대로 따른다."""
+    monkeypatch.setattr("pythograph.graph.document.MAX_SNAPSHOT_LENGTH", 100)
     code, out, err = run_cli(["graph", "--project", RESOLUTION])
     assert (code, out) == (2, "")
     assert "exceed" in err
     assert "reach/impact" in err
     assert "isthmus rejects" not in err
+    monkeypatch.setattr("pythograph.exchange.document.MAX_OUTPUT_LENGTH", 100)
+    assert run_cli(["graph", "--project", RESOLUTION])[0] == 2
+    monkeypatch.setattr("pythograph.graph.document.MAX_SNAPSHOT_LENGTH", 256 * 1024 * 1024)
+    assert run_cli(["graph", "--project", RESOLUTION])[0] == 0
+    code, out, err = traversal("reach", "app/core/services.py#inexact_calls")
+    assert (code, out) == (2, {})
+    assert "isthmus rejects" in err
+
+
+def test_large_snapshot_exceeds_isthmus_cap_but_is_written() -> None:
+    """합성 대형 그래프(16 Mi 문자 초과) 스냅샷도 쓴다. 보통 크기의 스냅샷은 순회 문서와 같은 직렬화로 바이트가 같다."""
+    from datetime import datetime, timezone
+
+    from pythograph.exchange.document import MAX_OUTPUT_LENGTH, DocumentLimitError, encode_document
+    from pythograph.graph.document import GraphHeader, build_graph_document, encode_snapshot
+    from pythograph.graph.model import CallGraph, GraphEdge, GraphNode, NodeLocation
+
+    count = 34_000
+    nodes = [
+        GraphNode(
+            f"pkg/module_{index // 40}.py#Service_{index}.handle_{index}",
+            "method",
+            NodeLocation(f"pkg/module_{index // 40}.py", index + 1, 5),
+            {"bound": 1, "candidates": 0, "direct": 2},
+            {"overridden-method": 1, "untyped-receiver": 1},
+        )
+        for index in range(count)
+    ]
+    edges = [
+        GraphEdge(nodes[index % count].id, nodes[(index * 7 + 3) % count].id, ("call",), "direct")
+        for index in range(2 * count)
+    ]
+    graph = CallGraph(nodes, edges, {"direct": [], "bound": [], "candidates": []}, {})
+    header = GraphHeader("0", datetime(2026, 1, 1, tzinfo=timezone.utc), "/synthetic", None)
+    document = build_graph_document(header, graph)
+    text = encode_snapshot(document)
+    assert len(text) > MAX_OUTPUT_LENGTH
+    assert json.loads(text)["nodes"][-1]["id"] == nodes[-1].id
+    with pytest.raises(DocumentLimitError):
+        encode_document(document)
+    small = build_graph_document(header, CallGraph(nodes[:50], edges[:50], graph.limitations, {}))
+    assert encode_snapshot(small) == encode_document(small)
 
 
 def _git(root: Path, *arguments: str) -> None:

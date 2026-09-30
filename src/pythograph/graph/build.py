@@ -1,8 +1,8 @@
 """프로젝트를 읽어 호출 그래프를 만든다.
 
 순서: 선언 색인 → 정의마다 자기 범위의 간선·호출 지점 → 장식자·상속 간선 → 뷰 클래스 핸들러와 디스패치 경로
-→ 요청된 상속 멤버 정점(작업 목록으로 고정점까지) → 간선 정리·미해석 수·한계 문구. 같은 입력이면 같은 그래프다
-(모든 목록을 id 순으로 정렬한다).
+→ `bound` 후보 호출의 값 흐름(`bound.py`) → 요청된 상속 멤버 정점(작업 목록으로 고정점까지) → 간선 정리·미해석 수·
+한계 문구. 같은 입력이면 같은 그래프다(모든 목록을 id 순으로 정렬한다).
 """
 
 from __future__ import annotations
@@ -11,8 +11,11 @@ import ast
 from collections import Counter
 from dataclasses import dataclass, field
 
+from pythograph.graph.bound import BoundDispatcher, BoundSummary
 from pythograph.graph.calls import CallOutcome, CallResolver, InheritedRequest, NameFilter, Target
 from pythograph.graph.collect import collect_scope, self_attribute_uses
+from pythograph.graph.exposure import ProgramFacts, collect_program, tests_joined
+from pythograph.graph.flow import FlowAnalyzer
 from pythograph.graph.framework import (
     DISPATCH_ENTRY,
     framework_closure,
@@ -21,7 +24,7 @@ from pythograph.graph.framework import (
 )
 from pythograph.graph.index import Definition, DefinitionIndex
 from pythograph.graph.limitations import graph_limitations
-from pythograph.graph.model import DISPATCH_MODES, EVIDENCE_ORDER, CallGraph, GraphEdge, GraphNode, NodeLocation
+from pythograph.graph.model import EVIDENCE_ORDER, CallGraph, GraphEdge, GraphNode, NodeLocation
 from pythograph.graph.scope import Resolver
 from pythograph.graph.values import ClassValue, FunctionValue
 from pythograph.source.project import Project
@@ -54,6 +57,10 @@ class GraphBuilder:
     handlers: set[str] = field(default_factory=set)
     materialized: set[str] = field(default_factory=set)
     extra: dict[str, Counter[str]] = field(default_factory=dict)
+    include_tests: bool = False
+    scan: ModuleScan | None = None
+    bound: BoundSummary = field(default_factory=BoundSummary)
+    program: ProgramFacts | None = None
 
     def add_extra(self, node_id: str, reason: str, count: int) -> None:
         """호출 지점 밖의 미해석 수를 더한다(모든 모드에 더한다). 상속 멤버 정점은 나중에 만들어져도 된다.
@@ -90,12 +97,16 @@ def build_graph(project: Project, include_tests: bool) -> CallGraph:
     symbols = SymbolTable(project)
     index = DefinitionIndex(project, symbols, include_tests)
     resolver = Resolver(index, symbols)
-    names, dynamic_writes = name_filter(index)
-    builder = GraphBuilder(project, index, resolver, CallResolver(resolver, names))
+    scan = scan_modules(index)
+    names, dynamic_writes = name_filter(index, scan)
+    _configure_resolver(resolver, scan)
+    builder = GraphBuilder(project, index, resolver, CallResolver(resolver, names), include_tests=include_tests)
+    builder.scan = scan
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
         _add_definition(builder, definition)
     for definition in index.classes():
         _add_view_handlers(builder, definition)
+    _add_bound(builder)
     _materialize_requests(builder)
     return _finish(builder, dynamic_writes)
 
@@ -212,6 +223,38 @@ def _owner_id(member: object) -> str:
     """
     owner = getattr(member, "owner", None)
     return owner.key if owner is not None else ""
+
+
+def _add_bound(builder: GraphBuilder) -> None:
+    """`bound` 후보 호출 지점마다 수신자 값 흐름으로 `bound` 간선을 더한다(상속 멤버 정점 요청 전에 한다).
+
+    Args:
+        builder: 조립 상태.
+    """
+    index, resolver = builder.index, builder.resolver
+    assert builder.scan is not None
+    whole = tests_joined(builder.project, builder.scan.imports)
+    if whole and not builder.include_tests:
+        # 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램이다(정점은 아니어도 흐름에 든다).
+        index = DefinitionIndex(builder.project, index.symbols, include_tests=True)
+        resolver = Resolver(index, index.symbols)
+        _configure_resolver(resolver, scan_modules(index))
+    facts = collect_program(builder.project, index, resolver, whole)
+    builder.program = facts
+    flows = FlowAnalyzer(index, resolver, facts)
+    dispatcher = BoundDispatcher(builder.index, builder.calls, facts, flows)
+    for node_id in sorted(builder.records):
+        for outcome in builder.records[node_id].calls:
+            if outcome.site is None:
+                continue
+            targets, reason = dispatcher.resolve(outcome.site)
+            if targets:
+                outcome.bound = targets
+                builder.add_edges(node_id, targets, "bound")
+                builder.bound.linked[outcome.reason] += 1
+            else:
+                builder.bound.open[reason or "no-project-method"] += 1
+    builder.bound.unknown_writes = flows.unknown_target_writes()
 
 
 def _materialize_requests(builder: GraphBuilder) -> None:
@@ -331,35 +374,113 @@ def definition_location(index: DefinitionIndex, definition: Definition) -> NodeL
     return NodeLocation(definition.path, node.lineno, column)
 
 
-def name_filter(index: DefinitionIndex) -> tuple[NameFilter, int]:
-    """프로젝트가 정의·대입하는 속성 이름 집합을 만든다.
+@dataclass
+class ModuleScan:
+    """모듈 AST를 한 번 훑어 모은 사실(이름 필터·해석기 다시 쓰기 규칙·테스트 소스 import 판정이 함께 쓴다).
+
+    Attributes:
+        names: 프로젝트가 정의하는 함수·클래스 이름과 속성으로 쓰는 이름.
+        written: 속성으로 쓰는 이름(`obj.x = …`·누적·풀기·반복 대상, 리터럴 `setattr`).
+        dynamic_lookup: 프로젝트 클래스가 `__getattr__`·`__getattribute__`를 정의하는지.
+        dynamic_writes: 계산된 이름의 `setattr` 호출 수.
+        global_paths: 함수 안 `global` 선언이 있는 모듈 경로.
+        namespace_paths: 인자 없는 `globals()`·`vars()`·`locals()` 호출이 있는 모듈 경로.
+        imports: 모듈 경로 → (모듈, import 문) 목록.
+    """
+
+    names: set[str] = field(default_factory=set)
+    written: set[str] = field(default_factory=set)
+    dynamic_lookup: bool = False
+    dynamic_writes: int = 0
+    global_paths: set[str] = field(default_factory=set)
+    namespace_paths: set[str] = field(default_factory=set)
+    imports: list[tuple[Definition, ast.Import | ast.ImportFrom]] = field(default_factory=list)
+
+
+def scan_modules(index: DefinitionIndex) -> ModuleScan:
+    """색인한 모듈의 AST를 한 번 훑는다.
 
     Args:
         index: 선언 색인.
 
     Returns:
-        (필터, 계산된 이름의 setattr 호출 수).
+        모은 사실.
     """
-    names: set[str] = set()
-    disabled = False
-    dynamic_writes = 0
+    scan = ModuleScan()
     for module in index.modules:
         for node in ast.walk(module.node):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(node.name)
-            if isinstance(node, ast.ClassDef):
-                disabled = disabled or any(_is_dynamic_lookup(item) for item in node.body)
-            elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
-                names.add(node.attr)
-            elif isinstance(node, ast.Call) and _is_setattr(node):
-                literal = _setattr_name(node)
-                if literal is None:
-                    dynamic_writes += 1
-                else:
-                    names.add(literal)
+            _scan_node(scan, module, node)
+    return scan
+
+
+def _scan_node(scan: ModuleScan, module: Definition, node: ast.AST) -> None:
+    """노드 하나를 `ModuleScan`에 반영한다.
+
+    Args:
+        scan: 채울 사실.
+        module: 모듈 정의.
+        node: 노드.
+    """
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        scan.names.add(node.name)
+    if isinstance(node, ast.ClassDef):
+        scan.dynamic_lookup = scan.dynamic_lookup or any(_is_dynamic_lookup(item) for item in node.body)
+    elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+        scan.written.add(node.attr)
+    elif isinstance(node, ast.Call) and _is_setattr(node):
+        literal = _setattr_name(node)
+        if literal is None:
+            scan.dynamic_writes += 1
+        else:
+            scan.written.add(literal)
+    elif isinstance(node, ast.Call) and _is_namespace_call(node):
+        scan.namespace_paths.add(module.path)
+    elif isinstance(node, ast.Global):
+        scan.global_paths.add(module.path)
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        scan.imports.append((module, node))
+
+
+def name_filter(index: DefinitionIndex, scan: ModuleScan) -> tuple[NameFilter, int]:
+    """프로젝트가 정의·대입하는 속성 이름 집합을 만든다.
+
+    Args:
+        index: 선언 색인.
+        scan: 모듈 AST 사실.
+
+    Returns:
+        (필터, 계산된 이름의 setattr 호출 수).
+    """
+    names = scan.names | scan.written
     for definition in index.classes():
         names.update(index.class_members(definition).attributes)
-    return NameFilter(names, disabled), dynamic_writes
+    return NameFilter(names, scan.dynamic_lookup), scan.dynamic_writes
+
+
+def _configure_resolver(resolver: Resolver, scan: ModuleScan) -> None:
+    """해석기에 다시 쓰기 규칙의 입력(속성으로 쓰는 이름, `global` 선언 모듈)을 넣는다.
+
+    해석기는 이 이름의 모듈 전역·클래스 본문 값을 정확한 값으로 보지 않는다(몽키패치·인스턴스 속성이 가린다).
+
+    Args:
+        resolver: 값 해석기.
+        scan: 모듈 AST 사실.
+    """
+    resolver.written_attributes = frozenset(scan.written)
+    resolver.global_paths = frozenset(scan.global_paths)
+    resolver.namespace_paths = frozenset(scan.namespace_paths)
+
+
+def _is_namespace_call(node: ast.Call) -> bool:
+    """인자 없는 `globals()`·`vars()`·`locals()` 호출인지 본다.
+
+    Args:
+        node: 호출.
+
+    Returns:
+        그렇다면 True.
+    """
+    return isinstance(node.func, ast.Name) and node.func.id in ("globals", "vars", "locals") and not node.args
 
 
 def _is_dynamic_lookup(statement: ast.stmt) -> bool:
@@ -429,15 +550,22 @@ def _finish_node(record: NodeRecord, extra: Counter[str]) -> GraphNode:
         정점.
     """
     reasons: Counter[str] = Counter(extra)
-    partial = 0
+    partial = linked = linked_partial = 0
     for outcome in record.calls:
         if outcome.status == "unresolved":
             reasons[outcome.reason] += 1
+            linked += bool(outcome.bound)
         elif outcome.status == "partial":
             partial += 1
             reasons[outcome.reason] += 1
+            linked_partial += bool(outcome.bound)
     base = sum(reasons.values())
-    record.node.unresolved = {mode: base - (partial if mode == "candidates" else 0) for mode in DISPATCH_MODES}
+    # 등급이 포개지므로(direct ⊂ bound ⊂ candidate) 약한 모드일수록 미해석 수가 작거나 같다.
+    record.node.unresolved = {
+        "direct": base,
+        "bound": base - linked - linked_partial,
+        "candidates": base - partial - linked,
+    }
     record.node.reasons = dict(sorted(reasons.items()))
     return record.node
 
@@ -505,7 +633,29 @@ def _statistics(
         "partialCalls": dict(sorted(partial.items())),
         "frameworkUnresolved": dict(sorted(extra.items())),
         "viewHandlers": len(builder.handlers),
+        "boundDispatch": _bound_statistics(builder),
         "dynamicAttributeWrites": dynamic_writes,
         "unparsedFiles": builder.index.unparsed,
         "mroApproximated": len(builder.resolver.linearizer.approximated),
+    }
+
+
+def _bound_statistics(builder: GraphBuilder) -> dict[str, object]:
+    """`bound` 집계: 이은 호출(원래 이유별), 열린 후보(열린 이유별), 프로그램 판정, 모델링하지 않은 쓰기 수.
+
+    Args:
+        builder: 조립 상태.
+
+    Returns:
+        집계 사전.
+    """
+    facts = builder.program
+    assert facts is not None
+    return {
+        "linked": dict(sorted(builder.bound.linked.items())),
+        "open": dict(sorted(builder.bound.open.items())),
+        "program": "library" if facts.library is not None else "application",
+        "scanIncomplete": facts.incomplete is not None,
+        "wholeProgramTests": facts.whole,
+        "unknownTargetWrites": builder.bound.unknown_writes,
     }

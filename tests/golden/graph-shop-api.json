@@ -735,6 +735,14 @@
   "project": "<project>",
   "revision": "golden",
   "statistics": {
+    "boundDispatch": {
+      "linked": {},
+      "open": {},
+      "program": "application",
+      "scanIncomplete": false,
+      "unknownTargetWrites": 0,
+      "wholeProgramTests": false
+    },
     "callSites": {
       "external": 40,
       "resolved": 10

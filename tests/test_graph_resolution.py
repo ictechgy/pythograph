@@ -124,6 +124,10 @@ EXPECTED_REASONS = {
 }
 
 
+#: bound 간선으로 이은 호출 수다(`build()`는 `Plain("p")`만 돌려준다 → `Plain.label`).
+BOUND_LINKED = {f"{SERVICES}inexact_calls": 1}
+
+
 @pytest.fixture(scope="module")
 def resolution() -> CallGraph:
     """해석 fixture 그래프다.
@@ -141,13 +145,14 @@ def test_expected_edges(resolution: CallGraph, edge: tuple[str, str, tuple[str, 
 
 
 def test_unresolved_reasons(resolution: CallGraph) -> None:
-    """미해석 이유와 모드별 수가 기대와 같다(partial은 candidates 모드에서 빠진다)."""
+    """미해석 이유와 모드별 수가 기대와 같다(partial은 candidates에서, bound로 이은 호출은 bound에서 빠진다)."""
     nodes = resolution.node_map()
     for node_id, reasons in EXPECTED_REASONS.items():
         assert nodes[node_id].reasons == reasons, node_id
         partial = reasons.get("overridden-method", 0) + reasons.get("subclass-method", 0)
         total = sum(reasons.values())
-        assert nodes[node_id].unresolved == {"direct": total, "bound": total, "candidates": total - partial}
+        linked = BOUND_LINKED.get(node_id, 0)
+        assert nodes[node_id].unresolved == {"direct": total, "bound": total - linked, "candidates": total - partial}
 
 
 def test_no_guessed_edges(resolution: CallGraph) -> None:

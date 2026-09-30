@@ -1,8 +1,8 @@
 """호출 그래프의 자료 모델: 정점·간선·근거 등급·디스패치 모드.
 
-근거 등급은 간선 집합이 포개진다(`direct ⊂ bound ⊂ candidate`, isthmus `language-traversal` v1). pythograph는
-지금 `bound` 간선을 만들지 않으므로 `bound` 모드는 `direct` 그래프를 따른다(`docs/GRAPH.md`). 디스패치 모드는
-따라갈 가장 약한 등급을 정한다: `direct`→direct, `bound`→bound, `candidates`→candidate.
+근거 등급은 간선 집합이 포개진다(`direct ⊂ bound ⊂ candidate`, isthmus `language-traversal` v1). `bound` 간선은
+수신자 자리로 들어오는 관찰된 흐름이 모두 프로젝트 클래스 인스턴스인 호출에만 있다(`bound.py`, `docs/GRAPH.md`).
+디스패치 모드는 따라갈 가장 약한 등급을 정한다: `direct`→direct, `bound`→bound, `candidates`→candidate.
 """
 
 from __future__ import annotations

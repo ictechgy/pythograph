@@ -78,10 +78,37 @@ def _mode_lines(mode: str, statistics: dict[str, object]) -> list[str]:
             f"overridden-methods: {partial_total} calls through self, cls, or annotated receivers may reach methods "
             "of project subclasses; they count as unresolved here and are linked with --dispatch candidates"
         )
-    if mode == "bound":
-        lines.append(
-            "bound-dispatch: pythograph does not produce bound edges yet; --dispatch bound follows the direct graph"
-        )
+    if mode != "direct":
+        lines.extend(bound_lines(cast(dict[str, object], statistics.get("boundDispatch", {}))))
+    return lines
+
+
+def bound_lines(bound: dict[str, object]) -> list[str]:
+    """`bound`·`candidates` 모드의 `bound-dispatch:` 문구다(이은 수, 열린 수와 이유, 프로그램 판정, 모델링하지 않은 틈).
+
+    Args:
+        bound: 집계의 `boundDispatch`.
+
+    Returns:
+        문구 목록.
+    """
+    linked = sum(cast(dict[str, int], bound.get("linked", {})).values())
+    opened = cast(dict[str, int], bound.get("open", {}))
+    program = bound.get("program", "application")
+    if bound.get("scanIncomplete"):
+        program = f"{program} with an incomplete scan (every module-level name is open)"
+    detail = ", ".join(f"{reason} {count}" for reason, count in sorted(opened.items()))
+    lines = [
+        f"bound-dispatch: {linked} calls on receivers of unknown or overridable type are linked by bound edges because "
+        f"every value observed flowing into the receiver is a project class instance; {sum(opened.values())} such "
+        f"calls stay unresolved because a flow is open ({detail or 'none'}); the program is treated as {program} "
+        "(a library opens public functions, classes, and module globals); self and cls receivers are not bound"
+    ]
+    lines.append(
+        "bound-assumptions: the scanned project is the whole program; values that leave through library code and "
+        "come back, attributes written by library code, and computed-name setattr or __dict__ writes on receivers "
+        f"of unknown type ({bound.get('unknownTargetWrites', 0)} sites) are not modeled"
+    )
     return lines
 
 

@@ -20,7 +20,7 @@ root's git to read `revision`).
 |---|---|
 | `pythograph routes --role server`: Django URLconf, Django REST framework routers and views, Flask/Werkzeug rules → `route-decl` facts | Implemented |
 | `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
-| `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
+| `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`bound`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
 | Client route-calls (requests, httpx) | Planned |
 
 isthmus `main` (`f9dcd1d`) accepts `platform: "python"` http documents (including `registration-order`), persistence
@@ -225,8 +225,17 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
   through the C3 MRO of project classes, annotated and return-annotated receivers, module-level instances, and
   properties.
 - **Evidence tiers**: statically resolved edges are `direct`; overrides in project subclasses for `self`, `cls`, and
-  annotated receivers are `candidate`. `bound` edges are not produced yet, so `--dispatch bound` follows the `direct`
-  graph.
+  annotated receivers are `candidate`. A method call on a receiver of unknown or overridable type gets `bound` edges
+  (followed by `--dispatch bound`) only when every value observed flowing into the receiver is a project class
+  instance: constructors, module-level instances, attributes assigned in `__init__` from constructor parameters (DI),
+  function parameters whose call sites are all in the project, and factory return values. Open slots get no `bound`
+  edge: public functions, classes, and module globals of a library (a project root with `setup.py`/`setup.cfg` or a
+  `pyproject.toml` `[project]`/`[tool.poetry]` table), framework-invoked entry points (functions passed as values,
+  decorated functions, classes with framework bases), computed `getattr`/`setattr` and module namespaces, `*args`/
+  `**kwargs` spreads, wrapping decorators, monkeypatching writes whose value is unknown, `self`/`cls`, and test sources
+  (a separate program). Values that leave through library code and computed-name writes to receivers of unknown type
+  are not modeled (reported under `bound-assumptions:`). The default stays `direct`: bound linked no calls in the four
+  dogfood apps. Module globals and class-body attributes are exact receivers only when nothing rewrites them.
 - **No guessing**: calls without a known target are counted by reason (`parameter`, `untyped-receiver`,
   `dynamic-attribute`, `getattr`, `dynamic-callee`, `unresolved-import`, `framework-callback`, …) as each symbol's
   `unresolvedCalls`. A method call on an untyped receiver is proven external only when no project class, module, or
@@ -236,6 +245,9 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
   `__init__`) and framework implementations (`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`) call. Objects the framework builds from class attributes (`serializer_class`,
   `permission_classes`) count as `framework-callback` unresolved calls.
+- **Snapshot size**: the `graph` snapshot is not an isthmus input, so it may be up to 256 Mi characters (about 2 bytes
+  of extra memory per output character while encoding); `reach` and `impact` keep the 16 Mi isthmus input limit.
+  The encoding is unchanged, so raising the cap alone changes no snapshot under 16 Mi characters.
 - **Traversal documents**: a `dispatch` declaration, per-root lower-bound `evidence`, `unresolvedCalls`, one
   multi-root pass (compared with a per-root oracle on random graphs), `--max-depth`/`--max-reached` truncation, and
   `rootsTruncated`. Roots that are not graph nodes are listed without `symbol`; the document is written and the

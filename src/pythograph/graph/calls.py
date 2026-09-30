@@ -8,6 +8,10 @@
   메서드 호출도, 그 이름을 정의하거나 대입하는 프로젝트 클래스·모듈·속성 쓰기가 하나도 없으면 프로젝트 코드로 갈 수
   없으므로 외부다(`NameFilter`).
 - `unresolved`: 대상을 잇지 못했다(이유별로 센다).
+
+타입 모르는 수신자·인스턴스 속성 수신자의 메서드 호출(`untyped-receiver`·`dynamic-attribute`)과 재정의 후보가
+있는 호출(`partial`)은 `bound` 후보다. 호출 지점을 `BoundSite`로 남기면 `bound.py`가 수신자 값 흐름으로 `bound`
+대상을 채운다.
 """
 
 from __future__ import annotations
@@ -50,6 +54,9 @@ REASONS = {
     "dynamic-super": "dynamic-callee",
     "instance-attribute": "dynamic-attribute",
     "function-attribute": "dynamic-attribute",
+    "rebound-attribute": "dynamic-attribute",
+    "descriptor": "dynamic-attribute",
+    "rebound-global": "local-value",
 }
 
 
@@ -78,6 +85,25 @@ class Target:
     kind: str
 
 
+#: `bound` 후보가 되는 미해석 이유다(수신자가 있는 메서드 호출).
+BOUND_REASONS = frozenset({"untyped-receiver", "dynamic-attribute"})
+
+
+@dataclass(frozen=True)
+class BoundSite:
+    """`bound` 후보 호출 지점.
+
+    Attributes:
+        scope: 호출을 담은 범위.
+        call: 호출 식(피호출 식은 속성 접근이다).
+        lambda_scoped: 람다·컴프리헨션 안인지(지역 이름을 바깥 범위로 풀 수 없어 `bound`를 내지 않는다).
+    """
+
+    scope: Definition
+    call: ast.Call
+    lambda_scoped: bool
+
+
 @dataclass
 class CallOutcome:
     """호출 지점 하나의 해석 결과.
@@ -87,12 +113,24 @@ class CallOutcome:
         targets: direct 간선 대상.
         candidates: candidate 간선 대상.
         reason: `partial`·`unresolved`의 이유.
+        site: `bound` 후보면 호출 지점.
+        bound: `bound` 간선 대상(비어 있으면 `bound`로 잇지 못했다).
     """
 
     status: str
     targets: list[Target] = field(default_factory=list)
     candidates: list[Target] = field(default_factory=list)
     reason: str = ""
+    site: BoundSite | None = None
+    bound: list[Target] = field(default_factory=list)
+
+    def is_bound_candidate(self) -> bool:
+        """`bound` 후보(재정의 후보가 있거나 수신자 타입을 모르는 메서드 호출)인지 돌려준다.
+
+        Returns:
+            그렇다면 True.
+        """
+        return self.status == "partial" or (self.status == "unresolved" and self.reason in BOUND_REASONS)
 
 
 @dataclass(frozen=True)
