@@ -878,8 +878,8 @@ def test_class_opacity_rules(make_project: MakeProject) -> None:
                     def __init__(self, repo):
                         self.repo = repo
 
-                    def __setattr__(self, name, value):
-                        object.__setattr__(self, name, value)
+                    def __getattribute__(self, name):
+                        return object.__getattribute__(self, name)
 
                     def run(self):
                         return self.repo.save(1)
