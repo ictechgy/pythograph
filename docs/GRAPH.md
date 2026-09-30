@@ -179,7 +179,7 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
   `super().__init__(...)`, `K.__init__(self, ...)`, `type(h)(...)`·`h.__class__(...)`(h의 클래스를 알 때).
 - 인스턴스 속성(`__init__`에서 생성자 매개변수로 받은 속성, DI `self.repo = repo`): 수신자가 가리킬 수 있는 클래스들(정확하지
   않으면 하위 클래스 포함)의 클래스 본문 값 + 그 클래스들의 인스턴스·클래스 객체(또는 타입 모르는 수신자)에 대한 같은 이름
-  쓰기 전부(리터럴 `setattr` 포함). 수신자 흐름이 닫혔으면 그 클래스들로 좁힌다(`svc.repo.save()`). 값에 서술자가 있으면 모른다.
+  쓰기 전부(리터럴 `setattr`·`object.__setattr__`·`super().__setattr__` 포함). 수신자 흐름이 닫혔으면 그 클래스들로 좁힌다(`svc.repo.save()`). 값에 서술자가 있으면 모른다.
 - 호출 결과: 프로젝트 함수·정확한 수신자 메서드의 모든 `return` 값(합성 루트의 팩토리). 장식한 함수·제너레이터·코루틴은 모른다.
 - `None` 상수는 흐름에 넣지 않는다(`None`의 메서드 호출은 프로젝트 코드를 부르지 않는다). 그 밖의 식(첨자·연산·리터럴)은 모른다.
 
@@ -198,7 +198,8 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 | `module-namespace` | 모듈 멤버를 계산된 이름으로 가져갈 수 있다: 그 모듈을 계산된 이름으로 훑거나(`getattr(module, name)`, `inspect.getmembers`, `vars(module)`, `globals()`), 모듈 이름공간이 새어 나간 뒤(`sys.modules[...]`, 동적 import, 모듈을 값으로 씀) 타입 모르는 값을 계산된 이름으로 훑음 |
 | `untyped-reference`·`untyped-init-call`·`super-with-arguments` | 타입 모르는 수신자의 `x.f`·`x.K` 값 사용(같은 이름 함수·클래스가 새어 나갈 수 있다), `x.__init__(...)`(모든 `__init__`), 인자 있는 `super(X, y).__init__`(MRO의 `__init__`) |
 | `dynamic-construction`·`dynamic-subclass`·`code-execution` | 타입 모르는 값의 `type(x)(...)`·`x.__class__(...)`(모든 생성자), 세 인자 `type(...)`·`types.new_class`(하위 클래스 목록이 완전하지 않다 — `cls(...)`), `exec`·`eval`·`compile`(모든 함수·생성자) |
-| `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
+| `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `object.__setattr__`·`x.__setattr__`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
+| `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(색인은 첫 정의만 본다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
 | `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
 | `scan-incomplete` | 파싱하지 못한 파일·심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
 | `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |
