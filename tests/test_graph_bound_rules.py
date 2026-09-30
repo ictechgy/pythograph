@@ -864,3 +864,90 @@ class Holder:
     assert outcome(graph, "app.py#Holder.site")[0] == set()
     assert outcome(graph, "app.py#Holder.other")[0] == set()
     assert outcome(graph, "app.py#Holder.site")[1] == {"rebound-attribute": 2}
+
+
+#: 리뷰에서 재현한 건전성 구멍(생성 결과를 바꾸는 `__new__` 쓰기, 물려받은 메타클래스, 동적 하위 클래스)이다.
+CONSTRUCTION_HOLES = {
+    "new-written-to-class": (
+        """
+class Loose:
+    def save(self, item):
+        return item
+
+
+def pooled(cls):
+    return Loose()
+
+
+SqlRepo.__new__ = staticmethod(pooled)
+""",
+        "custom-new",
+    ),
+    "inherited-metaclass": (
+        """
+class Loose:
+    def save(self, item):
+        return item
+
+
+class Singleton(type):
+    def __call__(cls):
+        return Loose()
+
+
+class Base(metaclass=Singleton):
+    pass
+
+
+class SqlRepo(Base):
+    def save(self, item):
+        return item
+""",
+        "metaclass",
+    ),
+    "dynamic-subclass-through-bases": (
+        """
+import types
+
+
+class Loose:
+    def save(self, item):
+        return item
+
+
+class Service(Client):
+    pass
+
+
+Dynamic = types.new_class("Dynamic", Service.__bases__, {})
+Dynamic(Loose()).run()
+""",
+        "dynamic-subclass",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(CONSTRUCTION_HOLES))
+def test_construction_holes_are_open(make_project: MakeProject, name: str) -> None:
+    """`Repo.__new__ = …`, 기반 클래스에서 물려받은 메타클래스, `types.new_class`로 만든 하위 클래스는 생성 결과나
+    생성자 매개변수를 모르므로 `bound`를 내지 않는다."""
+    extra, reason = CONSTRUCTION_HOLES[name]
+    graph = build(
+        make_project,
+        """
+class Client:
+    def __init__(self, repo):
+        self.repo = repo
+
+    def run(self):
+        return self.repo.save(1)
+"""
+        + extra
+        + """
+
+Client(SqlRepo()).run()
+""",
+    )
+    targets, reasons = outcome(graph, "app.py#Client.run")
+    assert targets == set()
+    assert reasons.get(reason) == 1, reasons

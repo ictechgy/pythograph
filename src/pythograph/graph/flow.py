@@ -536,6 +536,8 @@ class FlowAnalyzer:
             return facts.open_functions[init.id]
         if facts.dynamic_construction:
             return "dynamic-construction"
+        if facts.dynamic_subclassing:
+            return "dynamic-subclass"
         if self._decorators(init) - _TRANSPARENT_DECORATORS:
             return "decorated"
         owner = init.parent
@@ -584,10 +586,12 @@ class FlowAnalyzer:
             return facts.open_classes[definition.id]
         if node.decorator_list:
             return "decorated-class"
-        if node.keywords:
+        if self._has_metaclass(definition):
             return "metaclass"
         if not self.pure_project(definition):
             return "framework-base"
+        if facts.dynamic_subclassing:
+            return "dynamic-subclass"
         if node.name in facts.mentions:
             return "string-reference"
         outside = facts.outside(definition)
@@ -855,8 +859,10 @@ class FlowAnalyzer:
             return "framework-base"
         if node.decorator_list:
             return "decorated-class"
-        if node.keywords:
+        if self._has_metaclass(definition):
             return "metaclass"
+        if self.facts.dynamic_subclassing:
+            return "dynamic-subclass"
         dirty = self.class_dirty(definition.id)
         if dirty is not None:
             return dirty
@@ -1013,16 +1019,21 @@ class FlowAnalyzer:
                 return opened("dynamic-subclass")
             definitions.extend(self.linearizer.subclasses(value.definition))
         for definition in definitions:
-            reason = self._constructor_opaque(definition)
+            reason = self._constructor_opaque(definition, 0)
             if reason is not None:
                 return opened(reason)
         return Flow(frozenset(item.id for item in definitions))
 
-    def _constructor_opaque(self, definition: Definition) -> str | None:
+    def _constructor_opaque(self, definition: Definition, depth: int) -> str | None:
         """생성 결과가 그 클래스 인스턴스라고 말할 수 없는 이유다.
+
+        MRO 어디든 장식한 클래스·메타클래스(물려받은 것 포함 — `__call__`이 무엇이든 돌려줄 수 있다)·프로젝트나
+        프레임워크 `__new__`(메서드·클래스 본문 대입), 표에 없는 외부·모르는 기반이 있거나, MRO 클래스에 `__new__`를
+        쓰는 곳(`Repo.__new__ = …`)이 있으면 모른다.
 
         Args:
             definition: 클래스 정의.
+            depth: 깊이.
 
         Returns:
             이유, 없으면 None.
@@ -1031,16 +1042,38 @@ class FlowAnalyzer:
         assert isinstance(node, ast.ClassDef)
         if node.decorator_list:
             return "decorated-class"
-        if node.keywords:
+        if self._has_metaclass(definition):
             return "metaclass"
+        classes: set[str] = set()
         for entry in self.linearizer.mro(definition):
             if entry.kind in ("external", "unknown"):
                 return "opaque-constructor"
             if entry.kind == "framework" and "__new__" in FRAMEWORK_CLASSES[entry.key]["methods"]:
                 return "custom-new"
-            if entry.definition is not None and "__new__" in self.index.class_members(entry.definition).methods:
+            if entry.definition is not None:
+                members = self.index.class_members(entry.definition)
+                if "__new__" in members.methods or "__new__" in members.attributes:
+                    return "custom-new"
+                classes.add(entry.definition.id)
+        for write in self.facts.writes.get("__new__", []):
+            if self.write_reaches(write.scope, write.receiver, frozenset(classes), depth, write.lambda_receiver):
                 return "custom-new"
         return None
+
+    def _has_metaclass(self, definition: Definition) -> bool:
+        """MRO의 프로젝트 클래스 중 하나라도 클래스 키워드(메타클래스 등)를 쓰는지 본다(메타클래스는 물려받는다).
+
+        Args:
+            definition: 클래스 정의.
+
+        Returns:
+            그렇다면 True.
+        """
+        return any(
+            isinstance(entry.definition.node, ast.ClassDef) and bool(entry.definition.node.keywords)
+            for entry in self.linearizer.mro(definition)
+            if entry.definition is not None
+        )
 
     def return_flow(self, function: Definition, depth: int) -> Flow:
         """함수의 모든 `return` 값의 흐름이다.

@@ -14,7 +14,7 @@
   새는 함수·클래스(뷰·시그널 등록), 장식한 함수·클래스(Celery·시그널·래퍼), 프레임워크 기반 클래스(관리 명령·뷰), 문자열로 적은
   이름, 호출 지점 없는 함수, 메서드 매개변수, `self`·`cls`, `*args`·`**kwargs` 펼치기, 계산된 `getattr`·모듈 이름공간
   노출(`globals()`·`sys.modules`·동적 import), 계산된 이름의 쓰기(`setattr`·`__dict__`·`vars()`·`__class__`) 대상, 속성 훅·서술자·
-  메서드 가림, 동적 생성·`exec`, 불완전한 스캔, 테스트 소스(별도 프로그램 — 테스트가 아닌 모듈이 import하면 함께 훑는다).
+  메서드 가림, 동적 생성·`exec`·동적 하위 클래스, 물려받은 메타클래스·`__new__` 쓰기, 조건부 재정의, 불완전한 스캔, 테스트 소스(별도 프로그램 — 테스트가 아닌 모듈이 import하면 함께 훑는다).
   `bound`·`candidates` 모드의 미해석 수에서 이은 호출을 빼고, `statistics.boundDispatch`와 `bound-dispatch:`·`bound-assumptions:`
   한계를 싣는다. 기본 모드는 `direct`를 유지한다(공개 앱 네 개에서 이은 호출 0건, `DOGFOOD.md`).
 - 건전성 탐침(`tests/test_graph_bound_probes.py`): 흐름을 숨기는 기법을 섞은 합성 프로그램을 테스트 안에서 실행해 런타임

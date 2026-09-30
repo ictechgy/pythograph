@@ -124,7 +124,7 @@ class BoundDispatcher:
                 return None, "property"
             return Target(self.calls.exact_member(definition, member.definition), "call"), None
         if member.kind == "framework-method" and member.owner is not None:
-            if FRAMEWORK_CLASSES[member.owner.key]["methods"][name].get("property"):
+            if FRAMEWORK_CLASSES[member.owner.key]["methods"].get(name, {}).get("property"):
                 return None, "property"
             return Target(self.calls.framework_member(definition, name), "call"), None
         return None, "unresolved-method"

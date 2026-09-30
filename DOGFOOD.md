@@ -138,7 +138,7 @@ route-decl 핸들러 usr마다 모드가 허용하는 간선으로 너비 우선
 | Django-Styleguide-Example | 14/21 → 14/21 | 14/21 | 14/21 | 30 | 0 | framework-base 10, method-parameter 8, call-result 6, referenced 4 | application(테스트가 아닌 `factories.py`가 테스트 패키지를 import → 테스트까지 프로그램) |
 | babybuddy | 170/194 → 170/194 | 170/194 | 170/194 | 210 | 0 | call-result 117, class-attribute 23, variadic-parameter 15, loop-variable 12, method-parameter 12 | application |
 | microblog | 20/26 → 20/26 | 20/26 | 20/26 | 12 | 0 | call-result 12 | application |
-| netbox | 74/100 → 74/100 | 74/100 | 74/100 | 10,002 | 0 | call-result 3,039, class-attribute 2,691, method-parameter 1,085, dynamic-expression 787, scan-incomplete 473, code-execution 444 | library(`pyproject.toml` `[project]`) + 불완전한 스캔(4 MiB 넘는 데이터 모듈 1개) |
+| netbox | 74/100 → 74/100 | 74/100 | 74/100 | 10,002 | 0 | call-result 3,039, class-attribute 2,691, method-parameter 1,085, dynamic-expression 787, code-execution 444, scan-incomplete 372 | library(`pyproject.toml` `[project]`) + 불완전한 스캔(4 MiB 넘는 데이터 모듈 1개) |
 
 - **이은 호출은 네 앱 모두 0건이다.** 후보의 대부분은 프레임워크가 만든 객체(`request`·`validated_data`·`options`·ORM 결과·
   매니저)의 메서드 호출이라 흐름이 외부 호출 결과(`call-result`)·클래스 객체 속성(`class-attribute`)·메서드 매개변수·
