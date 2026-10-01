@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pythograph"
-version = "0.2.0"
+version = "0.2.1"
 description = "Static facts for Python (Django, Django REST framework, Flask, SQLAlchemy) services for the isthmus bridge-facts exchange: HTTP route declarations and persistence relation uses from the standard-library ast, without importing the analyzed project."
 readme = "README.md"
 license = "MIT"
