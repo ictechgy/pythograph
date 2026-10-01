@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- SQL FROM/JOIN의 테이블 값 함수를 관계로 추측하지 않고 미해석 피연산자로 센다.
+
 ## [0.2.0] - 2026-10-01
 
 0.1.0 이후 #7–#12를 담는다. 클라이언트 route-call(`routes --role client`, #10)로 파이썬 호출부를 서버 route에 잇고, `bound` 근거

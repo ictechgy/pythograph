@@ -586,6 +586,12 @@ class _RelationScan:
                 self.unresolved += 1
             return None
         name, after_name = read
+        # FROM/JOIN의 함수는 관계 신원이 아니다. INSERT의 컬럼 목록은 그대로 읽는다.
+        if keyword.text.lower() in {"from", "join"} and self._is_symbol(after_name, "("):
+            self.unresolved += 1
+            for consumed in range(index, after_name):
+                self.consumed[consumed] = True
+            return _skip_parens(self.tokens, after_name)
         if buffer is None:
             self._emit(name, keyword)
         else:
