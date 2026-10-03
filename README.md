@@ -1,5 +1,7 @@
 # pythograph
 
+<img src="https://raw.githubusercontent.com/ictechgy/pythograph/main/icon.png" alt="pythograph's blue tit mascot" width="112" height="112" align="right">
+
 [한국어](https://github.com/ictechgy/pythograph/blob/main/README.ko.md)
 
 Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy), emitted in the
