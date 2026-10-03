@@ -1,5 +1,7 @@
 # pythograph
 
+<img src="https://raw.githubusercontent.com/ictechgy/pythograph/main/icon.png" alt="pythograph의 푸른박새 마스코트" width="112" height="112" align="right">
+
 [English](README.md)
 
 Python 서비스(Django, Django REST framework, Flask, SQLAlchemy)의 정적 사실을
