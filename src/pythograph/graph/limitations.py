@@ -173,4 +173,9 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
             "scan-incomplete: the file walk stopped at a limit or skipped symbolic links or undecodable names; "
             "symbols in those files are missing"
         )
+    if project.scan_errors:
+        lines.append(
+            f"scan-incomplete: {project.scan_errors} directory entries could not be read; "
+            "symbols in those paths may be missing"
+        )
     return lines

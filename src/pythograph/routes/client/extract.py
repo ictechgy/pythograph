@@ -808,6 +808,10 @@ def _project_gaps(project: Project, extraction: ClientExtraction) -> None:
     """
     if project.scan_capped:
         extraction.add_gap(COVERAGE, "the project scan stopped at its entry or depth limit")
+    if project.scan_errors:
+        extraction.add_gap(
+            COVERAGE, f"{project.scan_errors} directory entries could not be read; the project scan is incomplete"
+        )
     if project.unencodable_names:
         extraction.add_gap(
             COVERAGE,

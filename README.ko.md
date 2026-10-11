@@ -281,6 +281,13 @@ isthmus-cli 0.10.0(npm, `npm install --global isthmus-cli@0.10.0`)이 `platform:
 persistence `relation-use`, trace의 python `forward`·`reverse` 분석(`language-traversal` v1). 그 전 isthmus 릴리스는 python
 route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판용 `--dispatch specificity`는 그대로 남아 있다.
 
+## 소스 읽기 상한
+
+파일은 최대 4 MiB와 초과 확인용 1바이트만 읽습니다. 디렉터리 열거는 최대 200,000개와 초과 확인용 항목 하나,
+깊이는 64까지입니다. 상한을 넘는 디렉터리는 파일시스템 열거 순서에 따른 임의의 일부 대신 전체를 제외하고,
+앞서 완전히 순회한 디렉터리의 파일은 보존합니다. 읽지 못한 디렉터리 항목 수는 routes·schema·graph 한계에 남기고,
+보이지 않는 모듈에 의존하는 닫힌 세계 `bound` 증명도 막습니다. 이런 한계와 함께 성공한 명령은 여전히 불완전한 분석입니다.
+
 ## 개발
 
 ```sh

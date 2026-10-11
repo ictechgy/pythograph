@@ -277,6 +277,11 @@ def _project_gaps(project: Project, extraction: PersistenceExtraction) -> None:
     """
     if project.scan_capped:
         extraction.add_gap("scan-truncated:", "the project scan stopped at its entry or depth limit")
+    if project.scan_errors:
+        extraction.add_gap(
+            "unreadable-sources:",
+            f"{project.scan_errors} directory entries could not be read; the project scan is incomplete",
+        )
     if project.unencodable_names:
         extraction.add_gap(
             "unreadable-sources:", f"{project.unencodable_names} Python files have names that are not valid UTF-8"
