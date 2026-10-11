@@ -104,6 +104,11 @@ def _project_gaps(project: Project, extraction: Extraction) -> None:
     """
     if project.scan_capped:
         extraction.add_gap("route-coverage:", "the project scan stopped at its entry or depth limit")
+    if project.scan_errors:
+        extraction.add_gap(
+            "route-coverage:",
+            f"{project.scan_errors} directory entries could not be read; the project scan is incomplete",
+        )
     if project.unencodable_names:
         extraction.add_gap(
             "route-coverage:",

@@ -351,6 +351,14 @@ client `route-call` facts (`routes --role client`), persistence `relation-use` f
 analyses (`language-traversal` v1) in `trace`. Earlier isthmus releases reject python route-decl and route-call
 documents as input errors. `--dispatch specificity` remains for those older releases.
 
+## Bounded source scanning
+
+Source reads request at most 4 MiB plus one overflow byte. Directory enumeration consumes at most 200,000 entries
+plus one overflow entry, with a maximum depth of 64. An oversized directory is omitted as a whole rather than selecting
+an arbitrary filesystem-order subset; files from previously completed directories remain available. Unreadable directory
+entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
+would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
+
 ## Development
 
 ```sh

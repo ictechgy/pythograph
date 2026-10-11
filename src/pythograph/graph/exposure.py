@@ -338,8 +338,16 @@ def collect_program(project: Project, index: DefinitionIndex, resolver: Resolver
         모은 사실.
     """
     facts = ProgramFacts(library=detect_library(project), whole=whole)
-    if project.scan_capped or project.skipped_links or project.unencodable_names or index.unparsed:
-        facts.incomplete = "the scan is incomplete (unparsed files, skipped links, or the file limit)"
+    if (
+        project.scan_capped
+        or project.skipped_links
+        or project.unencodable_names
+        or project.scan_errors
+        or index.unparsed
+    ):
+        facts.incomplete = (
+            "the scan is incomplete (unreadable entries, unparsed files, skipped links, or the file limit)"
+        )
     names = _definition_names(index, whole)
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
         if whole or not is_test_path(definition.path):

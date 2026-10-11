@@ -13,6 +13,7 @@ import ast
 import os
 import stat
 from dataclasses import dataclass, field
+from itertools import islice
 from pathlib import Path, PurePosixPath
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
@@ -82,6 +83,7 @@ class Project:
     skipped_links: int = 0
     scan_capped: bool = False
     unencodable_names: int = 0
+    scan_errors: int = 0
 
     @classmethod
     def open(cls, root: Path) -> Project:
@@ -133,16 +135,26 @@ class Project:
         scanned = 0
         while pending:
             directory, depth = pending.pop()
+            remaining = MAX_SCANNED_ENTRIES - scanned
+            entries: list[os.DirEntry[str]] = []
             try:
-                entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+                with os.scandir(directory) as iterator:
+                    for entry in islice(iterator, remaining + 1):
+                        scanned += 1
+                        entries.append(entry)
             except OSError:
+                self.scan_errors += 1
                 continue
-            for entry in entries:
-                scanned += 1
-                if scanned > MAX_SCANNED_ENTRIES:
-                    self.scan_capped = True
-                    return found
-                self._visit(entry, depth, pending, found)
+            if scanned > MAX_SCANNED_ENTRIES:
+                # 파일시스템 열거 순서는 안정적이지 않다. 상한을 넘은 디렉터리는
+                # 임의의 접두사만 분석하지 않고 전부 제외해 부분 사실을 꾸미지 않는다.
+                self.scan_capped = True
+                return found
+            for entry in sorted(entries, key=lambda entry: entry.name):
+                try:
+                    self._visit(entry, depth, pending, found)
+                except OSError:
+                    self.scan_errors += 1
         return found
 
     def _visit(self, entry: os.DirEntry[str], depth: int, pending: list[tuple[Path, int]], found: list[str]) -> None:
@@ -212,10 +224,11 @@ class Project:
         Returns:
             내용(BOM 제거), 읽을 수 없으면 None.
         """
-        if not self.is_file(relative) or not _inside(self.root, relative):
+        if limit < 0 or not _inside(self.root, relative) or not self.is_file(relative):
             return None
         try:
-            data = (self.root / relative).read_bytes()[: limit + 1]
+            with (self.root / relative).open("rb") as source:
+                data = source.read(limit + 1)
         except OSError:
             return None
         if len(data) > limit:
@@ -257,10 +270,11 @@ class Project:
         Returns:
             파싱한 모듈 또는 실패.
         """
-        if not self.is_file(relative) or not _inside(self.root, relative):
+        if not _inside(self.root, relative) or not self.is_file(relative):
             return ReadFailure(relative, "unreadable or not a regular file")
         try:
-            data = (self.root / relative).read_bytes()[: MAX_SOURCE_BYTES + 1]
+            with (self.root / relative).open("rb") as source:
+                data = source.read(MAX_SOURCE_BYTES + 1)
         except OSError:
             return ReadFailure(relative, "unreadable file")
         if len(data) > MAX_SOURCE_BYTES:
