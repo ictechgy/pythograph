@@ -28,11 +28,12 @@ def test_reads_request_only_the_byte_budget(
     """실제 파일 스트림에 읽기 크기를 기록해 read-all 뒤 자르기가 되살아나지 않게 한다."""
     content = b"x = 123\n" + (b" " * 100 if oversized else b"")
     root = make_project({"app.py": content.decode()})
+    (root / "app.py").write_bytes(content)
     project = Project.open(root)
     monkeypatch.setattr(project_module, "MAX_SOURCE_BYTES", 8)
     sizes: list[int] = []
 
-    class GuardedReader(io.BytesIO):
+    class GuardedReader(io.BufferedReader):
         """상한보다 많은 바이트 요청은 테스트를 실패시킨다."""
 
         def read(self, size: int = -1) -> bytes:
@@ -41,15 +42,23 @@ def test_reads_request_only_the_byte_budget(
             assert 0 <= size <= 9
             return super().read(size)
 
-    source = GuardedReader(content)
-    monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: source)
+    sources: list[GuardedReader] = []
+    original = os.fdopen
+
+    def guarded_open(descriptor: int, mode: str) -> GuardedReader:
+        """실제 핸들을 보존해 신원 검사와 제한된 읽기를 함께 확인한다."""
+        source = GuardedReader(original(descriptor, mode))
+        sources.append(source)
+        return source
+
+    monkeypatch.setattr(project_module.os, "fdopen", guarded_open)
     if method == "module":
         result = project.module("app.py")
         assert isinstance(result, ReadFailure if oversized else SourceModule)
     else:
         assert project.read_text("app.py", limit=8) == (None if oversized else content.decode())
     assert sizes == [9]
-    assert source.closed
+    assert len(sources) == 1 and sources[0].closed
 
 
 def test_negative_text_budget_never_opens_a_file(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +70,7 @@ def test_negative_text_budget_never_opens_a_file(make_project: MakeProject, monk
         """검증에서 거부돼야 하는 경로다."""
         raise AssertionError("negative budget must not open a file")
 
-    monkeypatch.setattr(Path, "open", unexpected_open)
+    monkeypatch.setattr(project_module.os, "open", unexpected_open)
     assert project.read_text("app.py", limit=-2) is None
 
 
@@ -122,9 +131,10 @@ def test_unreadable_directory_is_reported_by_every_producer(
     root = make_project({"app.py": "def main(): pass\n", "private/hidden.py": ""})
     original = os.scandir
 
-    def scan(directory: Path) -> os.ScandirIterator[str]:
+    def scan(directory: int | Path) -> os.ScandirIterator[str]:
         """실제 권한에 의존하지 않고 해당 디렉터리의 읽기 실패를 주입한다."""
-        if Path(directory).name == "private":
+        info = os.fstat(directory) if isinstance(directory, int) else directory.stat()
+        if os.path.samestat(info, (root / "private").stat()):
             raise PermissionError("private error detail")
         return original(directory)
 
@@ -160,9 +170,10 @@ def test_unreadable_directory_prevents_closed_world_dispatch(
     assert any(edge.source == "app.py#store" and edge.evidence == "bound" for edge in complete.edges)
     original = os.scandir
 
-    def scan(directory: Path) -> os.ScandirIterator[str]:
+    def scan(directory: int | Path) -> os.ScandirIterator[str]:
         """숨은 모듈 하나가 읽히지 않는 조건을 만든다."""
-        if Path(directory).name == "private":
+        info = os.fstat(directory) if isinstance(directory, int) else directory.stat()
+        if os.path.samestat(info, (root / "private").stat()):
             raise PermissionError
         return original(directory)
 
