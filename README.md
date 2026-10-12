@@ -359,6 +359,13 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
+manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
+once. On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and source reads open each component
+without following links, and verify the opened file before reading. Other systems recheck components and file identity
+before reading, but those checks are not atomic. Analyze a stable project tree; this is not a filesystem snapshot or a
+sandbox against concurrent changes to the filesystem. The analyzed Python code is never imported or executed.
+
 ## Development
 
 ```sh

@@ -95,21 +95,22 @@ def _requirement_files(project: Project, root: str) -> list[str]:
     Returns:
         경로 목록.
     """
-    directory = project.root / root if root else project.root
     found: list[str] = []
     try:
-        entries = sorted(directory.iterdir())
+        with project.scan_directory(root) as iterator:
+            names = sorted(entry.name for entry in iterator)
     except OSError:
         return found
-    for entry in entries:
-        relative = PurePosixPath(root, entry.name).as_posix() if root else entry.name
-        if entry.name.startswith("requirements") and entry.name.endswith(".txt"):
+    for name in names:
+        relative = PurePosixPath(root, name).as_posix() if root else name
+        if name.startswith("requirements") and name.endswith(".txt"):
             found.append(relative)
-        elif entry.name == "requirements" and project.is_directory(relative):
+        elif name == "requirements" and project.is_directory(relative):
             try:
-                found.extend(
-                    f"{relative}/{child.name}" for child in sorted(entry.iterdir()) if child.name.endswith(".txt")
-                )
+                with project.scan_directory(relative) as iterator:
+                    found.extend(
+                        sorted(f"{relative}/{child.name}" for child in iterator if child.name.endswith(".txt"))
+                    )
             except OSError:
                 continue
     return found
