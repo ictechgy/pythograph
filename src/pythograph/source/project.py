@@ -413,7 +413,9 @@ class Project:
         relative_parts = name.replace(".", "/")
         for root in self.module_roots:
             base = f"{root}/{relative_parts}" if root else relative_parts
-            for candidate in (f"{base}.py", f"{base}/__init__.py"):
+            # 같은 검색 루트에서는 일반 패키지가 같은 이름의 .py 모듈보다 우선한다.
+            # __init__.py 없는 namespace 디렉터리는 기존 일반 모듈을 가리지 않는다.
+            for candidate in (f"{base}/__init__.py", f"{base}.py"):
                 if self.is_file(candidate):
                     return candidate
         return None
