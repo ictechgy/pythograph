@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from pythograph.source import project as project_module
+from pythograph.source import syntax
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
 from pythograph.source.symbols import (
@@ -22,7 +23,7 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
-from pythograph.source.syntax import MAX_AST_DEPTH, exceeds_depth
+from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, exceeds_depth
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
 
@@ -194,6 +195,34 @@ def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) 
     tree = ast.parse(edge)
     assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
     assert not exceeds_depth(ast.parse(""), 1)
+
+
+def test_chain_guard_counts_one_logical_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.10 파서 보호는 논리 줄 하나의 사슬 토큰만 세고, 사슬 문자 총수가 상한 이하면 토큰으로 나누지 않는다."""
+    many_lines = "x = a.b\n" * (MAX_CHAIN_TOKENS + 1)
+    one_line = "x = (\n" + "a.b +\n" * (MAX_CHAIN_TOKENS // 2 + 1) + "a)\n"
+    assert syntax._longest_chain(many_lines) == 1
+    assert syntax._longest_chain(one_line) > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain("x = '...'\n") == 3
+    assert syntax._longest_chain("x = (" + "a." * (MAX_CHAIN_TOKENS + 1)) > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain(many_lines + "y = (\n") == 1
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert not syntax.chain_too_long(one_line)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    assert syntax.chain_too_long(one_line) and not syntax.chain_too_long(many_lines)
+
+
+def test_chain_guard_rejects_before_parsing(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3.10에서는 사슬 토큰이 상한을 넘는 논리 줄이 있으면 파싱하지 않고 중첩 실패로 남긴다(얕은 목록도 포함)."""
+    root = make_project({"flat.py": "VALUE = [" + "a.b, " * (MAX_CHAIN_TOKENS + 1) + "]\n"})
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(Project.open(root).module("flat.py"), SourceModule)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    failure = Project.open(root).module("flat.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
 
 
 def test_test_path_rules() -> None:

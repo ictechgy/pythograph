@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from pythograph.source.syntax import exceeds_depth
+from pythograph.source.syntax import chain_too_long, exceeds_depth
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
@@ -280,7 +280,8 @@ class Project:
         """파일을 읽어 `ast`로 파싱한다. 어떤 실패도 예외로 새지 않게 이유로 바꾼다.
 
         구문 트리가 `MAX_AST_DEPTH`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
-        않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구).
+        않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구). 3.10은 긴 사슬을
+        파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 본다(`chain_too_long`).
 
         Args:
             relative: 프로젝트 상대 경로.
@@ -298,6 +299,8 @@ class Project:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
             return ReadFailure(relative, "file is not valid UTF-8")
+        if chain_too_long(text):
+            return ReadFailure(relative, "source nesting too deep to parse")
         try:
             tree = ast.parse(text, filename=PurePosixPath(relative).name)
         except (SyntaxError, ValueError):

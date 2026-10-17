@@ -10,6 +10,24 @@ RecursionError를 잡아 계속하지 않는 것은 그때까지 채운 메모(�
 from __future__ import annotations
 
 import ast
+import io
+import sys
+import tokenize
+
+#: 실행 중인 파서가 깊은 왼쪽 결합 사슬(`a + a + …`, `x.a.a…`, `f()()…`, `x[0][0]…`)에서 C 스택을 넘기는지다.
+#: 3.10의 `ast.parse`는 그런 트리를 파이썬 객체로 바꾸다 프로세스가 신호로 죽고(종료 코드 139), 3.11부터는
+#: RecursionError를 낸다.
+_PARSER_OVERFLOWS_ON_CHAINS = sys.version_info < (3, 11)
+
+#: 3.10에서 파싱 전에 허용하는 논리 줄 하나의 사슬 토큰(이항 연산자·`.`·`(`·`[`) 수다. 3.10.20 실측: 메서드 사슬
+#: 8만 개(트리 깊이 16만)·`+` 15만 항에서 죽고, 메서드 사슬 5만 개·다른 사슬 10만 항은 안전했다.
+MAX_CHAIN_TOKENS = 50_000
+
+#: 사슬을 잇는 연산자 토큰이다. `(`·`[`는 호출·첨자일 때만 잇지만 넉넉히 센다(상한 판정에서 더 세는 쪽은 안전하다).
+_CHAIN_OPERATORS = frozenset({"+", "-", "*", "/", "//", "%", "@", "**", "<<", ">>", "&", "|", "^", ".", "(", "["})
+
+#: 사슬 연산자 토큰마다 적어도 하나씩 든 문자다. 이 문자의 총수가 상한 이하면 어느 줄도 상한을 넘을 수 없다.
+_CHAIN_MARKS = "+-*/%@<>&|^.(["
 
 #: 분석하는 구문 트리의 최대 중첩 깊이다. 모듈 노드를 1로 세고 문맥·연산자 잎 노드도 센다.
 #:
@@ -52,3 +70,49 @@ def exceeds_depth(tree: ast.AST, limit: int = MAX_AST_DEPTH) -> bool:
             return False
         level = following
     return True
+
+
+def chain_too_long(text: str) -> bool:
+    """실행 중인 파서가 C 스택을 넘길 만큼 긴 사슬이 한 논리 줄에 있는지 본다(3.10만 해당).
+
+    파싱 전에 걸러야 하는 이유: 3.10은 파싱 도중 프로세스가 죽어 잡을 예외가 없다. 걸러진 소스는 파서가 거부한 깊은
+    소스와 같은 실패로 남긴다. 상한을 넘는 얕은 줄(사슬 토큰이 아주 많은 한 줄짜리 목록)도 3.10에서는 함께 걸러진다.
+
+    Args:
+        text: 파싱할 소스.
+
+    Returns:
+        파싱하면 안 되면 True. 3.11 이상은 파서가 스스로 RecursionError를 내므로 늘 False다.
+    """
+    return _PARSER_OVERFLOWS_ON_CHAINS and _longest_chain(text) > MAX_CHAIN_TOKENS
+
+
+def _longest_chain(text: str) -> int:
+    """논리 줄 하나에 든 사슬 토큰 수의 최댓값을 재귀 없이 선형 시간에 센다.
+
+    사슬 문자의 총수가 상한 이하면 토큰으로 나누지 않고 그 수를 돌려준다(어느 줄도 그보다 많을 수 없다). 상한을 넘는
+    줄을 만나면 바로 멈춘다.
+
+    Args:
+        text: 소스.
+
+    Returns:
+        가장 긴 논리 줄의 사슬 토큰 수(총수가 상한 이하면 사슬 문자 총수).
+    """
+    marks = sum(text.count(mark) for mark in _CHAIN_MARKS)
+    if marks <= MAX_CHAIN_TOKENS:
+        return marks
+    longest = count = 0
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.NEWLINE:
+                count = 0
+            elif token.type == tokenize.OP and token.string in _CHAIN_OPERATORS:
+                count += 1
+                longest = max(longest, count)
+                if longest > MAX_CHAIN_TOKENS:
+                    return longest
+    except (tokenize.TokenError, SyntaxError):
+        # 토큰으로 나눌 수 없는 소스는 파서도 문법 오류로 거부해 트리를 만들지 않으므로 센 데까지만 본다.
+        return longest
+    return longest

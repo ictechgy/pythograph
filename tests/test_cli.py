@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -211,6 +213,23 @@ def test_deep_modules_do_not_abort_commands(make_project: Callable[[dict[str, st
     else:
         assert "could not be analyzed: source nesting too deep to parse" in text
         assert document["facts"]
+
+
+def test_long_chains_do_not_crash_the_parser(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """파서가 C 스택을 넘길 만큼 긴 사슬도 프로세스를 죽이지 않고 파싱 실패 한계가 된다.
+
+    3.10의 `ast.parse`는 20만 항 `+` 사슬에서 세그폴트해 종료 코드가 계약에 없는 139였다. 별도 프로세스로 실행한다.
+    """
+    root = make_project({"pkg/__init__.py": "", "pkg/table.py": "VALUE = " + "+".join(["1"] * 200_000) + "\n"})
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", "graph", "--project", str(root), "--revision", "x"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["statistics"]["unparsedFiles"] == 1
 
 
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:
