@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -352,6 +354,155 @@ def _raise_os_error(*_arguments: object, **_keywords: object) -> object:
         OSError: 항상.
     """
     raise OSError("git missing")
+
+
+#: 심은 가짜 git이 실행되면 프로젝트 옆에 만드는 표식 파일 이름이다.
+FAKE_GIT_MARKER = "fake-git-ran"
+
+
+def _plant_fake_git(directory: Path, marker: Path) -> None:
+    """실행되면 표식 파일을 만들고 실패하는 가짜 `git`을 둔다.
+
+    Args:
+        directory: 가짜 git을 둘 디렉터리.
+        marker: 실행되면 만들 표식 파일.
+    """
+    fake = directory / "git"
+    fake.write_text(f'#!/bin/sh\n: > "{marker}"\nexit 1\n', encoding="utf-8")
+    fake.chmod(0o755)
+
+
+@pytest.fixture
+def planted_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """루트에 가짜 git을 심은 커밋 하나짜리 git 프로젝트다(`.gitignore`가 가려 작업 트리는 깨끗하다).
+
+    Args:
+        make_project: 합성 프로젝트 도우미.
+
+    Returns:
+        프로젝트 경로. 표식 파일은 그 부모 디렉터리의 `FAKE_GIT_MARKER`다.
+    """
+    root = make_project({"app.py": "def f():\n    return 1\n", ".gitignore": "/git\n/git.exe\n"})
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "init")
+    _plant_fake_git(root, root.parent / FAKE_GIT_MARKER)
+    return root
+
+
+def _head(root: Path) -> str:
+    """테스트 저장소의 HEAD 커밋 id다(PATH를 바꾸기 전에 부른다).
+
+    Args:
+        root: 저장소.
+
+    Returns:
+        커밋 id.
+    """
+    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True)
+    return completed.stdout.strip()
+
+
+def _trusted_git_directory() -> str:
+    """테스트 환경의 진짜 git이 있는 디렉터리다(PATH를 바꾸기 전에 부른다).
+
+    Returns:
+        디렉터리 절대 경로.
+    """
+    found = shutil.which("git")
+    assert found is not None, "these tests need git on PATH"
+    return os.path.dirname(os.path.abspath(found))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+@pytest.mark.parametrize("first_entry", ["", ".", "<project>"])
+def test_revision_ignores_git_planted_in_project(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch, first_entry: str
+) -> None:
+    """빈·상대 PATH 항목이나 프로젝트를 가리키는 항목이 앞서도 프로젝트의 git은 실행하지 않는다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    entry = str(planted_project) if first_entry == "<project>" else first_entry
+    monkeypatch.setenv("PATH", os.pathsep.join([entry, trusted]))
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트이고 심볼릭 링크를 쓴다.")
+def test_revision_ignores_git_in_current_directory_or_linked_into_project(
+    planted_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """현재 디렉터리에 바로 있는 git과 프로젝트 안을 가리키는 링크는 절대 경로 PATH 항목에 있어도 건너뛴다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    current, linked = tmp_path / "current", tmp_path / "linked"
+    current.mkdir()
+    linked.mkdir()
+    _plant_fake_git(current, tmp_path / FAKE_GIT_MARKER)
+    (linked / "git").symlink_to(planted_project / "git")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(current), str(linked), trusted]))
+    monkeypatch.chdir(current)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (tmp_path / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="실행 권한 비트는 POSIX에만 있다.")
+def test_revision_skips_git_candidates_that_cannot_run(
+    git_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """없는 디렉터리, `git`이라는 디렉터리, 실행 권한 없는 파일은 건너뛰고 다음 PATH 항목의 git을 쓴다."""
+    head, trusted = _head(git_project), _trusted_git_directory()
+    folder, plain = tmp_path / "folder", tmp_path / "plain"
+    (folder / "git").mkdir(parents=True)
+    plain.mkdir()
+    (plain / "git").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path / "missing"), str(folder), str(plain), trusted]))
+    assert revision_module.git_revision(git_project) == head
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+def test_revision_is_omitted_without_trusted_git(planted_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """믿을 수 있는 git이 없거나 현재 디렉터리를 확인하지 못하면 아무것도 실행하지 않고 revision을 생략한다."""
+    trusted = _trusted_git_directory()
+    monkeypatch.chdir(planted_project)
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", str(planted_project)]))
+    assert revision_module.git_revision(planted_project) is None
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+    monkeypatch.setenv("PATH", trusted)
+    monkeypatch.setattr(revision_module.os, "getcwd", _raise_file_not_found)
+    assert revision_module.git_revision(planted_project) is None
+
+
+def _raise_file_not_found() -> str:
+    """지워진 현재 디렉터리를 흉내 낸다.
+
+    Raises:
+        FileNotFoundError: 항상.
+    """
+    raise FileNotFoundError("current directory removed")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+def test_revision_searches_default_path_without_path_variable(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PATH가 없으면 subprocess처럼 `os.defpath`에서 찾되, 그 안의 상대 항목도 건너뛴다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    monkeypatch.delenv("PATH")
+    monkeypatch.setattr(os, "defpath", os.pathsep.join([".", trusted]))
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CreateProcess의 현재 디렉터리 탐색을 본다.")
+def test_revision_ignores_git_exe_in_current_directory_on_windows(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows에서 현재 디렉터리(프로젝트 루트)의 git.exe를 PATH의 git보다 먼저 실행하지 않는다."""
+    head = _head(planted_project)
+    (planted_project / "git.exe").write_bytes(b"not a program")
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
 
 
 def test_parse_command_line_separator() -> None:

@@ -262,6 +262,8 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
 - `--roots-from <file|->`: JSON 문자열 배열 또는 bridge-facts 문서(사실의 `symbol.usr`), `-`는 표준 입력, 16 MiB까지.
 - `revision`: `--revision`, 없으면 프로젝트 루트 git의 HEAD — 작업 트리가 깨끗할 때만(추적하지 않는 파일도 더럽다). git은 프로젝트
   루트에 `.git`이 있을 때만 `GIT_OPTIONAL_LOCKS=0`·`core.fsmonitor=false`로 60초 제한을 두고 실행한다(isthmus capture와 같은 설정).
+  git 실행 파일은 `PATH`의 절대 경로 항목에서만 찾아(빈·상대 항목은 건너뛴다, Windows는 `git.exe`만) 그 절대 경로로 실행하고,
+  실제 위치가 프로젝트 안이거나 현재 디렉터리에 바로 있는 것은 쓰지 않는다. 찾지 못하면 revision을 싣지 않는다.
   분석 대상 코드는 실행하지 않는다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
