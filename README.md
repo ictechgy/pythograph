@@ -365,7 +365,10 @@ recursion limit and abort the whole command. They are reported like files that f
 graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
 deep to parse". Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely
 long chains instead of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary
-operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list.
+operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list. String
+annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
+that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
+annotation.
 
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path

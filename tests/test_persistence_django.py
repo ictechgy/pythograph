@@ -440,6 +440,24 @@ DATABASES = {"default": environ.db()}
     assert any(item.startswith("django-database-backend-unknown:") for item in limitations)
 
 
+def test_unparseable_parameter_annotations_are_not_models(make_project: MakeProject) -> None:
+    """파싱할 수 없거나 너무 깊은 매개변수 문자열 주석(NUL·5만 항)은 모델로 보지 않고 schema는 성공한다.
+
+    문자열 주석 파싱이 SyntaxError만 잡아 3.10은 NUL 주석의 ValueError로, 3.11 이상은 5만 항 주석의
+    RecursionError로 schema 전체가 내부 오류(종료 2)였다.
+    """
+    wide = " + ".join(["Author"] * 50_000)
+    views = (
+        "from app.models import Author\n\n\n"
+        'def rename(item: "Author\\x00"):\n    item.save()\n\n\n'
+        f'def widen(item: "{wide}"):\n    item.save()\n\n\n'
+        'def keep(item: "Author"):\n    item.save()\n'
+    )
+    usrs = {row[3] for row in relation_rows(schema_document(_project(make_project, views))) if row[0] == "app_author"}
+    assert "app/views.py#keep" in usrs
+    assert not {"app/views.py#rename", "app/views.py#widen"} & usrs
+
+
 def test_deep_settings_module_is_an_unreadable_source(make_project: MakeProject) -> None:
     """`INSTALLED_APPS`를 너무 깊게 이은 설정 모듈은 읽지 못한 소스 한계가 되고 schema는 성공한다.
 

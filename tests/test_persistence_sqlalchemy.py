@@ -113,6 +113,28 @@ def test_declarations_schemas_and_foreign_keys(make_project: MakeProject) -> Non
     } <= rows
 
 
+def test_unparseable_string_annotations_are_not_columns(make_project: MakeProject) -> None:
+    """파싱할 수 없거나 너무 깊은 문자열 주석(NUL·5만 항)은 컬럼으로 보지 않고 schema는 성공한다.
+
+    문자열 주석 파싱이 SyntaxError만 잡아 3.10은 NUL 주석의 ValueError로, 모든 버전은 5만 항 주석의
+    RecursionError로 schema 전체가 내부 오류(종료 2)였다.
+    """
+    wide = " + ".join(["str"] * 50_000)
+    models = (
+        "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\n"
+        "class Base(DeclarativeBase):\n    pass\n\n\n"
+        "class Item(Base):\n"
+        '    __tablename__ = "items"\n'
+        "    id: Mapped[int] = mapped_column(primary_key=True)\n"
+        '    note: "Mapped[str]\\x00"\n'
+        f'    wide: "Mapped[{wide}]"\n'
+        '    title: "Mapped[str]"\n'
+    )
+    rows = {row[:3] for row in relation_rows(schema_document(_project(make_project, "x = 1\n", models=models)))}
+    assert ("items", "title", False) in rows
+    assert not {("items", "note", False), ("items", "wide", False)} & rows
+
+
 def test_statement_entities_columns_and_joins(make_project: MakeProject) -> None:
     """엔터티 자리·컬럼 속성·관계 조인·filter_by·생성자·Core 테이블 사용을 읽는다."""
     document = schema_document(

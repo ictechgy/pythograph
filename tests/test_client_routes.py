@@ -896,3 +896,19 @@ def test_urljoin_absolute_keeps_dot_segments(make_project: MakeProject) -> None:
         }
     )
     assert rows(client_document(root))["call"] == ("GET", "/a/../b", "root", "h.example.com")
+
+
+def test_deep_string_annotations_are_unknown_receivers(make_project: MakeProject) -> None:
+    """파싱은 되지만 너무 깊은 문자열 주석(600항 `X | None`)의 매개변수는 클라이언트 타입을 모르는 수신자다.
+
+    파싱한 주석을 재귀로 풀다 RecursionError로 `routes --role client` 전체가 내부 오류(종료 2)로 끝나던 회귀다.
+    """
+    calls = (
+        "import requests\n\n\n"
+        'def typed(session: "requests.Session"):\n    return session.get("https://example.com/typed")\n\n\n'
+        'def deep(session: "requests.Session' + " | None" * 600 + '"):\n'
+        '    return session.get("https://example.com/deep")\n'
+    )
+    summary = rows(client_document(make_project({"app/__init__.py": "", "app/calls.py": calls})))
+    assert summary["typed"][:2] == ("GET", "/typed")
+    assert "deep" not in summary

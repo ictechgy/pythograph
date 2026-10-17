@@ -26,6 +26,7 @@ from pythograph.persistence.names import FSA_NAMING
 from pythograph.source.evaluate import Evaluator
 from pythograph.source.project import SourceModule
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable, ValueSymbol
+from pythograph.source.syntax import parse_annotation
 
 #: 상속 사슬을 따라가는 최대 깊이다.
 MAX_CLASS_DEPTH = 32
@@ -672,12 +673,9 @@ class SqlAlchemyCatalog:
         Returns:
             컬럼이면 True.
         """
-        annotation = statement.annotation
+        annotation: ast.expr | None = statement.annotation
         if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-            try:
-                annotation = ast.parse(annotation.value, mode="eval").body
-            except SyntaxError:
-                return False
+            annotation = parse_annotation(annotation.value)
         if not isinstance(annotation, ast.Subscript):
             return False
         head = (

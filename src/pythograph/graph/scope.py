@@ -49,6 +49,7 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
+from pythograph.source.syntax import parse_annotation
 
 #: 값을 따라가는 최대 깊이다(순환·과도한 재귀 방지).
 MAX_VALUE_DEPTH = 32
@@ -311,15 +312,11 @@ class Resolver:
             constant: 문자열 상수 노드.
 
         Returns:
-            파싱한 식, 문법 오류면 None.
+            파싱한 식, 파싱할 수 없거나 너무 깊으면 None(`parse_annotation`).
         """
         cached = self._annotations.get(id(constant))
         if cached is None:
-            try:
-                parsed: ast.expr | None = ast.parse(str(constant.value), mode="eval").body
-            except (SyntaxError, ValueError, RecursionError, MemoryError):
-                parsed = None
-            cached = (constant, parsed)
+            cached = (constant, parse_annotation(str(constant.value)))
             self._annotations[id(constant)] = cached
         return cached[1]
 

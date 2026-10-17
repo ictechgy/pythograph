@@ -147,6 +147,24 @@ def test_modules_at_the_nesting_limit_are_analyzed(make_project: Callable[[dict[
             assert "pkg/function.py#helper" in reached_ids(document)
 
 
+def test_deep_string_annotations_are_unknown_parameters(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """파싱은 되지만 너무 깊은 문자열 주석(600항 `X | None`)은 모르는 매개변수로 보고 명령은 성공한다.
+
+    파싱한 주석을 재귀로 풀다 RecursionError로 graph 전체가 내부 오류(종료 2)로 끝나던 회귀다.
+    """
+    use = (
+        "class Client:\n    def ping(self):\n        return 1\n\n\n"
+        'def typed(item: "Client"):\n    return item.ping()\n\n\n'
+        'def deep(item: "Client' + " | None" * 600 + '"):\n    return item.ping()\n'
+    )
+    root = make_project({"pkg/__init__.py": "", "pkg/use.py": use})
+    code, out, err = run_cli(["graph", "--project", str(root), *COMMON])
+    assert code == 0, err
+    edges = {(edge["from"], edge["to"]) for edge in json.loads(out)["edges"]}
+    assert ("pkg/use.py#typed", "pkg/use.py#Client.ping") in edges
+    assert ("pkg/use.py#deep", "pkg/use.py#Client.ping") not in edges
+
+
 def test_graph_snapshot_shape() -> None:
     """스냅샷은 형식·정점·간선·집계·한계·graphRevision을 싣는다."""
     code, out, _ = run_cli(["graph", "--project", RESOLUTION, *COMMON])

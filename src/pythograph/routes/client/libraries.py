@@ -31,6 +31,7 @@ from pythograph.routes.client.compose import (
 )
 from pythograph.routes.client.parts import PartBuilder, attribute_assignments
 from pythograph.source.symbols import ValueSymbol
+from pythograph.source.syntax import parse_annotation
 
 #: 동사 함수·메서드 이름 → 동사다(세 라이브러리 공통, `trace`는 어느 라이브러리에도 없다).
 VERB_NAMES = {
@@ -473,11 +474,8 @@ def _annotation_target(annotation: ast.expr) -> ast.expr | None:
         클래스 식 또는 None.
     """
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-        try:
-            parsed = ast.parse(annotation.value, mode="eval").body
-        except (SyntaxError, ValueError, RecursionError, MemoryError):
-            return None
-        return _annotation_target(parsed)
+        parsed = parse_annotation(annotation.value)
+        return None if parsed is None else _annotation_target(parsed)
     if isinstance(annotation, (ast.Name, ast.Attribute)):
         return annotation
     if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):

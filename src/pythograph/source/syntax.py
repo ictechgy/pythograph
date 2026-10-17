@@ -72,6 +72,28 @@ def exceeds_depth(tree: ast.AST, limit: int = MAX_AST_DEPTH) -> bool:
     return True
 
 
+def parse_annotation(text: str) -> ast.expr | None:
+    """문자열 주석(전방 참조)을 식으로 파싱한다. 모듈과 같은 상한을 지킨다.
+
+    graph·client·schema가 함께 쓴다. 문법 오류뿐 아니라 NUL(3.10은 ValueError), 파서의 깊이 한도(RecursionError·
+    MemoryError), 상한보다 깊은 식, 3.10에서 프로세스를 죽이는 긴 사슬도 모두 "모르는 주석"으로 돌려 호출자가 그
+    주석만 무시하게 한다. 파싱한 주석은 호출자가 재귀로 풀기 때문에 깊이 상한이 필요하다.
+
+    Args:
+        text: 주석 문자열.
+
+    Returns:
+        식, 파싱할 수 없거나 상한을 넘으면 None.
+    """
+    if chain_too_long(text):
+        return None
+    try:
+        tree = ast.parse(text, mode="eval")
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+    return None if exceeds_depth(tree) else tree.body
+
+
 def chain_too_long(text: str) -> bool:
     """실행 중인 파서가 C 스택을 넘길 만큼 긴 사슬이 한 논리 줄에 있는지 본다(3.10만 해당).
 

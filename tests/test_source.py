@@ -23,7 +23,7 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
-from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, exceeds_depth
+from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, exceeds_depth, parse_annotation
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
 
@@ -223,6 +223,21 @@ def test_chain_guard_rejects_before_parsing(
     failure = Project.open(root).module("flat.py")
     assert isinstance(failure, ReadFailure)
     assert failure.reason == "source nesting too deep to parse"
+
+
+def test_parse_annotation_turns_every_failure_into_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """문자열 주석 파싱은 문법 오류·NUL(3.10은 ValueError)·너무 깊은 식·3.10 긴 사슬을 모두 None으로 돌린다."""
+    assert isinstance(parse_annotation("Mapped[str]"), ast.Subscript)
+    assert isinstance(parse_annotation("Client" + " | None" * 10), ast.BinOp)
+    assert parse_annotation("Mapped[str]\x00") is None
+    assert parse_annotation("Mapped[") is None
+    assert parse_annotation(" + ".join(["str"] * 50_000)) is None
+    assert parse_annotation("Client" + " | None" * 600) is None
+    flat = "Literal[" + "a.b, " * (MAX_CHAIN_TOKENS + 1) + "]"
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(parse_annotation(flat), ast.Subscript)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    assert parse_annotation(flat) is None
 
 
 def test_test_path_rules() -> None:
