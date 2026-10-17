@@ -16,7 +16,8 @@ from pythograph.cli import graph_commands
 from pythograph.cli.main import main
 from pythograph.graph import revision as revision_module
 from pythograph.graph.roots import RootsError, collect_roots, parse_roots_text
-from tests.conftest import FIXTURES, GENERATED_AT, run_cli
+from pythograph.source.syntax import MAX_AST_DEPTH
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, run_cli, tree_depth
 
 #: 해석 fixture다.
 RESOLUTION = str(FIXTURES / "graph" / "resolution")
@@ -98,6 +99,52 @@ def test_unreadable_project_exits_2(tmp_path: Path) -> None:
     """디렉터리가 아닌 project는 2다."""
     assert run_cli(["graph", "--project", str(tmp_path / "missing")])[0] == 2
     assert run_cli(["reach", "--project", str(tmp_path / "missing"), "a#b"])[0] == 2
+
+
+def test_deep_modules_are_unparsed_and_the_rest_is_analyzed(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """깊은 식이 있는 모듈은 unparsed-files 한계로 남고, 다른 모듈의 정점·간선과 순회는 그대로다.
+
+    파일 하나의 깊은 식 때문에 graph·reach·impact가 내부 오류(종료 2)와 빈 출력으로 끝나던 회귀다.
+    """
+    files = {"pkg/__init__.py": "", "pkg/app.py": "def helper():\n    return 1\n\n\ndef main():\n    return helper()\n"}
+    root = make_project({**files, **{f"pkg/{name}": text for name, text in DEEP_SOURCES.items()}})
+    code, out, err = run_cli(["graph", "--project", str(root), *COMMON])
+    assert code == 0, err
+    document = json.loads(out)
+    assert document["statistics"]["unparsedFiles"] == len(DEEP_SOURCES)
+    assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
+    assert any(line.startswith(f"unparsed-files: {len(DEEP_SOURCES)} ") for line in document["limitations"])
+    ids = {node["id"] for node in document["nodes"]}
+    assert {"pkg/app.py#main", "pkg/app.py#helper"} <= ids
+    assert not any(identifier.startswith(tuple(f"pkg/{name}" for name in DEEP_SOURCES)) for identifier in ids)
+    assert any(edge["from"] == "pkg/app.py#main" and edge["to"] == "pkg/app.py#helper" for edge in document["edges"])
+    for command, root_id, expected in (
+        ("reach", "pkg/app.py#main", "pkg/app.py#helper"),
+        ("impact", "pkg/app.py#helper", "pkg/app.py#main"),
+    ):
+        code, out, err = run_cli([command, "--project", str(root), *COMMON, root_id])
+        assert code == 0, err
+        assert expected in reached_ids(json.loads(out))
+
+
+def test_modules_at_the_nesting_limit_are_analyzed(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상한 깊이의 모듈은 그대로 정점·간선이 된다(방문 중 binding 수집이 겹쳐 프레임을 가장 많이 쓰는 모양)."""
+    chained = "import builder\n\ndata = builder.start()\nVALUE = data" + "[0]" * (MAX_AST_DEPTH - 4) + "\n"
+    function = (
+        "def pick(data):\n    return helper(data)" + "[0]" * (MAX_AST_DEPTH - 6) + "\n\n\n"
+        "def helper(data):\n    return data\n"
+    )
+    assert tree_depth(chained) == tree_depth(function) == MAX_AST_DEPTH
+    root = make_project({"pkg/__init__.py": "", "pkg/chained.py": chained, "pkg/function.py": function})
+    for command in (["graph"], ["reach", "--dispatch", "bound", "pkg/function.py#pick"]):
+        code, out, err = run_cli([command[0], "--project", str(root), *COMMON, *command[1:]])
+        assert code == 0, err
+        document = json.loads(out)
+        if command[0] == "graph":
+            assert document["statistics"]["unparsedFiles"] == 0
+            assert {"pkg/chained.py#<module>", "pkg/function.py#pick"} <= {node["id"] for node in document["nodes"]}
+        else:
+            assert "pkg/function.py#helper" in reached_ids(document)
 
 
 def test_graph_snapshot_shape() -> None:

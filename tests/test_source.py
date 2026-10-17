@@ -22,7 +22,8 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
-from tests.conftest import REPOSITORY
+from pythograph.source.syntax import MAX_AST_DEPTH, exceeds_depth
+from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
 
 def _expr(source: str) -> ast.expr:
@@ -166,6 +167,33 @@ def test_read_failures_and_limits(
     assert capped.scan_capped and "a/b/c.py" not in capped.python_files()
     monkeypatch.setattr(project_module, "MAX_SCANNED_ENTRIES", 1)
     assert Project.open(root).scan_capped
+
+
+def test_deeply_nested_modules_are_read_failures(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """구문 트리가 너무 깊은 모듈은 분석하지 않고 읽지 못한 소스(중첩 이유)로 돌린다.
+
+    파싱은 되지만 재귀 방문자가 파이썬 재귀 한도를 넘겨 명령 전체가 내부 오류로 끝나던 모양이다.
+    """
+    root = make_project({"ok.py": "VALUE = 1 + 2\n", **{f"pkg/{name}": text for name, text in DEEP_SOURCES.items()}})
+    project = Project.open(root)
+    for name in DEEP_SOURCES:
+        failure = project.module(f"pkg/{name}")
+        assert isinstance(failure, ReadFailure), name
+        assert failure.reason == "source nesting too deep to parse"
+    assert isinstance(project.module("ok.py"), SourceModule)
+
+
+def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상한 깊이의 모듈은 그대로 파싱하고, 한 단계 더 깊으면 읽지 못한 소스다."""
+    edge = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 2)) + "\n"
+    over = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 1)) + "\n"
+    assert (tree_depth(edge), tree_depth(over)) == (MAX_AST_DEPTH, MAX_AST_DEPTH + 1)
+    project = Project.open(make_project({"edge.py": edge, "over.py": over}))
+    assert isinstance(project.module("edge.py"), SourceModule)
+    assert isinstance(project.module("over.py"), ReadFailure)
+    tree = ast.parse(edge)
+    assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
+    assert not exceeds_depth(ast.parse(""), 1)
 
 
 def test_test_path_rules() -> None:

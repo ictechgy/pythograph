@@ -440,6 +440,25 @@ DATABASES = {"default": environ.db()}
     assert any(item.startswith("django-database-backend-unknown:") for item in limitations)
 
 
+def test_deep_settings_module_is_an_unreadable_source(make_project: MakeProject) -> None:
+    """`INSTALLED_APPS`를 너무 깊게 이은 설정 모듈은 읽지 못한 소스 한계가 되고 schema는 성공한다.
+
+    `INSTALLED_APPS = [...] + [] + …` 1000항이 설정 해석 재귀를 넘겨 schema 전체가 내부 오류로 끝나던 회귀다.
+    설정을 읽지 못했으므로 앱 라벨을 확정하지 않는다(테이블 이름은 dynamic).
+    """
+    settings = 'INSTALLED_APPS = ["app"] + ' + " + ".join(["[]"] * 1000) + "\n"
+    root = _project(make_project, "x = 1\n", settings=settings)
+    expected = "unreadable-sources: 1 Python files could not be analyzed: source nesting too deep to parse"
+    for extra in ((), ("--settings", "proj.settings")):
+        document = schema_document(root, *extra)
+        limitations = document["limitations"]
+        assert isinstance(limitations, list)
+        assert expected in limitations
+        rows = {row[:3] for row in relation_rows(document)}
+        assert ("Author", None, True) in rows
+        assert not any(str(row[0]).startswith("app_") for row in rows)
+
+
 def test_backends_from_multiple_databases(make_project: MakeProject) -> None:
     """여러 데이터베이스의 백엔드가 모두 같은 이름만 정적이다."""
     models = """

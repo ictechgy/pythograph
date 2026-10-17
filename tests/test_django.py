@@ -485,6 +485,33 @@ def test_i18n_force_script_name_and_converters(make_project: Callable[[dict[str,
     assert any("INSTALLED_APPS" in text for text in limitations)  # type: ignore[union-attr]
 
 
+def test_deep_urlconf_module_is_a_coverage_gap(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """패턴 목록을 너무 깊게 이은 URLconf 모듈은 읽지 못한 소스 한계가 되고 다른 패턴은 그대로 낸다.
+
+    `urlpatterns = [...] + [] + …` 1000항이 URLconf 해석 재귀를 넘겨 명령 전체가 내부 오류로 끝나던 회귀다.
+    """
+    chain = " + ".join(["[]"] * 1000)
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": (
+                "from django.urls import include, path\nfrom site_pkg import views\n"
+                "urlpatterns = [path('a/', views.a), path('deep/', include('site_pkg.deep_urls'))]\n"
+            ),
+            "site_pkg/deep_urls.py": (
+                "from django.urls import path\nfrom site_pkg import views\n"
+                f"urlpatterns = [path('x/', views.a)] + {chain}\n"
+            ),
+            "site_pkg/views.py": "def a(request):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("ANY", "/a/", False, "site_pkg/views.py#a")}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert "route-coverage: 1 Python files could not be analyzed: source nesting too deep to parse" in limitations
+
+
 def test_include_tests_marks_test_sources(make_project: Callable[[dict[str, str]], Path]) -> None:
     """테스트 경로의 URLconf 선언은 기본 제외, `--include-tests`면 testSource로 낸다."""
     root = _project(

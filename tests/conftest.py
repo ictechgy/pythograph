@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import textwrap
@@ -20,6 +21,34 @@ FIXTURES = REPOSITORY / "fixtures"
 
 #: 결정적 출력을 위한 고정 시각이다.
 GENERATED_AT = "2026-01-01T00:00:00.000Z"
+
+#: 파싱은 되지만 구문 트리가 깊어 재귀 분석기가 파이썬 재귀 한도를 넘기던 모양별 모듈 소스다(파일 이름 → 내용).
+#: 긴 `+` 사슬, 함수 안 메서드·첨자 사슬, 긴 elif 분기다.
+DEEP_SOURCES = {
+    "plus.py": "VALUE = " + " + ".join(["1"] * 500) + "\n",
+    "method.py": "def build(query):\n    return query" + ".filter(1)" * 150 + "\n",
+    "subscript.py": "def pick(data):\n    return data" + "[0]" * 250 + "\n",
+    "elifs.py": "def dispatch(code):\n    if code == 0:\n        return 0\n"
+    + "".join(f"    elif code == {index}:\n        return {index}\n" for index in range(1, 500)),
+}
+
+
+def tree_depth(source: str) -> int:
+    """구문 트리 최대 깊이를 명시적 스택으로 잰다(모듈 노드가 1, 문맥·연산자 잎 노드 포함).
+
+    Args:
+        source: 모듈 소스.
+
+    Returns:
+        깊이.
+    """
+    deepest = 0
+    pending: list[tuple[ast.AST, int]] = [(ast.parse(source), 1)]
+    while pending:
+        node, depth = pending.pop()
+        deepest = max(deepest, depth)
+        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    return deepest
 
 
 def run_cli(arguments: list[str]) -> tuple[int, str, str]:

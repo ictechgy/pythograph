@@ -170,7 +170,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `missing-relation-usrs:` | symbol이 없는(모듈 수준) 사실 수 |
 | `unsupported-db-packages:`, `non-relational-stores:` | 해석하지 않는 ORM·저장소를 import한 파일 수 |
 | `skipped-migration-sources:`, `test-sources-excluded:` | 읽지 않은 마이그레이션·테스트 파일 수 |
-| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패·심볼릭 링크·순회 상한 |
+| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 128단 초과 포함)·심볼릭 링크·순회 상한 |
 
 ## 명명 벡터
 

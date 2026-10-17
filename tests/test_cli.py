@@ -11,7 +11,7 @@ import pytest
 
 import pythograph
 from pythograph.cli import main as cli
-from tests.conftest import FIXTURES, GENERATED_AT, REPOSITORY, routes_document, run_cli
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, routes_document, run_cli
 
 #: Django fixture 경로다.
 DJANGO = str(FIXTURES / "django" / "drf-shop")
@@ -152,6 +152,65 @@ def test_generated_at_defaults_to_now() -> None:
     """--generated-at이 없으면 현재 시각(밀리초 세 자리 UTC)을 쓴다."""
     document = json.loads(run_cli(["routes", "--role", "server", "--project", DJANGO])[1])
     assert len(document["generatedAt"]) == len(GENERATED_AT) and document["generatedAt"].endswith("Z")
+
+
+def _deep_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """정상 Django·클라이언트 모듈 곁에 구문 트리가 너무 깊은 모듈들을 둔 합성 프로젝트를 만든다.
+
+    Args:
+        make_project: 프로젝트 생성 함수.
+
+    Returns:
+        프로젝트 루트.
+    """
+    return make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n',
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n"
+            ),
+            "shop/calls.py": (
+                "import requests\n\n\ndef fetch(base):\n    return requests.get(base" + "[0]" * 250 + ")\n"
+            ),
+            **{f"shop/{name}": text for name, text in DEEP_SOURCES.items()},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["graph"],
+        ["reach", "shop/views.py#index"],
+        ["impact", "shop/views.py#index"],
+        ["routes", "--role", "server"],
+        ["routes", "--role", "client"],
+        ["schema"],
+    ],
+)
+def test_deep_modules_do_not_abort_commands(make_project: Callable[[dict[str, str]], Path], command: list[str]) -> None:
+    """구문 트리가 너무 깊은 모듈이 있어도 모든 명령이 0이고, 그 모듈은 한계로 남으며 나머지 사실은 그대로다."""
+    root = _deep_project(make_project)
+    code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
+    assert code == 0, err
+    document = json.loads(out)
+    text = json.dumps(document["limitations"])
+    if command[0] in ("graph", "reach", "impact"):
+        assert "unparsed-files: " in text
+    elif command[-1] == "server":
+        assert [fact["channel"] for fact in document["facts"]] == ["/ok/"]
+    else:
+        assert "could not be analyzed: source nesting too deep to parse" in text
+        assert document["facts"]
 
 
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:

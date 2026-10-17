@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from pythograph.source.syntax import exceeds_depth
+
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
@@ -277,6 +279,9 @@ class Project:
     def _parse(self, relative: str) -> SourceModule | ReadFailure:
         """파일을 읽어 `ast`로 파싱한다. 어떤 실패도 예외로 새지 않게 이유로 바꾼다.
 
+        구문 트리가 `MAX_AST_DEPTH`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
+        않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구).
+
         Args:
             relative: 프로젝트 상대 경로.
 
@@ -298,6 +303,8 @@ class Project:
         except (SyntaxError, ValueError):
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
+            return ReadFailure(relative, "source nesting too deep to parse")
+        if exceeds_depth(tree):
             return ReadFailure(relative, "source nesting too deep to parse")
         return SourceModule(
             path=relative,

@@ -359,6 +359,12 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+Modules whose syntax tree nests deeper than 128 levels (for example very long operator, attribute, call, or subscript
+chains, or long `elif` ladders) are not analyzed, so that one generated or crafted file cannot exhaust Python's
+recursion limit and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in
+graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
+deep to parse". Public packages rarely nest beyond 100 levels.
+
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
 once. On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and source reads open each component
