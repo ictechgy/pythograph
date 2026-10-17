@@ -512,6 +512,33 @@ def test_deep_urlconf_module_is_a_coverage_gap(make_project: Callable[[dict[str,
     assert "route-coverage: 1 Python files could not be analyzed: source nesting too deep to parse" in limitations
 
 
+def test_deeply_nested_regex_route_is_dynamic(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """묶음을 220단 중첩한 `re_path`는 dynamic 사실과 route-coverage 한계가 되고 다른 패턴은 그대로다.
+
+    정규식 구문 트리를 재귀로 변환하다 RecursionError로 routes 전체가 내부 오류(종료 2)로 끝나던 회귀다.
+    """
+    pattern = "^" + "(a|" * 220 + "a" + ")" * 220 + "/$"
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": (
+                "from django.urls import path, re_path\nfrom site_pkg import views\n"
+                f'urlpatterns = [path("ok/", views.a), re_path(r"{pattern}", views.a)]\n'
+            ),
+            "site_pkg/views.py": "def a(request):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    assert ("ANY", "/ok/", False, "site_pkg/views.py#a") in fact_rows(document)
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    assert [fact["channel"] for fact in facts if fact["dynamic"]] == ["/" + pattern]
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    reason = "the regular expression nests too deeply"
+    assert f"route-coverage: 1 URL patterns are emitted as dynamic: {reason}" in limitations
+
+
 def test_include_tests_marks_test_sources(make_project: Callable[[dict[str, str]], Path]) -> None:
     """테스트 경로의 URLconf 선언은 기본 제외, `--include-tests`면 testSource로 낸다."""
     root = _project(

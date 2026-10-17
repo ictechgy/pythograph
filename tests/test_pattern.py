@@ -6,6 +6,7 @@ import pytest
 
 from pythograph.exchange.template import encode_decoded_literal, normalize_uri_path
 from pythograph.routes.pattern import (
+    MAX_REGEX_NESTING,
     ExpansionCapped,
     Literal,
     Param,
@@ -133,6 +134,26 @@ def test_regex_param_kinds() -> None:
     assert regex_param(r"[\s]+").kind == "regex"
     with pytest.raises(Unconvertible):
         regex_param("(?=x)x")
+
+
+def test_deeply_nested_regex_is_unconvertible() -> None:
+    """묶음을 상한보다 깊게 중첩한 정규식은 재귀 변환 전에 Unconvertible이다(220단 대안 묶음, 변환기 정규식).
+
+    정규식 구문 트리를 상호 재귀(`_sequence`·`_item_options`·`_group_options`)로 바꾸다 RecursionError가 명령 전체를
+    내부 오류로 끝내던 회귀다. 상한 깊이의 정규식은 그대로 변환한다.
+    """
+    alternation = "^" + "(a|" * 220 + "a" + ")" * 220 + "/$"
+    with pytest.raises(Unconvertible, match="nests too deeply"):
+        convert_regex(alternation, endpoint=True, anchored_by_fullmatch=False)
+    # 캡처 묶음마다 한 단계, `[0-9]+` 반복이 한 단계, 맨 바깥 항목열이 한 단계다.
+    edge = "(" * (MAX_REGEX_NESTING - 2) + "[0-9]+" + ")" * (MAX_REGEX_NESTING - 2)
+    assert regex_param(edge).kind == "int"
+    with pytest.raises(Unconvertible, match="nests too deeply"):
+        regex_param("(" + edge + ")")
+    # 원자 묶음(3.11+)은 하위 패턴을 인자로 바로 싣는다. 깊이를 잰 뒤 모델링하지 않는 구문으로 거부한다
+    # (3.10은 파싱 실패).
+    with pytest.raises(Unconvertible):
+        regex_param("(?>(a))")
 
 
 def test_expansion_cap() -> None:

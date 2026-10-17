@@ -30,6 +30,11 @@ else:  # pragma: no cover
 #: 선택 세그먼트·대안을 펼치는 최대 개수다(계약 상한).
 MAX_EXPANSIONS = 16
 
+#: 변환하는 정규식 구문 트리의 최대 중첩 깊이다(맨 바깥 항목열이 1, 묶음·대안·반복·전후방 탐색의 하위 패턴마다 1).
+#: 변환 함수(`_sequence`·`_item_options`·`_group_options`, `_may_match`·`_min_width`)가 재귀로 내려가며 한 단계에
+#: 프레임을 3~4개 쓰므로, 50단이면 파이썬 재귀 한도 안에서 넉넉히 끝난다. URL 정규식은 보통 몇 단계다.
+MAX_REGEX_NESTING = 50
+
 #: 정규식 IGNORECASE 플래그 값이다.
 _IGNORECASE = 2
 
@@ -168,7 +173,7 @@ def _parse(pattern: str) -> list[tuple[Any, Any]]:
         (연산, 인자) 목록.
 
     Raises:
-        Unconvertible: 파싱할 수 없거나 대소문자 무시 플래그를 쓸 때.
+        Unconvertible: 파싱할 수 없거나 대소문자 무시 플래그를 쓰거나 `MAX_REGEX_NESTING`보다 깊게 중첩될 때.
     """
     try:
         parsed: Any = _sre_parse.parse(pattern, 0)
@@ -177,7 +182,52 @@ def _parse(pattern: str) -> list[tuple[Any, Any]]:
     if parsed.state.flags & _IGNORECASE:
         raise Unconvertible("a case-insensitive regular expression is not modeled")
     items: list[tuple[Any, Any]] = [(op, av) for op, av in parsed]
+    if _nesting_depth(items) > MAX_REGEX_NESTING:
+        raise Unconvertible("the regular expression nests too deeply")
     return items
+
+
+def _nesting_depth(items: list[tuple[Any, Any]]) -> int:
+    """구문 트리 항목열의 중첩 깊이를 재귀 없이 잰다.
+
+    변환 함수는 구문 트리를 재귀로 내려가므로, 재귀 한도를 넘기 전에 상한을 보려고 미리 잰다.
+
+    Args:
+        items: 맨 바깥 (연산, 인자) 목록.
+
+    Returns:
+        깊이(맨 바깥 항목열이 1).
+    """
+    deepest = 0
+    pending: list[tuple[Any, int]] = [(items, 1)]
+    while pending:
+        sequence, depth = pending.pop()
+        deepest = max(deepest, depth)
+        for _, av in sequence:
+            pending.extend((child, depth + 1) for child in _sub_patterns(av))
+    return deepest
+
+
+def _sub_patterns(av: Any) -> list[Any]:
+    """항목 인자에 든 하위 패턴을 돌려준다(묶음·대안·반복·전후방 탐색·조건 묶음의 인자).
+
+    Args:
+        av: 항목 인자.
+
+    Returns:
+        하위 패턴 목록(없으면 빈 목록).
+    """
+    if isinstance(av, _sre_parse.SubPattern):
+        return [av]
+    if not isinstance(av, (tuple, list)):
+        return []
+    found: list[Any] = []
+    for element in av:
+        if isinstance(element, _sre_parse.SubPattern):
+            found.append(element)
+        elif isinstance(element, list):
+            found.extend(item for item in element if isinstance(item, _sre_parse.SubPattern))
+    return found
 
 
 def _op(op: Any) -> str:

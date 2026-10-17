@@ -73,6 +73,8 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
 - **정규식**: `^`로 시작하지 않는 `search`, 끝이 열린 endpoint, 전후방 탐색, 역참조, `\b` 같은 앵커, 대소문자 무시
   플래그는 dynamic이다. 선택 리터럴(`x?`), 대안(`a|b`), 유한 문자 집합(`[12]`)은 템플릿 여러 개로 펼치고 16개를
   넘으면 dynamic과 `route-template-expansion-capped:`다. 끝 `/?`는 `trailingSlash: "optional"` 하나로 합친다.
+  구문 트리 중첩(묶음·대안·반복의 하위 패턴)이 50단을 넘는 정규식은 재귀 변환이 파이썬 재귀 한도를 넘지 않도록
+  변환하지 않고 dynamic과 `route-coverage:`("the regular expression nests too deeply")로 낸다.
 - **paramConstraints**: `X+` 모양에서 X가 받는 ASCII 문자 집합이 숫자면 `int`, `[-A-Za-z0-9_]`면 `slug`,
   `/`를 뺀 전부면 제약 없음(싣지 않음), 알려진 UUID 정규식이면 `uuid`, `{**}`는 `path`(정보용), 그 밖은 `regex`와
   원문 `pattern`이다. ASCII 밖 문자는 요청에서 퍼센트 인코딩되어 소비자가 평가하지 않으므로 판별에서 뺀다.
