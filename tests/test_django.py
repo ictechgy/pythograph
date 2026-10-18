@@ -660,3 +660,42 @@ def test_methods_outside_the_contract_are_not_emitted(make_project: Callable[[di
     )
     templates = [scope.get("templates") for sentence, scope in scoped_limitations(document) if sentence == message]
     assert templates == [["/api/notes/flush/"], ["/cache/"], ["/fn/"], ["/only/"], ["/things/{}/"]]
+
+
+def test_expansion_cap_uses_the_capped_prefix(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """템플릿 펼침이 16개를 넘은 패턴(정규식 안·include 조각 곱)은 `route-template-expansion-capped:`, 그 밖의 dynamic은
+    `route-coverage:`다.
+
+    접두사를 이유 문구의 부분 문자열("more than 16")이 아니라 펼침 상한 표식으로 고른 뒤에도 Django 출력이 그대로인지
+    본다.
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.urls import include, re_path
+            from site_pkg import views
+            urlpatterns = [
+                re_path(r"^(a|b|c|d|e)/(f|g|h|i|j)/$", views.a),
+                re_path(r"^(?:k|l|m|n|o)/", include("site_pkg.inner")),
+                re_path(r"^two/(?P<x>[0-9]+)-(?P<y>[0-9]+)/$", views.a),
+            ]
+        """,
+            "site_pkg/inner.py": """
+            from django.urls import re_path
+            from site_pkg import views
+            urlpatterns = [re_path(r"^(p|q|r|s)/$", views.a)]
+        """,
+            "site_pkg/views.py": "def a(request, **kwargs):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    assert {fact["dynamic"] for fact in document["facts"]} == {True}  # type: ignore[union-attr]
+    assert document["limitations"] == [
+        "framework-provided-routes: django.contrib.staticfiles serves STATIC_URL files in DEBUG",
+        "route-coverage: 1 URL patterns are emitted as dynamic: a path segment holds more than one parameter",
+        "route-template-expansion-capped: 1 URL patterns are emitted as dynamic: URL pattern alternatives expand to "
+        "more than 16 templates",
+        "route-template-expansion-capped: 1 URL patterns are emitted as dynamic: optional parts expand to more than "
+        "16 templates",
+    ]

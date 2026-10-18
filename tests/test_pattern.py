@@ -13,9 +13,11 @@ from pythograph.routes.pattern import (
     Unconvertible,
     capture_group_texts,
     convert_regex,
+    dynamic_gap_prefix,
     dynamic_shape,
     regex_param,
     skeleton_shapes,
+    unconvertible_shape,
 )
 
 
@@ -186,6 +188,23 @@ def test_dynamic_shape_hides_unsafe_raw_text() -> None:
     assert dynamic_shape("/\udc00/<path:rest>", "x").channel is None
     assert dynamic_shape("x" * 3000, "x").channel is None
     assert dynamic_shape("/ok", "x").channel == "/ok"
+
+
+def test_dynamic_gap_prefix_follows_the_capped_marker() -> None:
+    """dynamic 판정의 한계 접두사는 펼침 상한 표식으로 고르고 이유 문구에 기대지 않는다.
+
+    Django가 이유 문구의 "more than 16" 부분 문자열로 접두사를 고르던 때는 문구를 고치면 분류가 조용히 바뀌었고,
+    Flask는 같은 상한을 `route-coverage:`로 냈다.
+    """
+    empty = Param(kind="regex", pattern="[^/]*", may_be_empty=True, crosses_slash=False)
+    capped = skeleton_shapes([(Literal("/"), *(empty, Literal("/")) * 5)], raw="/x", trailing_policy="strict")
+    assert [(shape.dynamic, shape.expansion_capped) for shape in capped] == [(True, True)]
+    assert dynamic_gap_prefix(capped[0]) == "route-template-expansion-capped:"
+    capped_error = unconvertible_shape("/x", ExpansionCapped("too many"))
+    assert dynamic_gap_prefix(capped_error) == "route-template-expansion-capped:"
+    plain = unconvertible_shape("/x", Unconvertible("a segment holds more than 16 parameters"))
+    assert (plain.dynamic, plain.expansion_capped, dynamic_gap_prefix(plain)) == (True, False, "route-coverage:")
+    assert dynamic_gap_prefix(dynamic_shape("/x", "more than 16 templates")) == "route-coverage:"
 
 
 def test_non_canonical_result_is_dynamic() -> None:

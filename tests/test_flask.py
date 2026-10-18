@@ -368,3 +368,46 @@ def test_methods_outside_the_contract_are_not_emitted(make_project: Callable[[di
         (OUTSIDE_METHODS.format(count=1), {"templates": ["/cache/{}"]}),
         (OUTSIDE_METHODS.format(count=1), {"templates": ["/dav/a", "/dav/b"]}),
     ]
+
+
+def test_expansion_cap_uses_the_capped_prefix(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """템플릿 펼침이 16개를 넘은 규칙은 Django와 같이 `route-template-expansion-capped:`, 그 밖의 dynamic은
+    `route-coverage:`다.
+
+    같은 펼침 상한(`any()` 곱·`any()` 하나·빈 값 변형)을 Flask만 `route-coverage:`로 내 계약(GRAPH-EXCHANGE
+    "정규 경로 템플릿", HTTP-ROUTES.md 한계 표)의 접두사와 어긋나던 회귀다.
+    """
+    wide = ", ".join(f"v{index}" for index in range(17))
+    empties = "/".join(f"<string(minlength=0):{name}>" for name in "abcde")
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": f"""
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        @app.route("/<any(a, b, c, d, e):x>/<any(f, g, h, i, j):y>")
+        def grid(x, y):
+            pass
+        @app.route("/one/<any({wide}):z>")
+        def wide(z):
+            pass
+        @app.route("/e/{empties}")
+        def empties(a, b, c, d, e):
+            pass
+        @app.route("/two/<int:a>-<int:b>")
+        def pair(a, b):
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert {fact["dynamic"] for fact in document["facts"]} == {True}  # type: ignore[union-attr]
+    assert document["limitations"] == [
+        "route-coverage: 1 Flask rules are emitted as dynamic: a path segment holds more than one parameter",
+        "route-template-expansion-capped: 1 Flask rules are emitted as dynamic: an any() converter expands to more "
+        "than 16 templates",
+        "route-template-expansion-capped: 1 Flask rules are emitted as dynamic: any() converters expand to more than "
+        "16 templates",
+        "route-template-expansion-capped: 1 Flask rules are emitted as dynamic: optional parts expand to more than 16 "
+        "templates",
+    ]

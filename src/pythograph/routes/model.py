@@ -38,7 +38,8 @@ class RouteShape:
 
     `channel`은 dynamic이 아니면 정규 템플릿, dynamic이면 원문 표현(또는 None)이다.
     `trailing_slash`는 `strict`·`optional`·None(unknown)이다. `coverage_reason`은 dynamic으로 만든
-    이유(limitation 문구용)다.
+    이유(limitation 문구용)다. `expansion_capped`는 펼친 템플릿 수가 상한을 넘어 dynamic이 됐다는 표식이다
+    (limitation 접두사를 이유 문구가 아니라 이 표식으로 고른다).
     """
 
     channel: str | None
@@ -47,6 +48,7 @@ class RouteShape:
     constraints: tuple[ParamConstraint, ...] = ()
     catch_all_prefix: bool = False
     coverage_reason: str | None = None
+    expansion_capped: bool = False
 
 
 @dataclass(frozen=True)

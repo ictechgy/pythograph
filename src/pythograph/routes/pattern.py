@@ -715,23 +715,53 @@ def skeleton_shapes(alternatives: list[Skeleton], *, raw: str | None, trailing_p
         expanded = _with_empty_variants(alternatives)
         shapes = [_skeleton_shape(skeleton, trailing_policy) for skeleton in expanded]
     except Unconvertible as error:
-        return [dynamic_shape(raw, str(error))]
+        return [unconvertible_shape(raw, error)]
     return _merge_trailing_slash(shapes)
 
 
-def dynamic_shape(raw: str | None, reason: str) -> RouteShape:
+def dynamic_shape(raw: str | None, reason: str, *, capped: bool = False) -> RouteShape:
     """dynamic 판정을 만든다. 원문은 길이 상한과 계약이 금지하는 문자(제어 문자·U+2028/2029·짝 없는 서러게이트)를
     검사해 싣는다.
 
     Args:
         raw: 원문 표현.
         reason: 이유 종류(limitation 문구용).
+        capped: 펼친 템플릿 수가 상한을 넘어 dynamic이 됐는지(limitation 접두사용).
 
     Returns:
         dynamic 판정.
     """
     safe = raw if raw is not None and len(raw) <= MAX_TEMPLATE_LENGTH and is_contract_safe(raw) else None
-    return RouteShape(channel=safe, dynamic=True, coverage_reason=reason)
+    return RouteShape(channel=safe, dynamic=True, coverage_reason=reason, expansion_capped=capped)
+
+
+def unconvertible_shape(raw: str | None, error: Unconvertible) -> RouteShape:
+    """변환 실패를 dynamic 판정으로 바꾼다. 펼침 상한(`ExpansionCapped`)이면 그 표식을 단다.
+
+    Args:
+        raw: 원문 표현.
+        error: 변환 실패(메시지가 이유 종류다).
+
+    Returns:
+        dynamic 판정.
+    """
+    return dynamic_shape(raw, str(error), capped=isinstance(error, ExpansionCapped))
+
+
+def dynamic_gap_prefix(shape: RouteShape) -> str:
+    """dynamic 판정의 limitation 접두사를 고른다.
+
+    계약(GRAPH-EXCHANGE "정규 경로 템플릿", HTTP-ROUTES.md 한계 표)은 펼침 상한을 넘은 경로에
+    `route-template-expansion-capped:`를, 그 밖의 확정하지 못한 경로에 `route-coverage:`를 쓴다. 이유 문구가 아니라
+    표식으로 고르므로 문구를 고쳐도 분류가 바뀌지 않고, Django·Flask 추출기가 이 함수 하나를 쓴다.
+
+    Args:
+        shape: dynamic 판정.
+
+    Returns:
+        콜론으로 끝나는 접두사.
+    """
+    return "route-template-expansion-capped:" if shape.expansion_capped else "route-coverage:"
 
 
 def _with_empty_variants(alternatives: list[Skeleton]) -> list[Skeleton]:

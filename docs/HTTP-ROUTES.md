@@ -131,7 +131,8 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 - 문서는 `dispatch: "specificity"`다. isthmus 구체성(리터럴 > 부분 세그먼트 > 제약 있는 `{}` > `{}` > `{**}`)은
   Werkzeug 가중치와 완전히 같지는 않지만, isthmus는 method를 먼저 거르고 경로 후보가 없을 때만 error를 내므로
   차이는 거짓 match 쪽이지 거짓 error가 아니다.
-- channel·paramConstraints는 Django와 같은 토큰열 규칙이다. `any(a, b)`는 템플릿 여러 개로 펼친다.
+- channel·paramConstraints는 Django와 같은 토큰열 규칙이다. `any(a, b)`는 템플릿 여러 개로 펼치고, `any()` 곱이나
+  빈 값 변형이 16개를 넘으면 Django와 같이 dynamic과 `route-template-expansion-capped:`다.
   `string(length=2)` 같은 길이 제약은 `regex`(`[^/]{2}`)다.
 - trailingSlash: 규칙 옵션 → `url_map.strict_slashes` 대입 → 기본 True 순서로 정한 값이 True면 `strict`, False면
   `optional`, 리터럴이 아니면 생략이다. `{**}`로 끝나면 생략한다.

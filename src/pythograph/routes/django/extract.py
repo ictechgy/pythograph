@@ -27,8 +27,9 @@ from pythograph.routes.pattern import (
     Skeleton,
     Unconvertible,
     convert_regex,
-    dynamic_shape,
+    dynamic_gap_prefix,
     skeleton_shapes,
+    unconvertible_shape,
 )
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import is_test_path
@@ -328,7 +329,7 @@ class _Context:
             for piece in pieces:
                 alternatives = _cross(alternatives, self._piece_alternatives(piece))
         except Unconvertible as error:
-            return [dynamic_shape(raw, str(error))]
+            return [unconvertible_shape(raw, error)]
         return skeleton_shapes(alternatives, raw=raw, trailing_policy="strict")
 
     def _piece_alternatives(self, piece: Piece) -> list[Skeleton]:
@@ -354,7 +355,7 @@ class _Context:
         return list(convert_regex(piece.text, endpoint=piece.endpoint, anchored_by_fullmatch=fullmatch).alternatives)
 
     def _record_shape_gaps(self, shapes: list[RouteShape], anchor: str) -> None:
-        """dynamic 판정의 공백을 센다.
+        """dynamic 판정의 공백을 센다. 접두사는 펼침 상한 표식으로 고른다(`dynamic_gap_prefix`).
 
         Args:
             shapes: 판정 목록.
@@ -363,10 +364,9 @@ class _Context:
         del anchor
         for shape in shapes:
             if shape.dynamic:
-                capped = shape.coverage_reason is not None and "more than 16" in shape.coverage_reason
-                prefix = "route-template-expansion-capped:" if capped else "route-coverage:"
                 self.extraction.add_gap(
-                    prefix, "{count} URL patterns are emitted as dynamic: " + str(shape.coverage_reason)
+                    dynamic_gap_prefix(shape),
+                    "{count} URL patterns are emitted as dynamic: " + str(shape.coverage_reason),
                 )
 
     def _gap_for(self, prefix: str, message: str, shapes: list[RouteShape], anchor: str) -> None:

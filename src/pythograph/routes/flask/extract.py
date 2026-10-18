@@ -27,7 +27,13 @@ from pythograph.routes.django.urlconf import converter_regex, node_location
 from pythograph.routes.django.views import emitted_methods
 from pythograph.routes.flask.rules import rule_alternatives
 from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape, ScopeRange
-from pythograph.routes.pattern import Unconvertible, dynamic_shape, skeleton_shapes
+from pythograph.routes.pattern import (
+    Unconvertible,
+    dynamic_gap_prefix,
+    dynamic_shape,
+    skeleton_shapes,
+    unconvertible_shape,
+)
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import is_test_path
 from pythograph.source.symbols import (
@@ -230,7 +236,7 @@ def _emit_rule(
     for shape in shapes:
         if shape.dynamic:
             extraction.add_gap(
-                "route-coverage:", "{count} Flask rules are emitted as dynamic: " + str(shape.coverage_reason)
+                dynamic_gap_prefix(shape), "{count} Flask rules are emitted as dynamic: " + str(shape.coverage_reason)
             )
     if rule.uncertain:
         scope = ScopeRange(templates=templates) if anchor == "root" and len(templates) == len(shapes) else None
@@ -281,7 +287,7 @@ def _rule_shapes(rule: _Rule, prefix: object, app: _Object | None) -> list[Route
     try:
         alternatives = rule_alternatives(full, merge is not False, converters)
     except Unconvertible as error:
-        return [dynamic_shape(full, str(error))]
+        return [unconvertible_shape(full, error)]
     return skeleton_shapes(alternatives, raw=full, trailing_policy=policy)
 
 
