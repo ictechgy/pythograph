@@ -361,6 +361,12 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+File paths become every fact's `location.path` and symbol id, so a Python file whose project-relative path is not
+valid UTF-8 or contains characters the exchange format forbids (C0/C1 control characters including NEL, U+2028, or
+U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:` for graph, `route-coverage:` or
+`route-call-coverage:` for routes, `unreadable-sources:` for schema) rather than producing a document that isthmus
+rejects as a whole.
+
 Modules whose syntax tree nests deeper than 128 levels (for example very long operator, attribute, call, or subscript
 chains, or long `elif` ladders) are not analyzed, so that one generated or crafted file cannot exhaust Python's
 recursion limit and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in

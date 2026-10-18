@@ -5,6 +5,8 @@
 - 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 건너뛴 것은 센다.
 - 파일 크기·순회 항목 수·깊이에 상한을 둔다. 넘거나 읽지 못한 파일은 실패로 기록해 한계로 남긴다.
 - 경로는 모두 프로젝트 상대 POSIX 문자열로 다룬다. 절대 경로를 출력·오류 문구에 싣지 않는다.
+- 경로는 사실의 위치와 심볼 id가 되므로, 교환 형식이 쓸 수 없는 이름(UTF-8이 아님, 계약 금지 문자)의 파일은
+  건너뛰고 센다.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from pythograph.source.syntax import chain_too_long, exceeds_depth
+from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
@@ -86,6 +89,7 @@ class Project:
     Attributes:
         root: 프로젝트 realpath.
         module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트).
+        forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
     """
 
     root: Path
@@ -95,6 +99,7 @@ class Project:
     skipped_links: int = 0
     scan_capped: bool = False
     unencodable_names: int = 0
+    forbidden_names: int = 0
     scan_errors: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
 
@@ -194,11 +199,26 @@ class Project:
                 return
             pending.append((relative, depth + 1))
         elif entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
-            if _is_encodable(relative):
-                found.append(relative)
-            else:
-                # UTF-8이 아닌 파일 이름은 교환 형식에 쓸 수 없다. 건너뛰고 센다.
-                self.unencodable_names += 1
+            self._collect(relative, found)
+
+    def _collect(self, relative: str, found: list[str]) -> None:
+        """파이썬 파일을 발견 목록에 넣는다. 교환 형식에 실을 수 없는 경로는 건너뛰고 센다.
+
+        경로는 모든 사실의 `location.path`와 심볼 id(`경로#이름`)가 된다. 계약이 금지하는 문자가 든 경로를 실으면
+        소비자가 문서 전체를 거부하므로, 그 파일만 빼고 한계로 남긴다.
+
+        Args:
+            relative: 파일의 프로젝트 상대 경로.
+            found: 발견한 파일 목록(수정한다).
+        """
+        if not _is_encodable(relative):
+            # UTF-8이 아닌 파일 이름은 교환 형식에 쓸 수 없다. 건너뛰고 센다.
+            self.unencodable_names += 1
+        elif not is_contract_safe(relative):
+            # 제어 문자(C0·C1, NEL)·U+2028/2029가 든 경로는 사실의 경로·usr로 실을 수 없다. 건너뛰고 센다.
+            self.forbidden_names += 1
+        else:
+            found.append(relative)
 
     def is_directory(self, relative: str) -> bool:
         """프로젝트 상대 경로가 링크가 아닌 디렉터리인지 돌려준다.

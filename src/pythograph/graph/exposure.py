@@ -342,6 +342,7 @@ def collect_program(project: Project, index: DefinitionIndex, resolver: Resolver
         project.scan_capped
         or project.skipped_links
         or project.unencodable_names
+        or project.forbidden_names
         or project.scan_errors
         or index.unparsed
     ):

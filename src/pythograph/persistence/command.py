@@ -286,6 +286,11 @@ def _project_gaps(project: Project, extraction: PersistenceExtraction) -> None:
         extraction.add_gap(
             "unreadable-sources:", f"{project.unencodable_names} Python files have names that are not valid UTF-8"
         )
+    if project.forbidden_names:
+        extraction.add_gap(
+            "unreadable-sources:",
+            f"{project.forbidden_names} Python files have names with characters the exchange format forbids",
+        )
     if project.skipped_links:
         extraction.add_gap("skipped-symlinks:", f"{project.skipped_links} symbolic links were not followed")
     for module in project.parsed_modules().values():

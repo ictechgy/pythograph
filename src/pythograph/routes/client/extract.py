@@ -817,6 +817,12 @@ def _project_gaps(project: Project, extraction: ClientExtraction) -> None:
             COVERAGE,
             f"{project.unencodable_names} Python files have names that are not valid UTF-8 and were not analyzed",
         )
+    if project.forbidden_names:
+        extraction.add_gap(
+            COVERAGE,
+            f"{project.forbidden_names} Python files have names with characters the exchange format forbids "
+            "and were not analyzed",
+        )
     if project.skipped_links:
         extraction.add_gap(COVERAGE, f"{project.skipped_links} symbolic links were not followed")
     for _, module in sorted(project.parsed_modules().items()):

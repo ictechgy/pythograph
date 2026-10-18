@@ -202,7 +202,7 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 | `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `object.__setattr__`·`x.__setattr__`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
 | `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(색인은 첫 정의만 본다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
 | `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
-| `scan-incomplete` | 파싱하지 못한 파일·심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
+| `scan-incomplete` | 파싱하지 못한 파일·교환 형식이 쓸 수 없는 이름(UTF-8 아님·제어 문자·U+2028/2029)의 파일·심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
 | `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |
 | `call-result`·`class-attribute`·`not-instance`·`dynamic-expression` 등 | 흐름이 프로젝트 인스턴스로 끝나지 않는다(외부 호출 결과·클래스 객체 속성·함수 값·첨자) |
 

@@ -269,6 +269,24 @@ def test_python_module_entry_point() -> None:
     assert result.returncode == 0 and result.stdout.strip()
 
 
+def test_names_with_forbidden_characters_are_skipped(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """이름(디렉터리 성분 포함)에 계약 금지 문자가 든 파이썬 파일은 건너뛰고 센다. 소스가 아닌 파일은 세지 않는다.
+
+    파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 그런 파일 하나로 isthmus가 문서 전체를 거부했다.
+    """
+    root = make_project({"ok.py": "", "pkg/__init__.py": ""})
+    names = ["pkg/bel\x07.py", "pkg/nel\x85.py", "pkg/ls\u2028.py", "pkg/ev\x1b[31mil.py", "odd\x07dir/mod.py"]
+    try:
+        for name in [*names, "pkg/notes\x07.txt"]:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text("", encoding="utf-8")
+    except OSError:
+        pytest.skip("the filesystem rejects control characters in file names")
+    project = Project.open(root)
+    assert project.python_files() == ["ok.py", "pkg/__init__.py"]
+    assert (project.forbidden_names, project.unencodable_names) == (len(names), 0)
+
+
 def test_unencodable_file_names_are_skipped(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -240,6 +240,111 @@ def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path
     (root / "link").symlink_to(outside)
     limitations = routes_document(root)["limitations"]
     assert any("symbolic links" in text for text in limitations)  # type: ignore[union-attr]
+
+
+#: isthmus가 식별자에서 거부하는 문자다(parse.ts `controlCharacterPattern`과 짝 없는 서러게이트, 제품 코드와 따로 둔다).
+CONTRACT_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
+
+#: 이름에 계약 금지 문자가 든 모듈 경로다(디렉터리 성분 포함). git은 이런 이름을 허용한다.
+FORBIDDEN_NAMES = (
+    "shop/ev\x1b[31mil.py",
+    "shop/bel\x07.py",
+    "shop/nel\x85.py",
+    "shop/ls\u2028.py",
+    "odd\x07dir/mod.py",
+)
+
+#: 금지 이름 모듈의 내용이다. 정상 뷰를 부르고 HTTP·ORM 호출을 담아, 이름이 사실·정점에 실리면 드러난다.
+FORBIDDEN_NAME_SOURCE = (
+    "import requests\nfrom shop.models import Item\nfrom shop.views import index\n\n\n"
+    "def caller(request):\n    Item.objects.filter(name='x')\n"
+    "    requests.get('https://example.com/items')\n    return index(request)\n"
+)
+
+
+def _forbidden_name_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """정상 Django·클라이언트·모델 모듈 곁에 이름에 계약 금지 문자가 든 모듈을 둔 합성 프로젝트를 만든다.
+
+    Args:
+        make_project: 프로젝트 생성 함수.
+
+    Returns:
+        프로젝트 루트(파일시스템이 그런 이름을 거부하면 테스트를 건너뛴다).
+    """
+    root = make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n',
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n"
+            ),
+        }
+    )
+    try:
+        for name in FORBIDDEN_NAMES:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(FORBIDDEN_NAME_SOURCE, encoding="utf-8")
+    except OSError:
+        pytest.skip("the filesystem rejects control characters in file names")
+    return root
+
+
+def _strings(value: object) -> Iterator[str]:
+    """JSON 값 안의 모든 문자열(키 포함)을 돌려준다.
+
+    Args:
+        value: JSON 값.
+
+    Yields:
+        문자열.
+    """
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+@pytest.mark.parametrize(
+    ("command", "prefix"),
+    [
+        (["graph"], "scan-incomplete:"),
+        (["reach", "shop/views.py#index"], "scan-incomplete:"),
+        (["impact", "shop/views.py#index"], "scan-incomplete:"),
+        (["routes", "--role", "server"], "route-coverage:"),
+        (["routes", "--role", "client"], "route-call-coverage:"),
+        (["schema"], "unreadable-sources:"),
+    ],
+)
+def test_file_names_with_forbidden_characters_never_reach_the_document(
+    make_project: Callable[[dict[str, str]], Path], command: list[str], prefix: str
+) -> None:
+    """이름에 계약 금지 문자가 든 모듈은 분석하지 않고 한계로 센다. 출력의 어떤 id·경로에도 그 문자가 없다.
+
+    그런 이름이 `symbol.usr`·`location.path`·정점 id에 그대로 실려 isthmus가 문서 전체를 거부하던 회귀다.
+    """
+    root = _forbidden_name_project(make_project)
+    code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
+    assert code == 0, err
+    document = json.loads(out)
+    limitations = document.pop("limitations")
+    expected = f"{prefix} {len(FORBIDDEN_NAMES)} Python files have names with characters the exchange format forbids"
+    assert any(text.startswith(expected) for text in limitations), limitations
+    assert [ascii(text) for text in _strings(document) if CONTRACT_FORBIDDEN.search(text)] == []
+    if command == ["graph"]:
+        assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
 
 
 class _BrokenStream:

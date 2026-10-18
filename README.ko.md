@@ -289,6 +289,11 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 앞서 완전히 순회한 디렉터리의 파일은 보존합니다. 읽지 못한 디렉터리 항목 수는 routes·schema·graph 한계에 남기고,
 보이지 않는 모듈에 의존하는 닫힌 세계 `bound` 증명도 막습니다. 이런 한계와 함께 성공한 명령은 여전히 불완전한 분석입니다.
 
+파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 프로젝트 상대 경로가 UTF-8이 아니거나 교환 형식이 금지하는
+문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)를 담은 파이썬 파일은 분석하지 않습니다. isthmus가 문서 전체를 거부하는
+출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
+한계로 셉니다.
+
 구문 트리 중첩이 128단을 넘는 모듈(아주 긴 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나
 조작된 파일 하나가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼
 graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 한계에 "source nesting too deep to parse"
