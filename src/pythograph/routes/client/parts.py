@@ -55,7 +55,8 @@ class AttributeWrites:
     """프로젝트 전체의 바깥 속성 대입 색인(수신자가 `self`·`cls`가 아닌 대입과 리터럴 `setattr`).
 
     Attributes:
-        untyped: 수신자 타입을 모르는 대입의 속성 이름. 어느 클래스의 속성이든 바꿀 수 있어 값을 모른다.
+        untyped: 수신자 타입을 모르는 대입의 속성 이름. 어느 클래스의 속성이든, 모듈 상수든
+            (`sys.modules[__name__].X = …`) 바꿀 수 있어 값을 모른다.
         typed: (프로젝트 클래스 id, 속성 이름) — 그 클래스(또는 하위 클래스) 객체에 쓴 대입.
         module: (모듈 경로, 이름) — 모듈 속성 대입(`constants.API_ROOT = …`). 그 이름은 상수가 아니다.
     """
@@ -171,7 +172,7 @@ class PartBuilder:
         """
         self.resolver = resolver
         self.writes = writes
-        self.constants = ModuleConstants(resolver.symbols, writes.module)
+        self.constants = ModuleConstants(resolver.symbols, writes.module, writes.untyped)
         self._with_items: dict[str, dict[str, list[ast.expr]]] = {}
         self._attribute_cache: dict[tuple[str, str, bool], str | None] = {}
 

@@ -174,6 +174,111 @@ def test_unproven_constants_are_values(make_project: MakeProject) -> None:
     assert summary["safe"] == ("GET", "/x", "root", "h.example.com")
 
 
+def test_namespace_and_untyped_writes_unprove_constants(make_project: MakeProject) -> None:
+    """리뷰 회귀: 이름공간 쓰기와 수신자를 모르는 속성 대입이 닿을 수 있는 이름은 상수가 아니다.
+
+    graph의 안정 전역 판정과 같다: 모듈 어디서든 `globals()`, 모듈 수준 `vars()`·`locals()`를 부르는 모듈의 이름과,
+    프로젝트 어디서든 수신자 타입을 모르는 같은 이름의 속성 대입(`sys.modules[__name__].X = …`)이 있는 이름이다.
+    런타임에 바뀌는 base URL이 정적 `authority`로 나갔다. 함수 안 `vars()`·`locals()`는 그 함수의 지역 이름이라
+    막지 않는다.
+    """
+    root = make_project(
+        {
+            "app/__init__.py": "",
+            "app/staging.py": """
+                API_ROOT = "https://api.example.com"
+
+                def use_staging():
+                    globals()["API_ROOT"] = "https://staging.example.com"
+            """,
+            "app/module_vars.py": """
+                VARS_ROOT = "https://vars.example.com"
+                vars()["VARS_ROOT"] = "https://changed.example.com"
+            """,
+            "app/module_locals.py": """
+                LOCALS_ROOT = "https://locals.example.com"
+                locals().update(LOCALS_ROOT="https://changed.example.com")
+            """,
+            "app/function_vars.py": """
+                FUNCTION_ROOT = "https://function.example.com"
+
+                def describe(value):
+                    return vars(), locals(), value
+            """,
+            "app/sysmod.py": """
+                import sys
+
+                OTHER_ROOT = "https://other.example.com"
+
+                def use_other():
+                    sys.modules[__name__].OTHER_ROOT = "https://other-staging.example.com"
+            """,
+            "app/untyped.py": """
+                PARAM_ROOT = "https://param.example.com"
+                STABLE_ROOT = "https://stable.example.com"
+
+                def reset(target):
+                    target.PARAM_ROOT = "https://reset.example.com"
+            """,
+            "app/calls.py": """
+                import requests
+
+                from app.function_vars import FUNCTION_ROOT
+                from app.module_locals import LOCALS_ROOT
+                from app.module_vars import VARS_ROOT
+                from app.staging import API_ROOT
+                from app.sysmod import OTHER_ROOT
+                from app.untyped import PARAM_ROOT, STABLE_ROOT
+
+                def users():
+                    return requests.get(API_ROOT + "/users")
+
+                def vars_():
+                    return requests.get(VARS_ROOT + "/vars")
+
+                def locals_():
+                    return requests.get(LOCALS_ROOT + "/locals")
+
+                def orders():
+                    return requests.get(OTHER_ROOT + "/orders")
+
+                def param():
+                    return requests.get(PARAM_ROOT + "/param")
+
+                def function():
+                    return requests.get(FUNCTION_ROOT + "/function")
+
+                def stable():
+                    return requests.get(STABLE_ROOT + "/stable")
+            """,
+            "app/shadowing.py": """
+                import requests
+
+                from app.untyped import STABLE_ROOT
+
+                def rebind():
+                    globals()["STABLE_ROOT"] = "https://shadow.example.com"
+
+                def shadowed():
+                    return requests.get(STABLE_ROOT + "/shadowed")
+            """,
+        }
+    )
+    document = client_document(root)
+    summary = rows(document)
+    for name, path in (
+        ("users", "/users"),
+        ("vars_", "/vars"),
+        ("locals_", "/locals"),
+        ("orders", "/orders"),
+        ("param", "/param"),
+        ("shadowed", "/shadowed"),
+    ):
+        assert summary[name] == ("GET", path, "base", None), name
+    assert summary["function"] == ("GET", "/function", "root", "function.example.com")
+    assert summary["stable"] == ("GET", "/stable", "root", "stable.example.com")
+
+
 def test_absolute_url_forms(make_project: MakeProject) -> None:
     """userinfo 제거, host가 값인 URL은 base, 다른 scheme·scheme 상대·상대 URL은 dynamic, 웹훅은 가린다."""
     root = make_project(

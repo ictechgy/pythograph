@@ -196,10 +196,12 @@ recording, and the end-to-end trace is in
   the project's lock/requirement files), and none for requests and urllib. `urllib.parse.urljoin` has no vector yet,
   so only its absolute-URL and `/`-rooted forms are claimed.
 - **URL strings**: f-strings, `+`, `%` formatting, `str.format`, provable module constants (bound exactly once, never
-  rebound, no `global` or module-attribute writes), class attributes and `__init__` fields with one literal value, and
-  proven query-tail locals. An interpolation becomes `{}` only when it fills a whole segment; otherwise the fact is
-  `dynamic` with a masked `channelPrefix` (`channel` is `null`, so no raw URL text leaves the tool). A literal host
-  gives `root` plus `authority`; a dynamic host or an unknown base gives `base`.
+  rebound, no `global` or module-attribute writes, no same-named attribute write on an unknown receiver such as
+  `sys.modules[__name__].API_ROOT = …`, and not in a module that calls `globals()` or module-level `vars()`/`locals()`),
+  class attributes and `__init__` fields with one literal value, and proven query-tail locals. An interpolation
+  becomes `{}` only when it fills a whole segment; otherwise the fact is `dynamic` with a masked `channelPrefix`
+  (`channel` is `null`, so no raw URL text leaves the tool). A literal host gives `root` plus `authority`; a dynamic
+  host or an unknown base gives `base`.
 - **Wrappers** (`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` entries; `owner` is a pythograph class
   id (`api/client.py#Gateway`) for methods and constructors (`name: "__init__"`, dataclasses included) or a module path
   (`api/net.py`) for module functions. `label` is a keyword argument, `index` a positional argument (receiver excluded).

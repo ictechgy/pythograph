@@ -302,6 +302,31 @@ def test_scope_rules(make_project: MakeProject) -> None:
     assert reasons == {"local-value": 4}
 
 
+def test_namespace_dictionary_unproves_module_aliases(make_project: MakeProject) -> None:
+    """`globals()`·모듈 수준 `vars()`를 부르는 모듈의 전역 별칭은 direct 간선으로 풀지 않는다.
+
+    client 모듈 상수 증명과 같은 판정(`source.symbols.uses_namespace`)이다. 함수 안 `vars()`는 그 함수의 지역 이름이라
+    별칭을 막지 않는다.
+    """
+    alias = "from . import tools\n\ntarget = tools.helper\n\n\ndef run():\n    return target()\n"
+    graph = graph_for(
+        make_project,
+        {
+            "pkg/__init__.py": "",
+            "pkg/tools.py": "def helper():\n    return 1\n\n\ndef other():\n    return 2\n",
+            "pkg/swapped.py": alias + '\n\ndef swap():\n    globals()["target"] = tools.other\n',
+            "pkg/module_vars.py": alias + "\n\nNAMESPACE = vars()\n",
+            "pkg/function_vars.py": alias + "\n\ndef describe():\n    return vars()\n",
+            "pkg/plain.py": alias,
+        },
+    )
+    all_edges = edges(graph)
+    assert ("pkg/swapped.py#run", "pkg/tools.py#helper", "direct") not in all_edges
+    assert ("pkg/module_vars.py#run", "pkg/tools.py#helper", "direct") not in all_edges
+    assert ("pkg/function_vars.py#run", "pkg/tools.py#helper", "direct") in all_edges
+    assert ("pkg/plain.py#run", "pkg/tools.py#helper", "direct") in all_edges
+
+
 def test_annotations_and_special_calls(make_project: MakeProject) -> None:
     """주석 변형(Optional·Annotated·문자열·잘못된 문자열), `type(self)`, `cls()`, 외부 결과 호출."""
     graph = graph_for(

@@ -6,7 +6,12 @@
 - 모듈 수준(조건문·반복문·`try`·`with` 안 포함, 함수·클래스 본문 제외)에서 두 번 이상 묶임 — 대입·주석 대입·누적
   대입·반복 변수·`with … as`·import·함수·클래스 정의·`del`·예외 이름·바다코끼리·match 캡처를 모두 센다.
 - 그 모듈의 어느 함수·클래스든 `global 이름`을 선언함(실행 중 다시 대입할 수 있다).
+- 그 모듈이 어느 범위든 `globals()`를, 모듈 수준에서 `vars()`·`locals()`를 부름(`globals()["API_ROOT"] = …`처럼
+  이름공간 사전으로 어떤 이름이든 다시 쓸 수 있다). 판정은 graph 해석기와 같은 `source.symbols.uses_namespace`다.
 - 프로젝트 어디서든 모듈 속성으로 대입함(`constants.API_ROOT = …`, 리터럴 `setattr(constants, "API_ROOT", …)`).
+- 프로젝트 어디서든 수신자 타입을 모르는 같은 이름의 속성 대입이 있음(`sys.modules[__name__].API_ROOT = …`, 타입 모르는
+  매개변수의 `target.API_ROOT = …`). 그 수신자가 이 모듈일 수 있다. graph 해석기는 수신자와 무관하게 같은 이름의 모든
+  속성 쓰기를 보지만, 여기서는 수신자를 증명한 클래스·인스턴스 대입은 모듈을 바꿀 수 없어 빼고 본다.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from __future__ import annotations
 import ast
 from collections import Counter
 
-from pythograph.source.symbols import SymbolTable
+from pythograph.source.symbols import SymbolTable, uses_namespace
 
 #: 함수·클래스 본문처럼 모듈 범위가 아닌 노드다.
 _NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
@@ -23,19 +28,21 @@ _NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambd
 class ModuleConstants:
     """모듈별 이름 묶음 수를 세어 상수를 증명한다."""
 
-    def __init__(self, symbols: SymbolTable, module_writes: set[tuple[str, str]]) -> None:
+    def __init__(self, symbols: SymbolTable, module_writes: set[tuple[str, str]], untyped_writes: set[str]) -> None:
         """판정기를 만든다.
 
         Args:
             symbols: 모듈 색인.
             module_writes: 모듈 속성으로 대입된 (모듈 경로, 이름).
+            untyped_writes: 수신자 타입을 모르는 속성 대입의 이름(어느 모듈의 같은 이름이든 바꿀 수 있다).
         """
         self.symbols = symbols
         self.module_writes = module_writes
-        self._counts: dict[str, tuple[Counter[str], set[str]]] = {}
+        self.untyped_writes = untyped_writes
+        self._counts: dict[str, tuple[Counter[str], set[str], bool]] = {}
 
     def proven(self, path: str, name: str) -> bool:
-        """모듈의 이름이 한 번만 묶인 상수인지 본다.
+        """모듈의 이름이 한 번만 묶이고 다시 쓰이지 않는 상수인지 본다.
 
         Args:
             path: 모듈 경로.
@@ -44,27 +51,29 @@ class ModuleConstants:
         Returns:
             상수면 True.
         """
-        if (path, name) in self.module_writes:
+        if (path, name) in self.module_writes or name in self.untyped_writes:
             return False
-        counts, globals_declared = self._module(path)
-        return counts[name] == 1 and name not in globals_declared
+        counts, globals_declared, namespace = self._module(path)
+        return not namespace and counts[name] == 1 and name not in globals_declared
 
-    def _module(self, path: str) -> tuple[Counter[str], set[str]]:
-        """모듈의 묶음 수와 `global` 선언 이름을 모은다(캐시).
+    def _module(self, path: str) -> tuple[Counter[str], set[str], bool]:
+        """모듈의 묶음 수, `global` 선언 이름, 이름공간 사전 사용 여부를 모은다(캐시).
 
         Args:
             path: 모듈 경로.
 
         Returns:
-            (이름 → 모듈 수준 묶음 수, `global`로 선언된 이름).
+            (이름 → 모듈 수준 묶음 수, `global`로 선언된 이름, `globals()`·모듈 수준 `vars()`·`locals()`를 부르는지).
         """
         if path not in self._counts:
             index = self.symbols.index(path)
             counts: Counter[str] = Counter()
             declared: set[str] = set()
+            namespace = False
             if index is not None:
                 _count_module(index.module.tree, counts, declared)
-            self._counts[path] = (counts, declared)
+                namespace = uses_namespace(index.module.tree)
+            self._counts[path] = (counts, declared, namespace)
         return self._counts[path]
 
 

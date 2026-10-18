@@ -148,9 +148,10 @@ bridge-facts v1 문서(`platform: "python"`, `target: "http"`, `roles: ["client"
   절대 URL은 3.12 이상을 프로젝트 잠금·요구 파일로 증명해야 주장한다), requests·urllib은 base가 없다. `urllib.parse.urljoin`은
   아직 벡터가 없어 절대 URL과 `/`로 시작하는 경로만 주장한다.
 - **URL 문자열**: f-string, `+`, `%` 서식, `str.format`, 증명한 모듈 상수(한 번만 묶이고 다시 묶이지 않으며 `global`·모듈 속성
-  대입 없음), 값이 하나인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수. 보간은 세그먼트 전체를 채울 때만 `{}`이고
-  아니면 `dynamic`과 마스킹한 `channelPrefix`다(`channel`은 null이라 URL 원문이 도구 밖으로 나가지 않는다). host가 리터럴이면
-  `root`와 `authority`, host가 값이거나 base를 모르면 `base`다.
+  대입, `sys.modules[__name__].API_ROOT = …`처럼 수신자를 모르는 같은 이름의 속성 대입이 없고, `globals()`·모듈 수준
+  `vars()`·`locals()`를 부르지 않는 모듈), 값이 하나인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수. 보간은
+  세그먼트 전체를 채울 때만 `{}`이고 아니면 `dynamic`과 마스킹한 `channelPrefix`다(`channel`은 null이라 URL 원문이 도구
+  밖으로 나가지 않는다). host가 리터럴이면 `root`와 `authority`, host가 값이거나 base를 모르면 `base`다.
 - **래퍼**(`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` 항목. `owner`는 메서드·생성자(`name: "__init__"`,
   데이터 클래스 포함)면 pythograph 클래스 id(`api/client.py#Gateway`), 모듈 함수면 모듈 경로(`api/net.py`)다. `label`은 키워드
   인자, `index`는 위치 인자(수신자 제외)다. 모르는 필드·잘못된 항목은 64로 끝나고, 아무것도 맞지 않는 선언은
