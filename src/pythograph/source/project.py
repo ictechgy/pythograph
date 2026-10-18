@@ -2,7 +2,8 @@
 
 불변 조건:
 - 분석 대상 코드는 import하거나 실행하지 않는다. 표준 라이브러리 `ast.parse`로만 읽는다.
-- 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 건너뛴 것은 센다.
+- 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 순회에서는 따라갔다면 읽었을 소스를
+  가릴 수 있는 링크만 세고, 이름 해석·선언 파일 읽기에서 만난 링크는 모두 센다.
 - 파일 크기·순회 항목 수·깊이에 상한을 둔다. 넘거나 읽지 못한 파일은 실패로 기록해 한계로 남긴다.
 - 경로는 모두 프로젝트 상대 POSIX 문자열로 다룬다. 절대 경로를 출력·오류 문구에 싣지 않는다.
 - 경로는 사실의 위치와 심볼 id가 되므로, 교환 형식이 쓸 수 없는 이름(UTF-8이 아님, 계약 금지 문자)의 파일은
@@ -178,7 +179,7 @@ class Project:
     def _visit(
         self, entry: os.DirEntry[str], directory: str, depth: int, pending: list[tuple[str, int]], found: list[str]
     ) -> None:
-        """순회 항목 하나를 분류한다.
+        """순회 항목 하나를 분류한다. 링크는 따라가지 않고 소스를 가릴 수 있을 때만 센다(`_link_may_hide_sources`).
 
         Args:
             entry: 디렉터리 항목.
@@ -189,10 +190,11 @@ class Project:
         """
         relative = PurePosixPath(directory, entry.name).as_posix()
         if _is_link(entry.stat(follow_symlinks=False)):
-            self._record_link(relative)
+            if _link_may_hide_sources(entry):
+                self._record_link(relative)
             return
         if entry.is_dir(follow_symlinks=False):
-            if entry.name.startswith(".") or entry.name in SKIPPED_DIRECTORIES:
+            if _is_skipped_directory(entry.name):
                 return
             if depth + 1 > MAX_SCAN_DEPTH:
                 self.scan_capped = True
@@ -467,6 +469,40 @@ def _inside(relative: str) -> bool:
         and not PurePosixPath(relative).is_absolute()
         and not PureWindowsPath(relative).drive
     )
+
+
+def _is_skipped_directory(name: str) -> bool:
+    """순회가 들어가지 않는 디렉터리 이름(점 이름, 가상 환경·캐시·빌드 산출물·의존성)인지 판정한다.
+
+    Args:
+        name: 디렉터리 항목 이름.
+
+    Returns:
+        건너뛰면 True.
+    """
+    return name.startswith(".") or name in SKIPPED_DIRECTORIES
+
+
+def _link_may_hide_sources(entry: os.DirEntry[str]) -> bool:
+    """링크를 따라갔다면 순회가 읽었을 소스를 가리는지 판정한다. 대상 종류만 보고 들어가지는 않는다.
+
+    순회가 들어갔을 이름의 디렉터리를 가리키거나, 이름이 `.py`인(끊어진 링크 포함) 링크만 소스를 가린다. `CLAUDE.md`·
+    `README.md`·`.venv`처럼 소스와 무관한 링크까지 세면 링크 하나가 문서 전체 커버리지 한계가 되어 진단을 묻고 닫힌 세계
+    `bound` 증명을 막는다. 대상 종류를 확인하지 못하면(권한·순환 링크) 가린다고 본다(과소 신고보다 안전하다).
+
+    Args:
+        entry: 링크인 디렉터리 항목.
+
+    Returns:
+        소스를 가릴 수 있으면 True.
+    """
+    try:
+        points_to_directory = entry.is_dir(follow_symlinks=True)
+    except OSError:
+        return True
+    if points_to_directory:
+        return not _is_skipped_directory(entry.name)
+    return entry.name.endswith(".py")
 
 
 def _is_link(info: os.stat_result) -> bool:

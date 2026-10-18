@@ -96,6 +96,80 @@ def test_linked_manifests_do_not_supply_framework_versions(
     assert project.skipped_links == 1
 
 
+def test_links_that_cannot_hide_sources_are_not_counted(make_project: MakeProject, tmp_path: Path) -> None:
+    """따라갔어도 순회가 읽지 않았을 링크(소스가 아닌 파일, 점 이름·건너뛰는 디렉터리, 끊어진 비 `.py`)는 세지 않는다.
+
+    `CLAUDE.md -> AGENTS.md`·`README.md -> docs/README.md`·`.venv` 같은 링크 하나가 문서 전체 커버리지 한계가 되어
+    서버 측 진단을 경고로 묻고 닫힌 세계 `bound` 증명을 막았다.
+    """
+    root = make_project({"app.py": "x = 1\n", "AGENTS.md": "notes\n", "docs/README.md": "readme\n"})
+    outside = tmp_path / "outside"
+    (outside / "lib").mkdir(parents=True)
+    (outside / "lib" / "mod.py").write_text("value = 'outside-only'\n")
+    (root / "CLAUDE.md").symlink_to("AGENTS.md")
+    (root / "README.md").symlink_to("docs/README.md")
+    (root / ".venv").symlink_to(outside, target_is_directory=True)
+    (root / "venv").symlink_to(outside, target_is_directory=True)
+    (root / "notes.txt").symlink_to("missing.txt")
+    project = Project.open(root)
+    assert project.python_files() == ["app.py"]
+    assert project.skipped_links == 0
+
+
+@pytest.mark.parametrize(
+    ("link", "target"),
+    [
+        ("pkg_link", "pkg"),
+        ("mod.py", "other.py"),
+        ("gone.py", "missing.py"),
+        (".hidden.py", "other.py"),
+        ("loop", "loop"),
+    ],
+)
+def test_links_that_may_hide_sources_are_counted(make_project: MakeProject, link: str, target: str) -> None:
+    """들어갔을 디렉터리를 가리키거나 `.py` 이름(끊어진 링크 포함)인 링크는 따라가지 않고 한 번 센다.
+
+    점으로 시작하는 `.py` 파일도 순회가 읽으므로 그 이름의 파일 링크는 센다. 대상 종류를 알 수 없는 순환 링크도 센다.
+    """
+    root = make_project({"pkg/__init__.py": "", "other.py": "x = 1\n"})
+    (root / link).symlink_to(target, target_is_directory=target == "pkg")
+    project = Project.open(root)
+    assert project.python_files() == ["other.py", "pkg/__init__.py"]
+    assert project.skipped_links == 1
+
+
+@pytest.mark.parametrize("hiding", [False, True])
+def test_only_links_that_may_hide_sources_limit_documents(
+    make_project: MakeProject, tmp_path: Path, hiding: bool
+) -> None:
+    """소스와 무관한 링크만 있으면 routes·schema·graph에 링크 한계가 없고 graph `scanIncomplete`도 거짓이다."""
+    root = make_project(
+        {
+            "manage.py": "import os\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'shop.settings')\n",
+            "shop/__init__.py": "",
+            "shop/settings.py": "ROOT_URLCONF = 'shop.urls'\nINSTALLED_APPS = []\n",
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\nurlpatterns = [path('ok/', index)]\n"
+            ),
+            "shop/views.py": "def index(request):\n    pass\n",
+            "AGENTS.md": "notes\n",
+            "docs/README.md": "readme\n",
+        }
+    )
+    (root / "CLAUDE.md").symlink_to("AGENTS.md")
+    (root / "README.md").symlink_to("docs/README.md")
+    (root / ".venv").symlink_to(tmp_path, target_is_directory=True)
+    if hiding:
+        (root / "shop_link").symlink_to("shop", target_is_directory=True)
+    documents = [
+        json.loads(run_cli([*command, "--project", str(root)])[1])
+        for command in (["routes", "--role", "server"], ["schema"], ["graph"])
+    ]
+    for document in documents:
+        assert any("symbolic links" in text for text in document["limitations"]) is hiding, document["limitations"]
+    assert documents[2]["statistics"]["boundDispatch"]["scanIncomplete"] is hiding
+
+
 @pytest.mark.parametrize(
     "relative", ["../outside/app.py", "/app.py", "C:/app.py", "C:app.py", "a\\app.py", "bad\x00.py"]
 )
