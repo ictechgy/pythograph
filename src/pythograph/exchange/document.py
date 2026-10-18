@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pythograph.exchange.scope import scope_problem
-from pythograph.routes.model import Extraction, Gap, RouteDecl, ScopeRange
+from pythograph.routes.model import Extraction, Gap, ParamConstraint, RouteDecl, ScopeRange
+from pythograph.source.text import is_contract_safe
 
 #: 문서 하나에 담는 최대 사실 수다(isthmus 입력 상한).
 MAX_FACTS = 100_000
@@ -33,6 +34,14 @@ MAX_SCOPES = 1000
 
 class DocumentLimitError(Exception):
     """사실 수나 출력 길이가 isthmus 상한을 넘었다. 원인과 해결 방향을 메시지에 담는다."""
+
+
+class DocumentEncodingError(DocumentLimitError):
+    """직렬화한 문서를 UTF-8로 쓸 수 없다(짝 없는 서러게이트).
+
+    상한 초과와 같은 입력 오류(종료 2)로 다루되 원인을 따로 밝힌다. 그대로 두면 출력 쓰기의 UnicodeEncodeError가
+    원인과 무관한 "출력 대상을 확인하라" 안내로 끝난다.
+    """
 
 
 @dataclass(frozen=True)
@@ -121,6 +130,7 @@ def encode_document(document: dict[str, object]) -> str:
 
     Raises:
         DocumentLimitError: 출력이 isthmus 입력 상한을 넘을 때.
+        DocumentEncodingError: UTF-8로 쓸 수 없는 문자가 있을 때.
     """
     text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if len(text) > MAX_OUTPUT_LENGTH:
@@ -128,7 +138,31 @@ def encode_document(document: dict[str, object]) -> str:
             f"the output document would exceed {MAX_OUTPUT_LENGTH} characters, which isthmus rejects; "
             "scan a smaller project root."
         )
+    check_encodable(text)
     return text
+
+
+def check_encodable(text: str) -> None:
+    """직렬화한 문서를 UTF-8로 쓸 수 있는지 확인한다.
+
+    짝 없는 서러게이트는 `ensure_ascii=False` 직렬화를 통과하지만 출력 쓰기에서 실패하고 isthmus도 거부한다.
+    ASCII 문서는 서러게이트를 담을 수 없으므로 인코딩해 보지 않는다(큰 스냅샷의 바이트 사본을 만들지 않는다).
+
+    Args:
+        text: 직렬화한 문서.
+
+    Raises:
+        DocumentEncodingError: UTF-8로 쓸 수 없을 때.
+    """
+    if text.isascii():
+        return
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise DocumentEncodingError(
+            "the output document contains an unpaired surrogate (U+D800-U+DFFF), which UTF-8 cannot encode; "
+            "please report it with the command line."
+        ) from error
 
 
 def _fact_json(decl: RouteDecl, service: str | None) -> dict[str, object]:
@@ -156,20 +190,32 @@ def _fact_json(decl: RouteDecl, service: str | None) -> dict[str, object]:
         "trailingSlash": None if shape.dynamic else shape.trailing_slash,
         "paramConstraints": None
         if shape.dynamic or not shape.constraints
-        else [
-            {
-                key: value
-                for key, value in (("segment", item.segment), ("kind", item.kind), ("pattern", item.pattern))
-                if value is not None
-            }
-            for item in shape.constraints
-        ],
+        else [_constraint_json(item) for item in shape.constraints],
         "catchAllPrefix": True if shape.catch_all_prefix and decl.usr is not None else None,
         "testSource": True if decl.test_source else None,
         "order": None if decl.order is None else {"group": decl.order.group, "index": decl.order.index},
     }
     fact.update({key: value for key, value in optional.items() if value is not None})
     return fact
+
+
+def _constraint_json(constraint: ParamConstraint) -> dict[str, object]:
+    """경로 제약 하나를 `paramConstraints` 원소로 바꾼다.
+
+    `pattern`은 regex 전용 정보 필드라(GRAPH-EXCHANGE) 빼도 판정이 바뀌지 않는다. 계약이 금지하는 문자가 든 정규식
+    원문은 그 키만 빼고 싣는다. 그대로 실으면 소비자가 문서 전체를 거부하고, 짝 없는 서러게이트는 출력 쓰기부터
+    실패한다.
+
+    Args:
+        constraint: 경로 제약.
+
+    Returns:
+        `{segment, kind, pattern?}` dict.
+    """
+    entry: dict[str, object] = {"segment": constraint.segment, "kind": constraint.kind}
+    if constraint.pattern is not None and is_contract_safe(constraint.pattern):
+        entry["pattern"] = constraint.pattern
+    return entry
 
 
 def _symbol_json(decl: RouteDecl) -> dict[str, str]:

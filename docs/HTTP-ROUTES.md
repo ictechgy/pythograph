@@ -78,6 +78,8 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
 - **paramConstraints**: `X+` 모양에서 X가 받는 ASCII 문자 집합이 숫자면 `int`, `[-A-Za-z0-9_]`면 `slug`,
   `/`를 뺀 전부면 제약 없음(싣지 않음), 알려진 UUID 정규식이면 `uuid`, `{**}`는 `path`(정보용), 그 밖은 `regex`와
   원문 `pattern`이다. ASCII 밖 문자는 요청에서 퍼센트 인코딩되어 소비자가 평가하지 않으므로 판별에서 뺀다.
+  원문에 교환 형식이 금지하는 문자(제어 문자·U+2028/U+2029·짝 없는 서러게이트)가 있으면 `pattern`만 뺀다(소비자가
+  문서 전체를 거부하지 않도록). dynamic 사실의 원문 channel도 같은 문자가 있으면 null이다.
 - **trailingSlash**: 정적 템플릿은 `strict`(정확 매칭, `APPEND_SLASH`는 넘겨주기일 뿐이라 다른 형태는 핸들러에
   닿지 않는다), 끝 `/?`는 `optional`, `{**}`로 끝나면 생략(unknown)이다.
 - **method**: 함수 뷰 `ANY` 또는 장식자가 좁힌 동사, 클래스 뷰는 받는 핸들러 동사다. HEAD는 GET이 있으면

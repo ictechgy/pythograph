@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pythograph.routes.client.compose import HTTP_VERBS
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 선언 파일 최대 크기(바이트)다.
 MAX_WRAPPERS_BYTES = 4 * 1024 * 1024
@@ -50,9 +51,6 @@ _WRAPPER_FIELDS = frozenset(
 
 #: 계약이 받는 언어다(`python`은 pythograph가 더한다).
 _LANGUAGES = frozenset({"swift", "kotlin", "dart", "js", "python"})
-
-#: 제어 문자다.
-_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f  ]")
 
 #: 파이썬 모듈 경로 owner 모양이다.
 _MODULE_OWNER = re.compile(r"[^#\s]+\.py")
@@ -274,7 +272,7 @@ def _text(entry: dict[str, object], key: str, where: str) -> str:
         WrapperDeclarationError: 없거나 형식 위반.
     """
     value = entry.get(key)
-    if not isinstance(value, str) or not value or len(value) > 1024 or _CONTROL.search(value):
+    if not isinstance(value, str) or not value or len(value) > 1024 or FORBIDDEN_CHARACTERS.search(value):
         raise WrapperDeclarationError(f"{where}.{key} must be a non-empty string without control characters.")
     return value
 

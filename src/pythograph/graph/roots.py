@@ -8,18 +8,16 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import TextIO
+
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 계약의 root 상한이다.
 MAX_ROOTS = 10_000
 
 #: `--roots-from` 입력의 최대 크기(바이트·문자)다.
 MAX_ROOTS_INPUT = 16 * 1024 * 1024
-
-#: id에 올 수 없는 문자다(제어 문자, U+2028/2029, 짝 없는 서로게이트).
-FORBIDDEN_CHARACTERS = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
 
 
 class RootsError(Exception):

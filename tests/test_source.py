@@ -24,6 +24,7 @@ from pythograph.source.symbols import (
     absolute_module,
 )
 from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, exceeds_depth, parse_annotation
+from pythograph.source.text import is_contract_safe
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
 
@@ -238,6 +239,19 @@ def test_parse_annotation_turns_every_failure_into_none(monkeypatch: pytest.Monk
     assert isinstance(parse_annotation(flat), ast.Subscript)
     monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
     assert parse_annotation(flat) is None
+
+
+def test_contract_safe_text_rejects_every_forbidden_character() -> None:
+    """교환 형식이 식별자에 금지하는 문자(C0·C1 제어 문자와 NEL, U+2028/2029, 짝 없는 서러게이트)를 모두 거부한다.
+
+    같은 판정이 여러 곳에 따로 있어 서러게이트를 빠뜨린 사본이 있었다. 한 벌로 모은 판정이 모든 종류를 거르는지
+    고정한다.
+    """
+    for character in ("\x00", "\x1b", "\x1f", "\x7f", "\x85", "\x9f", "\u2028", "\u2029", "\ud800", "\udfff"):
+        assert not is_contract_safe(f"app/m{character}.py"), ascii(character)
+    assert not is_contract_safe("")
+    for text in ("app/views.py#index", "caf\u00e9\u00a0x", "emoji\U0001f600", "\ue000\u200b"):
+        assert is_contract_safe(text), ascii(text)
 
 
 def test_test_path_rules() -> None:

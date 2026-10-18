@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -298,3 +299,25 @@ def test_glm_review_regressions(make_project: Callable[[dict[str, str]], Path]) 
     assert document["limitationScopes"] == [
         {"limitationIndex": 0, "methods": ["GET", "HEAD"], "templatePrefixes": ["/assets"]}
     ]
+
+
+def test_dynamic_rule_with_unpaired_surrogate_has_no_channel(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """짝 없는 서러게이트가 든 dynamic 규칙은 channel 없이 내고, 문서는 UTF-8로 쓸 수 있다.
+
+    원문을 channel에 그대로 실어 출력 쓰기가 UnicodeEncodeError로 실패하고 종료 2·빈 출력으로 끝나던 회귀다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": (
+                "from flask import Flask\napp = Flask(__name__, static_folder=None)\n"
+                '@app.route("/\\udc00/<path:rest>/tail/<path:more>")\n'
+                "def view(rest, more):\n    pass\n"
+                '@app.route("/ok")\n'
+                "def ok():\n    pass\n"
+            ),
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/ok", False, "app.py#ok"), ("GET", None, True, "app.py#view")}
+    json.dumps(document, ensure_ascii=False).encode("utf-8")

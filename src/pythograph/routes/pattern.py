@@ -21,6 +21,7 @@ from typing import Any
 
 from pythograph.exchange.template import MAX_TEMPLATE_LENGTH, encode_decoded_literal, template_problem
 from pythograph.routes.model import ParamConstraint, RouteShape
+from pythograph.source.text import is_contract_safe
 
 if sys.version_info >= (3, 11):  # pragma: no cover - 실행 중인 파이썬 버전에 따라 한쪽만 탄다.
     import re._parser as _sre_parse
@@ -719,7 +720,8 @@ def skeleton_shapes(alternatives: list[Skeleton], *, raw: str | None, trailing_p
 
 
 def dynamic_shape(raw: str | None, reason: str) -> RouteShape:
-    """dynamic 판정을 만든다. 원문은 길이 상한과 제어 문자를 검사해 싣는다.
+    """dynamic 판정을 만든다. 원문은 길이 상한과 계약이 금지하는 문자(제어 문자·U+2028/2029·짝 없는 서러게이트)를
+    검사해 싣는다.
 
     Args:
         raw: 원문 표현.
@@ -728,22 +730,8 @@ def dynamic_shape(raw: str | None, reason: str) -> RouteShape:
     Returns:
         dynamic 판정.
     """
-    safe = raw if raw is not None and len(raw) <= MAX_TEMPLATE_LENGTH and _is_safe_text(raw) else None
+    safe = raw if raw is not None and len(raw) <= MAX_TEMPLATE_LENGTH and is_contract_safe(raw) else None
     return RouteShape(channel=safe, dynamic=True, coverage_reason=reason)
-
-
-def _is_safe_text(text: str) -> bool:
-    """문자열에 계약이 금지하는 제어 문자가 없는지 확인한다.
-
-    Args:
-        text: 검사할 문자열.
-
-    Returns:
-        안전하면 True.
-    """
-    return bool(text) and not any(
-        ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F or character in "  " for character in text
-    )
 
 
 def _with_empty_variants(alternatives: list[Skeleton]) -> list[Skeleton]:

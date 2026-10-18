@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -537,6 +538,37 @@ def test_deeply_nested_regex_route_is_dynamic(make_project: Callable[[dict[str, 
     assert isinstance(limitations, list)
     reason = "the regular expression nests too deeply"
     assert f"route-coverage: 1 URL patterns are emitted as dynamic: {reason}" in limitations
+
+
+def test_forbidden_regex_text_never_reaches_the_document(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """정규식 원문의 제어 문자·짝 없는 서러게이트는 `pattern`과 dynamic channel에 싣지 않는다.
+
+    제어 문자가 든 `pattern`은 isthmus가 문서 전체를 거부했고, 서러게이트는 출력 쓰기가 UnicodeEncodeError로 실패해
+    종료 2·빈 출력이었다(테스트 출력 스트림은 인코딩하지 않으므로 직렬화 결과를 직접 UTF-8로 인코딩해 본다).
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": (
+                "from django.urls import re_path\nfrom site_pkg import views\n"
+                "urlpatterns = [\n"
+                '    re_path("^items/(?P<code>[a-z\\x01]+)/$", views.a),\n'
+                '    re_path("^codes/(?P<code>[a-z\\ud800]+)/$", views.a),\n'
+                '    re_path("^orders/(?=x)\\ud800/$", views.a),\n'
+                "]\n"
+            ),
+            "site_pkg/views.py": "def a(request, code=None):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    assert [(fact["channel"], fact["dynamic"], fact.get("paramConstraints")) for fact in facts] == [
+        (None, True, None),
+        ("/codes/{}/", False, [{"kind": "regex", "segment": 1}]),
+        ("/items/{}/", False, [{"kind": "regex", "segment": 1}]),
+    ]
+    json.dumps(document, ensure_ascii=False).encode("utf-8")
 
 
 def test_include_tests_marks_test_sources(make_project: Callable[[dict[str, str]], Path]) -> None:

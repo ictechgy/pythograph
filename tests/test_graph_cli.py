@@ -326,6 +326,22 @@ def test_oversized_output_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "isthmus rejects" in err
 
 
+def test_unencodable_snapshot_reports_its_cause(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UTF-8로 쓸 수 없는 스냅샷은 크기 상한 안내로 바꾸지 않고 원인(짝 없는 서러게이트)을 밝혀 2로 끝난다."""
+    original = graph_commands.build_graph_document
+
+    def with_surrogate(*arguments: object) -> dict[str, object]:
+        """정상 스냅샷에 짝 없는 서러게이트를 하나 넣는다."""
+        document = original(*arguments)  # type: ignore[arg-type]
+        document["project"] = "/\udc00"
+        return document
+
+    monkeypatch.setattr(graph_commands, "build_graph_document", with_surrogate)
+    code, out, err = run_cli(["graph", "--project", RESOLUTION, *COMMON])
+    assert (code, out) == (2, "")
+    assert "unpaired surrogate" in err and "exceed" not in err
+
+
 def test_large_snapshot_exceeds_isthmus_cap_but_is_written() -> None:
     """합성 대형 그래프(16 Mi 문자 초과) 스냅샷도 쓴다. 보통 크기의 스냅샷은 순회 문서와 같은 직렬화로 바이트가 같다."""
     from datetime import datetime, timezone

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TextIO
 
 from pythograph import __version__
-from pythograph.cli.common import FORBIDDEN, InputError, UsageError, parse_timestamp, resolve_project
+from pythograph.cli.common import InputError, UsageError, parse_timestamp, resolve_project
 from pythograph.cli.graph_commands import (
     GRAPH_USAGE,
     IMPACT_USAGE,
@@ -33,6 +33,7 @@ from pythograph.routes.client.extract import ClientOptions, extract_client_calls
 from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 성공 종료 코드다.
 EXIT_OK = 0
@@ -509,7 +510,7 @@ def _service(value: str | None) -> str | None:
     Raises:
         UsageError: 길이·문자 위반.
     """
-    if value is not None and (len(value) > MAX_SERVICE_LENGTH or FORBIDDEN.search(value)):
+    if value is not None and (len(value) > MAX_SERVICE_LENGTH or FORBIDDEN_CHARACTERS.search(value)):
         raise UsageError(f"--service must be 1-{MAX_SERVICE_LENGTH} characters without control characters.")
     return value
 

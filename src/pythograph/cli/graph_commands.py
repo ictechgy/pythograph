@@ -16,7 +16,7 @@ from typing import TextIO
 
 from pythograph import __version__
 from pythograph.cli.common import InputError, UsageError, parse_timestamp, resolve_project
-from pythograph.exchange.document import DocumentLimitError, encode_document
+from pythograph.exchange.document import DocumentEncodingError, DocumentLimitError, encode_document
 from pythograph.graph.build import build_graph
 from pythograph.graph.document import (
     MAX_SNAPSHOT_LENGTH,
@@ -28,7 +28,7 @@ from pythograph.graph.document import (
 )
 from pythograph.graph.model import DISPATCH_MODES, CallGraph
 from pythograph.graph.revision import git_revision
-from pythograph.graph.roots import FORBIDDEN_CHARACTERS, RootsError, collect_roots
+from pythograph.graph.roots import RootsError, collect_roots
 from pythograph.graph.traversal import (
     MAX_REACHED,
     MAX_TRAVERSAL_DEPTH,
@@ -37,6 +37,7 @@ from pythograph.graph.traversal import (
     traverse,
 )
 from pythograph.source.project import Project
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 GRAPH_USAGE = """Usage: pythograph graph --project <root> [--include-tests] [--revision <id>]
                         [--generated-at <timestamp>] [--format json]
@@ -229,6 +230,9 @@ def run_graph(arguments: list[str]) -> str:
     graph = build_graph(Project.open(root), "--include-tests" in line.flags)
     try:
         return encode_snapshot(build_graph_document(header, graph))
+    except DocumentEncodingError as error:
+        # 인코딩 실패는 크기 문제가 아니므로 원인 문구를 그대로 낸다.
+        raise InputError(str(error)) from error
     except DocumentLimitError as error:
         # 스냅샷은 isthmus 입력이 아니므로 상한만 알리고, isthmus가 받는 순회 문서(reach·impact)를 안내한다.
         raise InputError(

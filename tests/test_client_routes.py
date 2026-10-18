@@ -727,6 +727,15 @@ def test_invalid_wrapper_files_exit_64(make_project: MakeProject, tmp_path: Path
         {"kind": "function", "owner": "a.py", "name": "f", "pathArg": {"index": 0}, "methodEnum": []},
         {"kind": "function", "owner": "a.py", "name": "", "pathArg": {"index": 0}, "defaultMethod": "GET"},
         {"kind": "method", "owner": "a.py", "name": "f", "pathArg": {"index": 0}, "defaultMethod": "GET"},
+        # service는 사실마다 실리므로 짝 없는 서러게이트도 제어 문자처럼 거부한다(출력 쓰기가 실패했다).
+        {
+            "kind": "function",
+            "owner": "a.py",
+            "name": "f",
+            "pathArg": {"index": 0},
+            "defaultMethod": "GET",
+            "service": "\ud800",
+        },
     ],
 )
 def test_invalid_wrapper_entries_exit_64(make_project: MakeProject, tmp_path: Path, entry: dict[str, object]) -> None:

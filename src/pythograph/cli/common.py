@@ -10,8 +10,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-#: 계약이 금지하는 식별자 문자다(제어 문자, U+2028/2029, UTF-8로 쓸 수 없는 짝 없는 서로게이트).
-FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: `--generated-at` 형식이다.
 TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
@@ -68,6 +67,6 @@ def resolve_project(argument: str) -> Path:
         is_directory = False
     if not is_directory:
         raise InputError("--project does not name a readable directory; pass the project root.")
-    if FORBIDDEN.search(root.as_posix()):
+    if FORBIDDEN_CHARACTERS.search(root.as_posix()):
         raise InputError("the project path contains characters the exchange format forbids; rename or move it.")
     return root

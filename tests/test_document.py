@@ -10,12 +10,15 @@ import pytest
 
 from pythograph.exchange.document import (
     MAX_FACTS,
+    DocumentEncodingError,
     DocumentHeader,
     DocumentLimitError,
     build_document,
+    encode_document,
     format_timestamp,
 )
-from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape, ScopeRange
+from pythograph.graph.document import encode_snapshot
+from pythograph.routes.model import Extraction, Location, ParamConstraint, RouteDecl, RouteShape, ScopeRange
 from pythograph.routes.versions import declared_majors, spec_major, version_gap
 from pythograph.source.project import Project
 
@@ -67,6 +70,34 @@ def test_catch_all_prefix_requires_usr() -> None:
     without = RouteDecl("POST", shape, "root", Location("a.py", 1, 1), "f", None)
     facts = build_document(HEADER, Extraction(decls=[with_usr, without]))["facts"]
     assert [fact.get("catchAllPrefix") for fact in facts] == [True, None]  # type: ignore[union-attr]
+
+
+def test_regex_pattern_with_forbidden_characters_is_omitted() -> None:
+    """`pattern`(regex 전용 정보 필드)에 계약이 금지하는 문자가 있으면 그 키만 빼고 세그먼트·종류는 싣는다.
+
+    제어 문자가 든 `pattern`은 isthmus가 문서 전체를 거부했고, 짝 없는 서러게이트는 출력 쓰기부터 실패했다.
+    """
+
+    def constraints(pattern: str) -> object:
+        """정규식 제약 하나를 가진 선언의 `paramConstraints`를 돌려준다."""
+        shape = RouteShape("/items/{}/", False, "strict", (ParamConstraint(1, "regex", pattern),))
+        decl = RouteDecl("GET", shape, "root", Location("urls.py", 1, 1), "urls.py#view", "urls.py#view")
+        facts = build_document(HEADER, Extraction(decls=[decl]))["facts"]
+        assert isinstance(facts, list)
+        return facts[0]["paramConstraints"]
+
+    assert constraints("[a-z]+") == [{"kind": "regex", "pattern": "[a-z]+", "segment": 1}]
+    for pattern in ("[a-z\x01]+", "[a-z\x85]+", "[a-z\u2028]+", "[a-z\ud800]+"):
+        assert constraints(pattern) == [{"kind": "regex", "segment": 1}], ascii(pattern)
+
+
+def test_unencodable_document_reports_its_cause() -> None:
+    """짝 없는 서러게이트가 든 문서는 출력 쓰기의 "출력 대상" 오류 대신 원인을 밝힌 DocumentLimitError(종료 2)다."""
+    for encode in (encode_document, encode_snapshot):
+        with pytest.raises(DocumentEncodingError, match="unpaired surrogate") as caught:
+            encode({"facts": [{"channel": "/\udc00"}]})
+        assert isinstance(caught.value, DocumentLimitError)
+        assert encode({"channel": "/caf\u00e9\U0001f600"}).endswith("\n")
 
 
 def test_format_timestamp_converts_to_utc() -> None:

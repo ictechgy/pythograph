@@ -93,7 +93,8 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
   UTF-8로 퍼센트 인코딩하고 `%`는 `%25`가 된다.
 - **method**: 대문자 동사 또는 `ANY`. GET 옆의 HEAD와 자동 OPTIONS는 내지 않는다(isthmus `head-as-get`·
   `options-any`가 맞춘다). 명시한 OPTIONS는 낸다.
-- **paramConstraints**: `int`·`slug`·`uuid`·`path`(`{**}`)·`regex`(원문 포함).
+- **paramConstraints**: `int`·`slug`·`uuid`·`path`(`{**}`)·`regex`(원문 포함). 정보 필드인 `pattern`은 정규식
+  원문에 교환 형식이 금지하는 문자(제어 문자·U+2028/U+2029·짝 없는 서러게이트)가 있으면 뺀다.
 - **trailingSlash**: Django와 strict Flask 규칙은 `strict`, 정규식의 `/?`와 Flask `strict_slashes=False`는
   `optional`, `{**}` 뒤는 생략.
 - **order**(Django): `{group: "django:<ROOT_URLCONF>", index: <깊이 우선 순번>}`.

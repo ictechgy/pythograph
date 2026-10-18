@@ -177,8 +177,13 @@ def test_capture_group_texts_skip_classes_and_escapes() -> None:
 
 
 def test_dynamic_shape_hides_unsafe_raw_text() -> None:
-    """dynamic 원문은 제어 문자나 길이 초과면 싣지 않는다."""
+    """dynamic 원문은 계약이 금지하는 문자(제어 문자·NEL·U+2028/2029·짝 없는 서러게이트)나 길이 초과면 싣지 않는다.
+
+    서러게이트를 실으면 출력 쓰기가 UnicodeEncodeError로 실패해 문서 전체가 사라졌다.
+    """
     assert dynamic_shape("a\nb", "x").channel is None
+    assert dynamic_shape("/a\x85b\u2028", "x").channel is None
+    assert dynamic_shape("/\udc00/<path:rest>", "x").channel is None
     assert dynamic_shape("x" * 3000, "x").channel is None
     assert dynamic_shape("/ok", "x").channel == "/ok"
 
