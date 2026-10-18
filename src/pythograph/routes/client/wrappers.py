@@ -24,7 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pythograph.routes.client.compose import HTTP_VERBS
+from pythograph.exchange.methods import HTTP_METHODS
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 선언 파일 최대 크기(바이트)다.
@@ -314,7 +314,7 @@ def _verb(value: object, where: str) -> str:
     Raises:
         WrapperDeclarationError: 계약 동사가 아닐 때.
     """
-    if not isinstance(value, str) or value not in HTTP_VERBS:
+    if not isinstance(value, str) or value not in HTTP_METHODS:
         raise WrapperDeclarationError(f"{where} must be an upper-case HTTP verb such as GET.")
     return value
 
@@ -407,7 +407,7 @@ def bind_method(
         return None
     value = token(argument.value)
     if value.kind == "literal":
-        return value.text if value.text in HTTP_VERBS else None
+        return value.text if value.text in HTTP_METHODS else None
     if value.kind == "enum":
         return declaration.method_enum.get(value.text)
     return None

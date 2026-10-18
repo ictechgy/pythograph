@@ -6,7 +6,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import FIXTURES, fact_rows, facts_for, routes_document
+from pythograph.exchange.order import order_problem
+from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
 
 #: 합성 Django 프로젝트의 기본 파일이다.
 BASE = {
@@ -588,3 +589,74 @@ def test_include_tests_marks_test_sources(make_project: Callable[[dict[str, str]
     included = routes_document(root, "--include-tests")
     assert included["sourceSets"] == {"tests": "included"}
     assert [fact.get("testSource") for fact in included["facts"]] == [True]  # type: ignore[union-attr]
+
+
+def test_methods_outside_the_contract_are_not_emitted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """계약 동사 집합 밖 method는 decl로 내지 않고 그 패턴 템플릿 스코프의 `route-coverage:`로 센다.
+
+    `http_method_names`·직접 연결 viewset·`require_http_methods`·DRF `@action(methods=…)`의 `purge`를 대문자로만
+    바꿔 `PURGE` decl을 내 isthmus가 문서 전체를 거부하던 회귀다. 사실을 하나도 내지 않은 등록의 순번은 비어도
+    된다(GRAPH-EXCHANGE "디스패치 모델": index는 연속일 필요가 없다).
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.urls import include, path
+            from rest_framework.routers import SimpleRouter
+            from site_pkg import views
+            router = SimpleRouter()
+            router.register("notes", views.Notes, basename="note")
+            urlpatterns = [
+                path("cache/", views.Cache.as_view()),
+                path("only/", views.Only.as_view()),
+                path("things/<int:pk>/", views.Things.as_view({"get": "retrieve", "purge": "purge"})),
+                path("fn/", views.fn),
+                path("api/", include(router.urls)),
+            ]
+        """,
+            "site_pkg/views.py": """
+            from django.views import View
+            from django.views.decorators.http import require_http_methods
+            from rest_framework import mixins, viewsets
+            from rest_framework.decorators import action
+            class Cache(View):
+                http_method_names = ["get", "purge"]
+                def get(self, request):
+                    pass
+                def purge(self, request):
+                    pass
+            class Only(View):
+                http_method_names = ["purge"]
+                def purge(self, request):
+                    pass
+            class Things(viewsets.ViewSet):
+                def retrieve(self, request, pk):
+                    pass
+                def purge(self, request, pk):
+                    pass
+            @require_http_methods(["GET", "PURGE"])
+            def fn(request):
+                pass
+            class Notes(mixins.ListModelMixin, viewsets.GenericViewSet):
+                @action(detail=False, methods=["purge"])
+                def flush(self, request):
+                    pass
+        """,
+        },
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/cache/", False, "site_pkg/views.py#Cache.get"),
+        ("GET", "/things/{}/", False, "site_pkg/views.py#Things.retrieve"),
+        ("GET", "/fn/", False, "site_pkg/views.py#fn"),
+        ("GET", "/api/notes/", False, "site_pkg/views.py#Notes.list"),
+    }
+    assert {fact["method"] for fact in document["facts"]} <= ROUTE_DECL_METHODS  # type: ignore[union-attr]
+    assert order_problem(document) is None
+    message = (
+        "route-coverage: 1 route registrations accept HTTP methods the exchange format does not allow; "
+        "declarations for those methods were not emitted"
+    )
+    templates = [scope.get("templates") for sentence, scope in scoped_limitations(document) if sentence == message]
+    assert templates == [["/api/notes/flush/"], ["/cache/"], ["/fn/"], ["/only/"], ["/things/{}/"]]

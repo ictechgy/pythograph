@@ -132,7 +132,10 @@ Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-
   regular expressions) is `dynamic` with a `route-coverage:` limitation. Literals are in the decoded path
   space, so non-pchar characters are UTF-8 percent-encoded and `%` becomes `%25`.
 - **method**: uppercase verbs or `ANY`. `HEAD` next to `GET` and automatic `OPTIONS` are not emitted (isthmus
-  matches them with `head-as-get` and `options-any`); an explicitly declared `OPTIONS` is.
+  matches them with `head-as-get` and `options-any`); an explicitly declared `OPTIONS` is. Verbs outside the
+  exchange method set (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`), such as `PURGE` in
+  Flask `methods` or Django `http_method_names`, are not emitted and not turned into `ANY`; the registration gets
+  a `route-coverage:` limitation scoped to its templates when they are proven.
 - **paramConstraints**: `int`, `slug`, `uuid`, `path` (for `{**}`), or `regex` with the pattern. The
   informational `pattern` is left out when the regular expression text contains characters the exchange format
   forbids (control characters, U+2028/U+2029, or an unpaired surrogate).

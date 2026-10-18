@@ -84,6 +84,8 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
   닿지 않는다), 끝 `/?`는 `optional`, `{**}`로 끝나면 생략(unknown)이다.
 - **method**: 함수 뷰 `ANY` 또는 장식자가 좁힌 동사, 클래스 뷰는 받는 핸들러 동사다. HEAD는 GET이 있으면
   내지 않고(소비자 `head-as-get`), 클래스 뷰의 자동 OPTIONS도 내지 않는다(`options-any`). 명시한 OPTIONS는 낸다.
+  계약 동사 집합(`GET`·`HEAD`·`POST`·`PUT`·`PATCH`·`DELETE`·`OPTIONS`·`TRACE`) 밖 동사(`http_method_names`·viewset
+  매핑·장식자 인자의 `purge` 등)는 decl로 내지 않고 한계로 센다(아래 [한계와 스코프](#한계와-스코프)).
 - **order**: `dispatch: "registration-order"` 문서의 사실마다 `{group: "django:<ROOT_URLCONF>", index: <깊이 우선
   순번>}`이다. 한 패턴에서 나온 사실(method·펼친 템플릿)은 같은 순번이다. 앞 패턴이 뒤 패턴을 가려도 둘 다
   선언으로 낸다(가림 판정은 소비자의 `route-decl-shadowed` 몫이다).
@@ -134,7 +136,8 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 - trailingSlash: 규칙 옵션 → `url_map.strict_slashes` 대입 → 기본 True 순서로 정한 값이 True면 `strict`, False면
   `optional`, 리터럴이 아니면 생략이다. `{**}`로 끝나면 생략한다.
 - method: 선언한 동사에서 GET이 있으면 HEAD를 빼고, 자동 OPTIONS는 목록에 없으므로 내지 않는다. 명시한
-  OPTIONS는 낸다(뷰가 직접 처리한다).
+  OPTIONS는 낸다(뷰가 직접 처리한다). 계약 동사 집합 밖 동사(`methods=["GET", "PURGE"]`의 `PURGE` 등)는 Django와
+  같이 decl로 내지 않고 한계로 센다.
 - `Flask(...)`·`Blueprint(...)`는 모듈 수준과 함수(앱 팩토리) 안 대입에서 찾고, 이름은 반복 변수(리터럴 목록을
   도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
   as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
@@ -157,6 +160,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | Flask 정적 파일 | `framework-provided-routes:` + `templatePrefixes: [static_url_path]`, `methods: ["GET", "HEAD"]` |
 | 라우트를 따로 등록하는 Flask 확장(flask_restful·flask_restx·flask_smorest·connexion·flask_appbuilder·flask_admin) import | `route-coverage:`(스코프 없음) |
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
+| 계약 동사 집합 밖 method(`PURGE`·`PROPFIND` 등: Flask `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action` 인자) | 그 method의 decl을 내지 않고 등록마다 `route-coverage:`. 템플릿을 확정한 root 앵커 등록이면 그 `templates` 스코프(스코프 `methods`에는 계약 동사만 쓸 수 있어 싣지 않는다), dynamic·base 앵커면 스코프 없음 |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |
 | i18n 접두사 | 그 아래 사실 `pathAnchor: "base"` |
 | 맨 앞 include 문자열이 리터럴이 아님(앞 조각이 빈 문자열·`re_path`의 `^`·언어 접두사뿐) | 그 조각을 떼고 하위 사실 `pathAnchor: "base"` + `unresolved-route-prefix:`. 앞에 리터럴 경로가 있으면 dynamic |
@@ -181,6 +185,9 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   빼면 거짓 error가 되므로, "있을 수 있음"을 템플릿 스코프 한계로 나타낸다.
 - **HEAD·자동 OPTIONS는 내지 않는다.** tsograph(Next.js)와 같은 결정이다. 소비자의 `head-as-get`·`options-any`가
   처리한다.
+- **계약 밖 동사는 `ANY`로 바꾸지 않는다.** isthmus는 route-decl `method`가 계약 동사나 `ANY`가 아니면 문서 전체를
+  입력 오류로 거부한다(GRAPH-EXCHANGE http 사실 절). `ANY`로 내면 그 핸들러가 받지 않는 GET·POST 호출까지 거짓
+  match가 되므로, 그 동사의 decl은 빼고 등록의 템플릿에 닿는 요청을 가릴 수 있다는 `route-coverage:`로 남긴다.
 - **WSGI 마운트 접두사(`SCRIPT_NAME`)는 모델링하지 않는다.** 배포 설정이라 저장소에서 알 수 없다. 설정 파일의
   `FORCE_SCRIPT_NAME`만 base 앵커로 반영한다.
 - **파이썬 3.10 이상.** Django 5.x가 3.10 이상을 요구하고, 분석 대상의 3.10 문법(`match` 문)을 파싱하려면 실행

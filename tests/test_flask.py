@@ -10,10 +10,16 @@ import pytest
 
 from pythograph.routes.flask.rules import parse_converter_arguments, rule_alternatives
 from pythograph.routes.pattern import Unconvertible
-from tests.conftest import FIXTURES, fact_rows, facts_for, routes_document
+from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
 
 #: 합성 Flask 프로젝트의 버전 선언이다.
 REQUIREMENTS = {"requirements.txt": "flask>=3.1,<4\n"}
+
+#: 계약 동사 집합 밖 method를 받는 등록의 한계 문장이다(`{count}` 자리).
+OUTSIDE_METHODS = (
+    "route-coverage: {count} route registrations accept HTTP methods the exchange format does not allow; "
+    "declarations for those methods were not emitted"
+)
 
 
 def test_fixture_is_specificity_with_static_scope() -> None:
@@ -321,3 +327,44 @@ def test_dynamic_rule_with_unpaired_surrogate_has_no_channel(make_project: Calla
     document = routes_document(root)
     assert fact_rows(document) == {("GET", "/ok", False, "app.py#ok"), ("GET", None, True, "app.py#view")}
     json.dumps(document, ensure_ascii=False).encode("utf-8")
+
+
+def test_methods_outside_the_contract_are_not_emitted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """계약 동사 집합 밖 method(`PURGE`·`PROPFIND`)는 decl로 내지 않고 그 규칙 템플릿 스코프의 `route-coverage:`로 센다.
+
+    `methods`의 임의 동사를 대문자로만 바꿔 decl로 내 isthmus가 서버 문서 전체를 입력 오류("Invalid route method")로
+    거부하던 회귀다. `ANY`로 바꾸면 그 핸들러가 받지 않는 method까지 거짓 match가 되므로 바꾸지 않는다. 템플릿을
+    증명하지 못한 규칙(dynamic·base 앵커)은 스코프 없이 센다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask, Blueprint
+        app = Flask(__name__, static_folder=None)
+        loose = Blueprint("loose", __name__)
+        @app.route("/cache/<key>", methods=["GET", "purge"])
+        def cache(key):
+            pass
+        @app.route("/dav/<any(a, b):part>", methods=["PROPFIND"])
+        def dav(part):
+            pass
+        @app.route(rule_name(), methods=["PURGE"])
+        def unknown_rule():
+            pass
+        @loose.route("/drop", methods=["PURGE"])
+        def drop():
+            pass
+        for bp in blueprints():
+            app.register_blueprint(bp)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/cache/{}", False, "app.py#cache")}
+    assert {fact["method"] for fact in document["facts"]} <= ROUTE_DECL_METHODS  # type: ignore[union-attr]
+    assert OUTSIDE_METHODS.format(count=2) in document["limitations"]  # type: ignore[operator]
+    assert scoped_limitations(document) == [
+        (OUTSIDE_METHODS.format(count=1), {"templates": ["/cache/{}"]}),
+        (OUTSIDE_METHODS.format(count=1), {"templates": ["/dav/a", "/dav/b"]}),
+    ]

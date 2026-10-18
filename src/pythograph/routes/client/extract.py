@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from pythograph.exchange.methods import HTTP_METHODS
 from pythograph.graph.index import Definition, DefinitionIndex
 from pythograph.graph.scope import Resolver
 from pythograph.graph.values import ClassValue, ExternalValue, FunctionValue, InstanceValue, MethodValue
@@ -39,7 +40,6 @@ from pythograph.routes.client.libraries import (
     REMOVES_DOTS,
     UNMODELED_CLIENT_METHODS,
     UPPERCASES_METHOD,
-    VERB_NAMES,
     ClientKind,
     ClientTracker,
     is_unmodeled_call,
@@ -298,7 +298,7 @@ class _Scanner:
         if text is None:
             return None
         verb = text.upper() if UPPERCASES_METHOD[library] else text
-        return verb if verb in _VERBS else None
+        return verb if verb in HTTP_METHODS else None
 
     def _url(self, scope: Definition, expr: ast.expr, parts: tuple[Part, ...], kind: ClientKind) -> ComposedUrl:
         """URL 식을 사실 필드로 만든다. `urllib.parse.urljoin(base, path)`는 결합 결과를 주장하지 않는다(`urljoin_url`).
@@ -588,10 +588,6 @@ class _Scanner:
                 )
             elif not self.counters.wrapper_calls[declaration.position]:
                 self.extraction.add_gap("http-wrapper-unresolved:", f"{where} matched no calls")
-
-
-#: 계약 동사다.
-_VERBS = frozenset(VERB_NAMES.values()) | {"TRACE"}
 
 
 def url_from_parts(kind: ClientKind, parts: tuple[Part, ...], remove_dots: bool | None = None) -> ComposedUrl:
