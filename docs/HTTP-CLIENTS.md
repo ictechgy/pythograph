@@ -14,8 +14,9 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 ```
 
 - 문서: bridge-facts v1, `platform: "python"`, `target: "http"`, `roles: ["client"]`, `sourceSets.tests`(`excluded` 기본,
-  `--include-tests`면 `included`와 사실의 `testSource: true`), 선택 `service`(문서와 모든 사실). 사실이 0건이어도 target은
-  `http`다(스캔했으나 호출 없음). `dispatch`는 싣지 않는다(호출 측 문서).
+  `--include-tests`면 `included`와 사실의 `testSource: true`), 선택 `service`(`--service`: 문서와 래퍼 `service`가 없는 사실.
+  래퍼 `service`가 그 값과 다른 사실이 있으면 문서 값은 싣지 않는다 — 계약상 문서 값과 사실 값이 다르면 입력 오류다).
+  사실이 0건이어도 target은 `http`다(스캔했으나 호출 없음). `dispatch`는 싣지 않는다(호출 측 문서).
 - `symbol.usr`(=`qualifiedName`): 호출을 감싸는 선언(함수·메서드·클래스 본문·모듈)의 pythograph id다
   (`shopclient/api.py#OrdersApi.fetch`, 모듈 수준이면 `…#<module>`). `pythograph graph`·`reach`·`impact`의 정점과 같은 문자열이라
   isthmus `trace`가 호출부에서 역방향 순회로 잇는다. 람다·컴프리헨션 안의 호출은 감싼 정의다.
@@ -139,8 +140,9 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
   문자열일 때 리터럴로 본다. 문자열 리터럴은 계약 동사와 정확히 같을 때만 동사다(`wrapper.method`).
 - 경로: 전체 URL 리터럴은 host 뒤 경로가 root, `/`로 시작하는 경로는 선언의 `pathAnchor`, 앞 값 뒤 `/` 경로는 base다. `/` 없이
   시작하는 상대 경로는 래퍼 내부 결합을 몰라 dynamic + `ambiguous-base-join:`이다.
-- `service`를 적으면 그 래퍼 호출 사실에 싣는다. 선언된 래퍼 본문(과 그 안의 중첩 정의)의 dynamic 호출은 래퍼 호출 사실이
-  대신하므로 내지 않는다.
+- `service`를 적으면 그 래퍼 호출 사실에 싣는다(`--service`보다 우선). 그 값이 `--service`와 다르면 문서 수준 `service`는
+  싣지 않는다 — 여러 서비스를 부르는 클라이언트 문서는 문서 값을 생략하고 사실마다 싣는다는 계약 규칙이다. 선언된 래퍼
+  본문(과 그 안의 중첩 정의)의 dynamic 호출은 래퍼 호출 사실이 대신하므로 내지 않는다.
 - 선언의 대상이 스캔한 소스에 없거나 호출이 0건이면 `http-wrapper-unresolved:`다. 선언되지 않은 함수가 자기 매개변수를 URL
   전체·앞머리로 쓰거나 `/`로 끝나지 않는 리터럴 뒤에 그대로 붙이면(`BASE + path`) `http-wrapper-undeclared:`로 센다(세그먼트
   하나를 채우는 매개변수는 싱크가 아니다).

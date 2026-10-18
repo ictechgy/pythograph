@@ -154,7 +154,8 @@ bridge-facts v1 문서(`platform: "python"`, `target: "http"`, `roles: ["client"
 - **래퍼**(`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` 항목. `owner`는 메서드·생성자(`name: "__init__"`,
   데이터 클래스 포함)면 pythograph 클래스 id(`api/client.py#Gateway`), 모듈 함수면 모듈 경로(`api/net.py`)다. `label`은 키워드
   인자, `index`는 위치 인자(수신자 제외)다. 모르는 필드·잘못된 항목은 64로 끝나고, 아무것도 맞지 않는 선언은
-  `http-wrapper-unresolved:`로 낸다.
+  `http-wrapper-unresolved:`로 낸다. 래퍼 `service`는 `--service` 대신 그 래퍼 사실에 싣는다. `--service`와 다르면 문서 수준
+  `service`는 싣지 않고(isthmus는 문서 값과 다른 사실 service를 거부한다) `--service`는 나머지 사실에만 싣는다.
 - **symbol.usr**는 감싸는 함수·메서드·클래스 본문·모듈 id로 `graph`·`reach`·`impact`와 같다.
 - **한계**: `route-call-coverage:`(urllib3·`http.client`·`send`·`build_request` 같은 모델링하지 않은 요청 API, 클라이언트 타입을
   모르는 수신자에 넘긴 URL 리터럴, 스캔 공백), `ambiguous-base-join:`, `http-wrapper-undeclared:`(매개변수를 요청 URL로

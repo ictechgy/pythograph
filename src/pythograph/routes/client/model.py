@@ -21,7 +21,7 @@ class RouteCall:
         url: 경로 필드.
         location: 호출식이 시작하는 위치.
         usr: 호출을 감싸는 선언의 pythograph id(`qualifiedName`과 같다).
-        service: 래퍼 선언이 정한 service(없으면 None — 문서 값을 쓴다).
+        service: 래퍼 선언이 정한 service(없으면 None — `--service` 값을 쓴다).
         test_source: 테스트 소스의 호출인지.
     """
 

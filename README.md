@@ -204,6 +204,9 @@ recording, and the end-to-end trace is in
   id (`api/client.py#Gateway`) for methods and constructors (`name: "__init__"`, dataclasses included) or a module path
   (`api/net.py`) for module functions. `label` is a keyword argument, `index` a positional argument (receiver excluded).
   Unknown fields and malformed entries exit 64; declarations that match nothing report `http-wrapper-unresolved:`.
+  A wrapper's `service` goes on its facts in place of `--service`. When it differs from `--service`, the document-level
+  `service` is omitted (isthmus rejects a fact service that differs from the document's) and `--service` stays on the
+  other facts.
 - **symbol.usr** is the enclosing function, method, class body, or module id — the same ids as `graph`/`reach`/`impact`.
 - **Limitations**: `route-call-coverage:` (unmodeled request APIs such as urllib3, `http.client`, `send`/`build_request`,
   URL literals passed to receivers whose client type is unknown, scan gaps), `ambiguous-base-join:`,

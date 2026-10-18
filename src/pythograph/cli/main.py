@@ -80,7 +80,9 @@ declared HTTP wrappers (--role client).
 Options:
   --role server|client       Declaration side (server) or calling side (client)
   --project <root>           Project root; location paths are relative to it
-  --service <name>           Service identity recorded on the document and every fact
+  --service <name>           Service identity recorded on the document and every fact (client:
+                             a wrapper's own service wins on its facts, and the document omits
+                             the field when that service differs)
   --include-tests            Also scan test sources; their facts carry testSource: true
   --framework <name>         (server) auto (default), django, or flask
   --settings <module>        (server) Django settings module (default: the DJANGO_SETTINGS_MODULE

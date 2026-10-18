@@ -654,6 +654,62 @@ def test_wrapper_bindings(make_project: MakeProject, tmp_path: Path) -> None:
     assert "calls join a path to a base URL" in limitation_text(document)
 
 
+#: 래퍼 호출 하나(`charge`)와 래퍼를 거치지 않는 요청 하나(`profile`)를 가진 클라이언트다.
+BILLING_CODE = """
+    import requests
+
+    def call_billing(path):
+        return requests.get("https://billing.example.com" + path)
+
+    def charge():
+        return call_billing("/charges")
+
+    def profile():
+        return requests.get("https://shop.example.com/profile")
+"""
+
+
+@pytest.mark.parametrize(
+    ("wrapper_service", "document_service", "fact_services"),
+    [
+        ("billing", None, {"charge": "billing", "profile": "shop-web"}),
+        ("shop-web", "shop-web", {"charge": "shop-web", "profile": "shop-web"}),
+        (None, "shop-web", {"charge": "shop-web", "profile": "shop-web"}),
+    ],
+)
+def test_wrapper_service_and_document_service(
+    make_project: MakeProject,
+    tmp_path: Path,
+    wrapper_service: str | None,
+    document_service: str | None,
+    fact_services: dict[str, str],
+) -> None:
+    """리뷰 회귀: 래퍼 service가 `--service`와 다르면 문서 수준 service를 생략하고 사실마다 유효 service를 싣는다.
+
+    계약(GRAPH-EXCHANGE)은 사실 값과 문서 값이 둘 다 있는데 다르면 입력 오류다. 문서 값을 그대로 실어 isthmus가 문서
+    전체를 거부했다. 래퍼 service가 같거나 없으면 문서 값을 그대로 둔다.
+    """
+    root = make_project({"app/net.py": BILLING_CODE})
+    entry: dict[str, object] = {
+        "language": "python",
+        "kind": "function",
+        "owner": "app/net.py",
+        "name": "call_billing",
+        "defaultMethod": "GET",
+        "pathArg": {"index": 0, "label": "path"},
+        "pathAnchor": "root",
+    }
+    if wrapper_service is not None:
+        entry["service"] = wrapper_service
+    wrappers = _wrappers(tmp_path, [entry])
+    document = client_document(root, "--wrappers", str(wrappers), "--service", "shop-web")
+    assert document.get("service") == document_service
+    services = {fact["symbol"]["usr"].split("#", 1)[1]: fact["service"] for fact in document["facts"]}
+    assert services == fact_services
+    if "service" in document:
+        assert all(fact["service"] == document["service"] for fact in document["facts"])
+
+
 def test_wrapper_unresolved_declarations(make_project: MakeProject, tmp_path: Path) -> None:
     """대상이 없거나 호출이 0건인 파이썬 래퍼는 http-wrapper-unresolved이고 다른 언어 항목은 적용하지 않는다."""
     root = make_project({"gw/net.py": WRAPPER_CODE, "gw/models.py": "class Endpoint:\n    pass\n"})
