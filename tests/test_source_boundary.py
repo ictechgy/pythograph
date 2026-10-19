@@ -56,6 +56,34 @@ def test_linked_parents_are_rejected_by_every_source_entry_point(
     assert isinstance(project.module("plain.py"), SourceModule)
 
 
+@pytest.mark.parametrize("fallback", [False, True])
+def test_remembered_resolution_still_rechecks_links_when_reading(
+    make_project: MakeProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
+) -> None:
+    """이름 해석 결과를 기억해도 읽기는 열 때 다시 검사하고, 링크 아래 이름은 몇 번 풀어도 링크를 한 번만 센다.
+
+    해석은 한 실행 안에서 이름별 결과를 기억한다. 해석 뒤 부모 디렉터리가 링크로 바뀌면 읽기가 성분별 lstat·O_NOFOLLOW로
+    거부해야 한다(경계는 해석이 아니라 읽기가 지킨다).
+    """
+    if fallback:
+        monkeypatch.setattr(project_module, "_HAS_DIR_FD", False)
+    root = make_project({"pkg/__init__.py": "", "pkg/app.py": "value = 'inside'\n"})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "app.py").write_text("value = 'outside-only'\n")
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+    project = Project.open(root)
+    for _ in range(3):
+        assert project.resolve_module("linked.app") is None
+    assert project.skipped_links == 1
+    assert project.resolve_module("pkg.app") == "pkg/app.py"
+    (root / "pkg").rename(root / ".saved")
+    (root / "pkg").symlink_to(outside, target_is_directory=True)
+    assert isinstance(project.module("pkg/app.py"), ReadFailure)
+    assert project.read_text("pkg/app.py") is None
+    assert project.skipped_links == 2
+
+
 @pytest.mark.parametrize("internal", [False, True])
 def test_linked_files_and_module_roots_are_rejected(make_project: MakeProject, tmp_path: Path, internal: bool) -> None:
     """파일 자체 링크와 src 모듈 루트 링크, 끊어진 링크도 따라가지 않고 각각 한 번만 센다."""

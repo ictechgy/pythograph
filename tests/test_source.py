@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -177,6 +178,41 @@ def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> No
     module = symbols.index(leaf)
     assert module is not None
     assert absolute_module(module.module, None, 5) is None
+
+
+def test_module_resolution_is_remembered_per_module_roots(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 이름을 다시 풀 때는 파일시스템을 다시 보지 않고(외부 이름의 None 포함), 모듈 루트가 바뀌면 다시 푼다.
+
+    이름이 소스에 나올 때마다 모듈 루트 수 × 후보 2개의 성분별 lstat을 되풀이해, `manage.py`가 여러 개인 저장소에서
+    schema·routes·graph가 수 배~수십 배 느려지던 문제다.
+    """
+    root = make_project({"pkg/__init__.py": "", "pkg/mod.py": "", "lib/app.py": ""})
+    project = Project.open(root)
+    checked: list[str] = []
+    checked_stat = project._checked_stat
+
+    def counting(relative: str) -> os.stat_result:
+        checked.append(relative)
+        return checked_stat(relative)
+
+    monkeypatch.setattr(project, "_checked_stat", counting)
+    assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+    assert project.resolve_module("django.db") is None
+    assert project.resolve_module("app") is None
+    first = len(checked)
+    assert first > 0
+    for _ in range(100):
+        assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+        assert project.resolve_module("django.db") is None
+        assert project.resolve_module("app") is None
+    assert len(checked) == first
+    # 호출자가 open 뒤 모듈 루트를 제자리에서 바꾸면 기억한 결과를 버리고 새 루트 순서로 다시 푼다.
+    project.module_roots.insert(0, "lib")
+    assert project.resolve_module("app") == "lib/app.py"
+    assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+    assert len(checked) > first
 
 
 def test_star_import_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:

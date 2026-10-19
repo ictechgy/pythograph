@@ -89,7 +89,8 @@ class Project:
 
     Attributes:
         root: 프로젝트 realpath.
-        module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트).
+        module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트). 제자리에서 바꿔도
+            된다(`resolve_module`이 기억한 결과를 버린다).
         forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
     """
 
@@ -103,6 +104,8 @@ class Project:
     forbidden_names: int = 0
     scan_errors: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
+    _resolved_modules: dict[str, str | None] = field(default_factory=dict)
+    _resolved_roots: list[str] = field(default_factory=list)
 
     @classmethod
     def open(cls, root: Path) -> Project:
@@ -432,7 +435,28 @@ class Project:
         return ".".join(parts)
 
     def resolve_module(self, name: str) -> str | None:
-        """점으로 이은 모듈 이름을 프로젝트 안의 파일로 푼다.
+        """점으로 이은 모듈 이름을 프로젝트 안의 파일로 푼다. 한 실행 안에서 이름별 결과(None 포함)를 기억한다.
+
+        이름 해석은 소스에 이름이 나올 때마다 불리고, 찾기 한 번이 모듈 루트 수 × 후보 2개의 성분별 lstat이다. 기억하지
+        않으면 `manage.py`가 여러 개인 저장소에서 같은 외부 이름을 수십만 번 다시 찾는다. 분석은 안정된 트리를 전제하고,
+        경계는 해석이 아니라 읽기(`_read_bytes`·`_open_directory`의 열기 시점 재검사)가 지키므로 기억해도 링크를
+        따라가지 않는다. 처음 찾을 때 만난 링크는 그때 센다(같은 링크는 한 번만 센다). 모듈 루트가 바뀌면 기억을 버린다.
+
+        Args:
+            name: 모듈 이름(`shop.urls`).
+
+        Returns:
+            프로젝트 상대 경로, 프로젝트 안에 없으면 None(외부 모듈).
+        """
+        if self._resolved_roots != self.module_roots:
+            self._resolved_modules.clear()
+            self._resolved_roots = list(self.module_roots)
+        if name not in self._resolved_modules:
+            self._resolved_modules[name] = self._find_module(name)
+        return self._resolved_modules[name]
+
+    def _find_module(self, name: str) -> str | None:
+        """모듈 루트 순서대로 이름의 패키지·모듈 파일을 찾는다(`resolve_module`이 결과를 기억한다).
 
         Args:
             name: 모듈 이름(`shop.urls`).
