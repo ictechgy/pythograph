@@ -15,10 +15,31 @@ from pythograph.routes.pattern import (
     convert_regex,
     dynamic_gap_prefix,
     dynamic_shape,
+    regex_literal_floor,
     regex_param,
     skeleton_shapes,
     unconvertible_shape,
 )
+
+#: 리터럴 하한(`regex_literal_floor`)의 기대값이다. 묶음 밖에서 반복 기호가 붙지 않은 리터럴만 세고, 애매한 구문은
+#: 덜 센다(`\x41b`는 16진 숫자까지 이스케이프로 읽어 0).
+LITERAL_FLOORS = {
+    r"^items/(?P<pk>\d+)/$": 7,
+    r"^a\.b\-c$": 5,
+    r"^ab?c$": 2,
+    r"^a{3}b$": 1,
+    r"^a{,}b$": 1,
+    r"^a{b$": 2,
+    r"^(?:abc)d$": 1,
+    r"^abc|^de$": 3,
+    r"^[ab]c\d$": 1,
+    r"^\x41b$": 0,
+    r"^\x41z$": 1,
+    r"^\N{LATIN SMALL LETTER A}b$": 1,
+    r"(?x)^a b$": 0,
+    r"^a(?#c){0}b$": 0,
+    r"^a{(x+}cc+c)d$": 2,
+}
 
 
 def _templates(regex: str, *, endpoint: bool = True, fullmatch: bool = False) -> list[tuple[str | None, object]]:
@@ -170,6 +191,54 @@ def test_expansion_cap() -> None:
 def test_repeated_literals() -> None:
     """고정 횟수 리터럴 반복은 리터럴로 펼친다."""
     assert _templates(r"^a{3}/$", fullmatch=True) == [("/aaa/", "strict")]
+
+
+def _longest_template(regex: str) -> int | None:
+    """정규식을 끝점(fullmatch)으로 바꿔 정적 템플릿이 되면 펼친 대안 중 가장 긴 템플릿 길이를 구한다.
+
+    끝 슬래시만 다른 두 대안은 슬래시 없는 쪽 하나(`optional`)로 합쳐지므로 합친 쪽은 한 글자를 더한다.
+
+    Args:
+        regex: 정규식.
+
+    Returns:
+        가장 긴 템플릿 길이, 변환할 수 없거나 dynamic이면 None.
+    """
+    try:
+        options = convert_regex(regex, endpoint=True, anchored_by_fullmatch=True).alternatives
+    except Unconvertible:
+        return None
+    shapes = skeleton_shapes([(Literal("/"), *option) for option in options], raw=regex, trailing_policy="strict")
+    if any(shape.dynamic for shape in shapes):
+        return None
+    return max(len(shape.channel or "") + (shape.trailing_slash == "optional") for shape in shapes)
+
+
+def test_regex_literal_floor_counts_only_certain_literals() -> None:
+    """리터럴 하한은 묶음 밖에서 반복 기호가 붙지 않은 리터럴만 센다. 변환한 가장 긴 템플릿보다 커지지 않는다.
+
+    하한이 템플릿 상한을 넘으면 변환하지 않고 too-long dynamic으로 내므로, 실제보다 크게 세면 정적이어야 할 경로가
+    dynamic이 된다. 그래서 주석 묶음·범위 없는 플래그 묶음(뒤따르는 반복 기호가 그 앞 글자에 붙는다)은 세지 않고,
+    `{`는 `{m,n}` 모양일 때만 반복 기호로 본다. 전에는 `{(`를 반복 기호로 읽어 여는 괄호를 삼켰고, 그래서
+    `a{(x+}cccc…+c)d`의 묶음 안 `c`를 바깥 리터럴로 세었다(실제 템플릿은 `/a%7B{}d`).
+    """
+    assert {regex: regex_literal_floor(regex) for regex in LITERAL_FLOORS} == LITERAL_FLOORS
+    swallowed = r"^a{(x+}" + "c" * 3000 + r"+c)d$"
+    assert regex_literal_floor(swallowed) == 2
+    assert _templates(swallowed, fullmatch=True) == [("/a%7B{}d", "strict")]
+    samples = [
+        *LITERAL_FLOORS,
+        swallowed,
+        r"^/(?#c){0}$",
+        r"^a(?:b|cd)?e/$",
+        r"^x(?P<a>[0-9]+)y(?P<b>z+)$",
+        r"^(?:ab)+c{2}d{0}e/?$",
+        r"^\{1\}\N{LATIN SMALL LETTER A}{2}$",
+    ]
+    for regex in samples:
+        longest = _longest_template(regex)
+        if longest is not None:
+            assert 1 + regex_literal_floor(regex) <= longest, regex
 
 
 def test_capture_group_texts_skip_classes_and_escapes() -> None:

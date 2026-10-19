@@ -311,9 +311,10 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 상수를 여러 번 참조하는 짧은 사슬(`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)은 그대로 펼치면 단계마다 곱으로 커지므로, 같은 참조는
 한 번만 펼치고 이렇게 만든 값은 64 KiB(문자열은 문자 수, 목록은 원소 수와 그 문자 수), 클라이언트 URL 식은 조각 4,096개까지만
 만듭니다. 더 큰 값은 모르는 값으로 봅니다. dynamic 라우트·route-call 사실, 읽지 못한 설정값이 되고, SQL 텍스트는
-`skipped-sql-literals:` 한계가 됩니다. 문자열 리터럴 하나는 파일 크기 상한(4 MiB)만 받습니다. 32 KiB(템플릿 상한
-2,048자의 16배)보다 긴 경로 문자열(연속 `/`를 합친 Flask 규칙, include 접두사까지 이은 Django `path()`·`re_path()`
-문자열)은 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 냅니다.
+`skipped-sql-literals:` 한계가 됩니다. 문자열 리터럴 하나는 파일 크기 상한(4 MiB)만 받습니다. 8 KiB(템플릿 상한
+2,048자의 4배)보다 긴 경로 문자열(연속 `/`를 합친 Flask 규칙, include 접두사까지 이은 Django `path()`·`re_path()`
+문자열)과, 그보다 짧아도 리터럴 글자(Flask 변환기 밖, Django `path()` 변환기 자리 밖, `re_path` 묶음 밖)만으로 템플릿
+상한을 넘는 경로는 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 냅니다.
 
 클래스 계층(routes·graph의 뷰 클래스, schema의 SQLAlchemy 매핑)은 32단까지만 따라가고 클래스마다 깊이별로 한 번만 펼치므로,
 다이아몬드 모양 계층도 지수로 많은 경로 수가 아니라 클래스 수에 비례하는 시간이 듭니다. 파이썬으로는 만들 수 없는

@@ -619,6 +619,59 @@ def test_overlong_route_strings_are_too_long_without_conversion(
     assert converted == ["path", "regex"]
 
 
+def test_literal_heavy_routes_below_the_source_cap_skip_conversion(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """원문 상한 바로 아래 경로도 리터럴 글자만으로 템플릿 상한을 넘으면 정규식 토큰열로 바꾸지 않고 too-long이다.
+
+    같은 긴 상수를 경로마다 재사용하면(`path(BIG + "eN/")`, `re_path("^" + BIG + …)`, 긴 include 접두사 아래
+    endpoint) 원문 상한 아래 경로를 경로마다 끝까지 변환해, 수 KB urls.py 하나로 routes가 수 초~수 분 걸렸다.
+    리터럴이 템플릿 상한과 같은 경로는 그대로 변환한다.
+    """
+    regexes: list[str] = []
+    convert_regex = extract_module.convert_regex
+
+    def counting(pattern: str, *, endpoint: bool, anchored_by_fullmatch: bool) -> RegexPieces:
+        regexes.append(pattern)
+        return convert_regex(pattern, endpoint=endpoint, anchored_by_fullmatch=anchored_by_fullmatch)
+
+    monkeypatch.setattr(extract_module, "convert_regex", counting)
+    entries = [f'path(BIG + "e{index}/", views.a)' for index in range(30)]
+    entries += [f're_path(r"^" + BIG + r"/r{index}/$", views.a)' for index in range(30)]
+    entries += [
+        'path("ok/", views.a)',
+        f'path("{"x" * 2046}/", views.a)',
+        f'path("{"y" * 2047}/", views.a)',
+        f'path("{"p" * 3000}/", include("site_pkg.inner"))',
+    ]
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": (
+                "from django.urls import include, path, re_path\nfrom site_pkg import views\n"
+                f'BIG = "{"a" * (MAX_ROUTE_SOURCE_LENGTH - 64)}"\n'
+                "urlpatterns = [" + ", ".join(entries) + "]\n"
+            ),
+            "site_pkg/inner.py": (
+                "from django.urls import path\nfrom site_pkg import views\n"
+                "urlpatterns = [" + ", ".join(f'path("i{index}/", views.a)' for index in range(10)) + "]\n"
+            ),
+            "site_pkg/views.py": "def a(request):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    facts = document["facts"]
+    limitations = document["limitations"]
+    assert isinstance(facts, list)
+    assert isinstance(limitations, list)
+    channels = [fact["channel"] for fact in facts]
+    assert sorted(channel for channel in channels if channel is not None) == ["/ok/", "/" + "x" * 2046 + "/"]
+    assert channels.count(None) == 71
+    reason = "the path does not form a canonical template (too-long)"
+    assert f"route-coverage: 71 URL patterns are emitted as dynamic: {reason}" in limitations
+    assert regexes == ["^ok/\\Z", "^" + "x" * 2046 + "/\\Z"]
+
+
 def test_route_to_regex_finds_the_same_converters_as_django() -> None:
     """변환기 자리는 `<`에서 그 뒤 첫 `>`까지다.
 

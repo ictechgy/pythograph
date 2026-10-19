@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from pythograph.exchange.template import MAX_TEMPLATE_LENGTH
 from pythograph.routes.pattern import (
     MAX_EXPANSIONS,
     ExpansionCapped,
@@ -22,6 +23,7 @@ from pythograph.routes.pattern import (
     Skeleton,
     Token,
     Unconvertible,
+    check_literal_floor,
     check_source_length,
     regex_param,
     unconstrained_param,
@@ -89,12 +91,13 @@ def rule_alternatives(rule: str, merge_slashes: bool, custom: dict[str, str | No
 
     Raises:
         Unconvertible: Werkzeug가 거부하거나 확정할 수 없는 규칙, 슬래시를 합친 규칙이
-            `MAX_ROUTE_SOURCE_LENGTH`보다 긴 규칙(템플릿 상한 초과).
+            `MAX_ROUTE_SOURCE_LENGTH`보다 길거나 변환기 밖 글자가 템플릿 상한보다 많은 규칙(템플릿 상한 초과).
     """
     if not rule.startswith("/"):
         raise Unconvertible("a Flask rule does not start with /, which Werkzeug rejects")
     text = re.sub("/{2,}", "/", rule) if merge_slashes else rule
     check_source_length(text)
+    check_literal_floor(_static_length(text))
     alternatives: list[list[Token]] = [[]]
     position = 0
     while position < len(text):
@@ -104,6 +107,30 @@ def rule_alternatives(rule: str, merge_slashes: bool, custom: dict[str, str | No
         alternatives = _extend(alternatives, _part_options(match, custom))
         position = match.end()
     return [tuple(alternative) for alternative in alternatives]
+
+
+def _static_length(text: str) -> int:
+    """규칙에서 변환기 밖 글자(정적 부분과 `/`) 수를 센다. 변환기 자리만 하나씩 맞춰 보고 정적 부분은 건너뛴다.
+
+    정적 부분과 `/`는 펼친 모든 대안의 템플릿에 한 글자 이상으로 들어가므로 이 수는 템플릿 길이의 하한이다(변환기는 빈
+    값 변형에서 빠질 수 있어 세지 않는다). 토큰을 만들지 않으므로 긴 리터럴 규칙도 변환기 수만큼만 돈다. 정적 부분은
+    `<`를 담을 수 없어 `<`마다 변환기가 시작한다. Werkzeug가 거부할 `<`를 만나면 거기까지만 센다(변환이 같은 규칙을
+    거부한다).
+
+    Args:
+        text: 슬래시를 합친 규칙.
+
+    Returns:
+        변환기 밖 글자 수(템플릿 상한을 넘으면 거기서 멈춘 수).
+    """
+    length = position = 0
+    while (start := text.find("<", position)) >= 0:
+        length += start - position
+        match = _PART.match(text, start)
+        if match is None or length > MAX_TEMPLATE_LENGTH:
+            return length
+        position = match.end()
+    return length + len(text) - position
 
 
 def _extend(alternatives: list[list[Token]], options: list[Skeleton]) -> list[list[Token]]:

@@ -26,9 +26,11 @@ from pythograph.routes.pattern import (
     Literal,
     Skeleton,
     Unconvertible,
+    check_literal_floor,
     check_source_length,
     convert_regex,
     dynamic_gap_prefix,
+    regex_literal_floor,
     skeleton_shapes,
     unconvertible_shape,
 )
@@ -322,40 +324,45 @@ class _Context:
             pieces: 루트부터의 조각.
 
         Returns:
-            판정 목록. include 접두사까지 이은 원문이 `MAX_ROUTE_SOURCE_LENGTH`보다 길면 조각을 변환하지 않고
-            템플릿 상한 초과 dynamic이다(include가 32단까지 겹쳐 endpoint마다 긴 접두사를 다시 바꾸지 않게).
+            판정 목록. include 접두사까지 이은 원문이 `MAX_ROUTE_SOURCE_LENGTH`보다 길거나, 앞 조각부터 센 리터럴 글자
+            하한이 템플릿 상한을 넘으면 (남은) 조각을 변환하지 않고 템플릿 상한 초과 dynamic이다(같은 긴 상수·include
+            접두사를 endpoint마다 다시 바꾸지 않게).
         """
         raw = "/" + "".join(piece.text or "<dynamic>" for piece in pieces if piece.kind != "locale")
         try:
             check_source_length(raw)
             alternatives: list[Skeleton] = [(Literal("/"),)]
+            floor = 1  # 루트 `/`
             for piece in pieces:
-                alternatives = _cross(alternatives, self._piece_alternatives(piece))
+                regex = self._piece_regex(piece)
+                if regex is None:
+                    continue
+                floor += regex_literal_floor(regex)
+                check_literal_floor(floor)
+                alternatives = _cross(alternatives, _regex_alternatives(piece, regex))
         except Unconvertible as error:
             return [unconvertible_shape(raw, error)]
         return skeleton_shapes(alternatives, raw=raw, trailing_policy="strict")
 
-    def _piece_alternatives(self, piece: Piece) -> list[Skeleton]:
-        """조각 하나를 토큰열 대안으로 바꾼다.
+    def _piece_regex(self, piece: Piece) -> str | None:
+        """조각 하나를 Django가 맞추는 정규식으로 바꾼다(`path()`는 변환기 자리를 정규식으로).
 
         Args:
             piece: 경로 조각.
 
         Returns:
-            토큰열 대안.
+            정규식, 언어 접두사 조각이면 None(템플릿에 들어가지 않는다).
 
         Raises:
-            Unconvertible: 확정할 수 없을 때.
+            Unconvertible: 리터럴이 아니거나 Django가 거부하는 `path()` 문자열일 때.
         """
         if piece.kind == "locale":
-            return [()]
+            return None
         if piece.text is None:
             raise Unconvertible("a URL pattern string is not a literal")
         if piece.kind == "route":
-            regex = route_to_regex(piece.text, piece.endpoint, self.converters)
-            return list(convert_regex(regex, endpoint=piece.endpoint, anchored_by_fullmatch=False).alternatives)
-        fullmatch = piece.endpoint and piece.text.endswith("$")
-        return list(convert_regex(piece.text, endpoint=piece.endpoint, anchored_by_fullmatch=fullmatch).alternatives)
+            return route_to_regex(piece.text, piece.endpoint, self.converters)
+        return piece.text
 
     def _record_shape_gaps(self, shapes: list[RouteShape], anchor: str) -> None:
         """dynamic 판정의 공백을 센다. 접두사는 펼침 상한 표식으로 고른다(`dynamic_gap_prefix`).
@@ -499,6 +506,26 @@ def _flatten(entries: tuple[Entry, ...], pieces: tuple[Piece, ...], conditional:
             yield _Flat((*pieces, entry.piece), entry, is_conditional)
         else:
             yield _Flat(pieces, entry, is_conditional)
+
+
+def _regex_alternatives(piece: Piece, regex: str) -> list[Skeleton]:
+    """조각의 정규식을 토큰열 대안으로 바꾼다.
+
+    `path()`는 `search`로 맞추고, `re_path()` endpoint는 원문이 `$`로 끝나면 `fullmatch`로 맞춘다
+    (`RegexPattern.match`).
+
+    Args:
+        piece: 경로 조각.
+        regex: 조각의 정규식(`_Context._piece_regex`).
+
+    Returns:
+        토큰열 대안.
+
+    Raises:
+        Unconvertible: 확정할 수 없을 때.
+    """
+    fullmatch = piece.kind != "route" and piece.endpoint and regex.endswith("$")
+    return list(convert_regex(regex, endpoint=piece.endpoint, anchored_by_fullmatch=fullmatch).alternatives)
 
 
 def _cross(left: list[Skeleton], right: list[Skeleton]) -> list[Skeleton]:

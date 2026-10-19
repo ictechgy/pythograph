@@ -393,9 +393,10 @@ would otherwise grow exponentially, so repeated references are expanded once, va
 64 KiB (characters for strings; elements plus their characters for lists), and client URL expressions at 4,096 parts.
 A larger value is treated as unknown: a dynamic route or route-call fact, an unread setting, or for SQL text a
 `skipped-sql-literals:` limitation. A single string literal is limited only by the 4 MiB file limit. Route strings
-longer than 32 KiB (16 times the 2,048-character template limit; Flask rules after merging slashes, Django `path()` and
-`re_path()` strings joined with their include prefixes) are not converted and become dynamic facts like any
-over-long template.
+longer than 8 KiB (4 times the 2,048-character template limit; Flask rules after merging slashes, Django `path()` and
+`re_path()` strings joined with their include prefixes), and shorter ones whose literal characters alone (outside Flask
+converters, outside Django `path()` converters, outside `re_path` groups) exceed the template limit, are not converted
+and become dynamic facts like any over-long template.
 
 Class hierarchies (view classes for routes and graph, SQLAlchemy mappings for schema) are followed at most 32 levels
 deep, and each class is analyzed once per depth, so a diamond-shaped hierarchy costs time proportional to its classes

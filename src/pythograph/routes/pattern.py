@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, replace
 from itertools import product
@@ -37,11 +38,32 @@ MAX_EXPANSIONS = 16
 MAX_REGEX_NESTING = 50
 
 #: 변환하는 라우트 원문(Flask 규칙은 연속 `/`를 합친 뒤, Django는 include 접두사까지 이은 `path()`·`re_path()`
-#: 문자열)의 최대 길이다. 정규 템플릿 상한(`MAX_TEMPLATE_LENGTH`, 2,048자)의 16배다. 더 긴 원문은 변환하지 않고
-#: 템플릿 상한 초과(`too-long`)와 같은 dynamic으로 낸다. 변환 비용(토큰열·정규식 구문 트리·변환기 자리 찾기)이 원문
-#: 길이를 따라 늘어 4 MiB 원문 하나로 명령이 멈추지 않게 하기 위해서다. 원문이 이보다 길면서 템플릿은 짧은 극단(아주
-#: 긴 파라미터 이름·변환기 인자·파라미터 정규식)도 dynamic이 된다.
-MAX_ROUTE_SOURCE_LENGTH = 16 * MAX_TEMPLATE_LENGTH
+#: 문자열)의 최대 길이다. 정규 템플릿 상한(`MAX_TEMPLATE_LENGTH`, 2,048자)의 4배다. 더 긴 원문은 변환하지 않고
+#: 템플릿 상한 초과(`too-long`)와 같은 dynamic으로 낸다. 변환 비용(토큰열·정규식 구문 트리·변환기 자리 찾기·파라미터
+#: 분류)이 원문 길이를 따라 늘어, 긴 원문 하나나 같은 긴 상수를 경로마다 재사용한 짧은 모듈로 명령이 멈추지 않게 하기
+#: 위해서다. 리터럴이 많은 원문은 이보다 짧아도 리터럴 하한(`check_literal_floor`)으로 변환 없이 판정한다. 원문이
+#: 이보다 길면서 템플릿은 짧은 극단(파라미터·변환기 인자·파라미터 정규식이 아주 많거나 긴 경로)도 dynamic이 된다.
+MAX_ROUTE_SOURCE_LENGTH = 4 * MAX_TEMPLATE_LENGTH
+
+#: 리터럴 하한(`regex_literal_floor`)을 셀 때 정규식 원문을 앞에서부터 나누는 조각이다. 리터럴 글자 묶음(문장 부호
+#: 이스케이프 포함)은 한 조각이라 긴 리터럴 경로도 조각 몇 개로 끝난다. 영숫자 이스케이프는 뒤따르는 16진 숫자까지,
+#: 이름 이스케이프는 `\N{…}` 전체를 한 조각으로 읽어(`\x41`·`\012`) 그 글자를 리터럴로 세지 않는다. `{`는 정규식
+#: 파서와 같이 `{m}`·`{m,n}`·`{,n}` 모양일 때만 반복 기호이고, 그 밖의 `{`·`}`는 세지 않는 글자다(`{(`를 반복 기호로
+#: 읽어 여는 괄호를 삼키면 묶음 안 글자를 바깥 리터럴로 잘못 센다).
+_REGEX_PIECE = re.compile(
+    r"(?P<run>(?:[^\\\[\]()|?*+{}^$.]|\\[^0-9A-Za-z])+)"
+    r"|(?P<escape>\\N\{[^}]*\}?|\\[0-9A-Za-z][0-9A-Fa-f]*)"
+    r"|(?P<set>\[\^?\]?(?:[^\]\\]|\\.)*\]?)"
+    r"|(?P<open>\()|(?P<close>\))|(?P<bar>\|)"
+    r"|(?P<repeat>[?*+]|\{(?:[0-9]+(?:,[0-9]*)?|,[0-9]*)\})"
+    r"|(?P<other>.)",
+    re.DOTALL,
+)
+
+#: 리터럴 하한을 세지 않는 구문이다. verbose 플래그(`(?x)`, `(?ix:…)`)는 공백과 `#` 주석을 무시하고, 주석 묶음
+#: `(?#…)`과 범위 없는 플래그 묶음(`(?s)`, 3.10은 중간에도 쓸 수 있다)은 구문 트리에 남지 않아 뒤따르는 반복 기호가
+#: 그 앞 글자에 붙는다(`a(?#c){0}`는 `a{0}`이다).
+_UNCOUNTED_SYNTAX = re.compile(r"\(\?(?:[a-zA-Z]*x|#|[a-zA-Z]+\))")
 
 #: 정규식 IGNORECASE 플래그 값이다.
 _IGNORECASE = 2
@@ -136,6 +158,59 @@ def check_source_length(text: str) -> None:
     """
     if len(text) > MAX_ROUTE_SOURCE_LENGTH:
         raise template_error("too-long")
+
+
+def check_literal_floor(length: int) -> None:
+    """모든 템플릿에 들어갈 리터럴 글자 수의 하한이 템플릿 상한을 넘으면 변환하기 전에 too-long으로 실패한다.
+
+    리터럴 글자는 정규 템플릿에 한 글자 이상(퍼센트 인코딩하면 더 길게)으로 들어가므로, 하한이 상한을 넘는 경로는
+    변환해도 too-long이다. 원문 상한(`MAX_ROUTE_SOURCE_LENGTH`) 바로 아래의 긴 경로를 많이 두면(같은 긴 상수를 경로마다
+    재사용) 경로마다 변환 비용이 쌓이므로, 변환 없이 같은 판정을 미리 낸다. 변환 도중에 났을 다른 실패(펼침 상한
+    포함)보다 먼저 판정될 수 있어 그런 경로의 이유는 too-long이 되지만, 어느 쪽이든 그 경로는 dynamic이다.
+
+    Args:
+        length: 리터럴 글자 수의 하한.
+
+    Raises:
+        Unconvertible: 하한이 템플릿 상한을 넘을 때.
+    """
+    if length > MAX_TEMPLATE_LENGTH:
+        raise template_error("too-long")
+
+
+def regex_literal_floor(pattern: str) -> int:
+    """정규식이 변환한 대안 하나에 반드시 리터럴로 들어갈 글자 수의 하한을 원문만 보고 선형 시간에 센다.
+
+    묶음 밖에서 반복 기호가 붙지 않은 리터럴 글자(문장 부호 이스케이프 포함)만 센다. 묶음 안(파라미터로 합쳐질 수
+    있다)·문자 집합·이스케이프 범주·앵커는 세지 않고, 맨 바깥 `|`로 나뉜 대안 중 가장 큰 값을 돌려준다(대안 하나라도
+    템플릿 상한을 넘으면 그 경로는 dynamic이다). verbose 플래그·주석 묶음·범위 없는 플래그 묶음이 있으면
+    (`_UNCOUNTED_SYNTAX`) 0이다. 덜 세면 변환으로 넘어갈 뿐이므로, 판정이 애매한 구문은 모두 덜 세는 쪽으로 읽는다.
+
+    Args:
+        pattern: 정규식 원문(Django `path()`는 `route_to_regex` 결과).
+
+    Returns:
+        리터럴 글자 수의 하한.
+    """
+    if _UNCOUNTED_SYNTAX.search(pattern):
+        return 0
+    best = current = depth = last = 0
+    for piece in _REGEX_PIECE.finditer(pattern):
+        kind = piece.lastgroup
+        if kind == "run":
+            last = len(piece.group()) - piece.group().count("\\") if depth == 0 else 0
+            current += last
+            continue
+        if kind == "repeat":
+            current -= min(last, 1)
+        elif kind == "open":
+            depth += 1
+        elif kind == "close":
+            depth = max(depth - 1, 0)
+        elif kind == "bar" and depth == 0:
+            best, current = max(best, current), 0
+        last = 0
+    return max(best, current)
 
 
 def unconstrained_param() -> Param:

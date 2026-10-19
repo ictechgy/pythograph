@@ -335,6 +335,52 @@ def test_overlong_rule_is_too_long_without_tokenizing(
         rule_alternatives("/" * MAX_ROUTE_SOURCE_LENGTH + "items", False, {})
 
 
+def test_static_length_counts_characters_outside_converters() -> None:
+    """변환기 밖 글자(정적 부분과 `/`)만 센다. Werkzeug가 거부할 `<`를 만나면 거기까지만 센다."""
+    assert rules_module._static_length("/a/<int:x>/b") == 5
+    assert rules_module._static_length("/<x><y>") == 1
+    assert rules_module._static_length("/<any(a, b):x>/c") == 3
+    assert rules_module._static_length("/a<b/" + "c" * 5000) == 2
+    assert rules_module._static_length("/" + "a" * 5000) == 5001
+
+
+def test_literal_heavy_rules_below_the_source_cap_skip_tokenizing(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """원문 상한 바로 아래 규칙도 변환기 밖 글자만으로 템플릿 상한을 넘으면 토큰으로 나누지 않고 too-long dynamic이다.
+
+    같은 긴 상수를 규칙마다 재사용하면(`@app.route(BIG + "/eN")`) 상한 아래 규칙을 규칙마다 끝까지 변환해, 12 KB
+    app.py 하나로 routes가 수 초~수 분 걸렸다. 정적 글자가 템플릿 상한과 같은 규칙은 그대로 변환한다.
+    """
+    tokens: list[str] = []
+    part_options = rules_module._part_options
+
+    def counting(match: re.Match[str], custom: dict[str, str | None]) -> list[Skeleton]:
+        tokens.append(match.group(0))
+        return part_options(match, custom)
+
+    monkeypatch.setattr(rules_module, "_part_options", counting)
+    big = "/a" * ((MAX_ROUTE_SOURCE_LENGTH - 64) // 2)
+    views = "".join(f'@app.route(BIG + "/e{index}")\ndef view{index}():\n    pass\n' for index in range(40))
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": f'from flask import Flask\nBIG = "{big}"\napp = Flask(__name__, static_folder=None)\n'
+            + views
+            + f'@app.route("/{"x" * 2047}")\ndef edge():\n    pass\n'
+            + f'@app.route("/{"y" * 2048}")\ndef over():\n    pass\n',
+        }
+    )
+    document = routes_document(root)
+    rows = fact_rows(document)
+    assert ("GET", "/" + "x" * 2047, False, "app.py#edge") in rows
+    assert sum(dynamic for _, _, dynamic, _ in rows) == 41
+    assert document["limitations"] == [
+        "route-coverage: 41 Flask rules are emitted as dynamic: the path does not form a canonical template (too-long)"
+    ]
+    assert tokens == ["/", "x" * 2047]
+
+
 def test_glm_review_regressions(make_project: Callable[[dict[str, str]], Path]) -> None:
     """GLM 리뷰 재현: 핸들러 없는 MethodView method, Flask 위치 인자 static_url_path, 반복문 규칙 문자열."""
     root = make_project(

@@ -56,9 +56,11 @@
 - 같은 상수를 여러 번 참조하는 f-string·`+`·목록 사슬(`B = f"{A}{A}…"`)을 한 번만 펼치고, 이렇게 만든 값이 64 KiB
   (클라이언트 URL은 조각 4,096개)를 넘으면 모르는 값으로 본다. 수백 바이트 모듈 하나로 schema·routes가 수 초~수 분과
   수백 MiB를 쓰던 문제다. 상한을 넘은 SQL 텍스트는 `skipped-sql-literals:` 한계로 센다.
-- 32 KiB(템플릿 상한의 16배)보다 긴 라우트 원문(슬래시를 합친 Flask 규칙, include 접두사까지 이은 Django 경로)은
-  변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 내고, 나머지 변환(Flask 규칙·변환기 인자, Django 변환기 자리·
-  정규식 토큰열)을 원문 길이에 선형으로 만든다. 수십 KB 경로 하나로 `routes --role server`가 수십 초~수 시간을 쓰던
+- 8 KiB(템플릿 상한의 4배)보다 긴 라우트 원문(슬래시를 합친 Flask 규칙, include 접두사까지 이은 Django 경로)과,
+  그보다 짧아도 리터럴 글자(Flask 변환기 밖 글자, Django `path()` 변환기 자리 밖 글자와 `re_path` 묶음 밖 리터럴)만으로
+  템플릿 상한(2,048자)을 넘는 경로는 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 낸다. 나머지 변환(Flask
+  규칙·변환기 인자, Django 변환기 자리·정규식 토큰열)은 원문 길이에 선형으로 만든다. 수십 KB 경로 하나로, 또는 긴
+  상수를 경로마다 재사용한(`path(BIG + "eN/")`) 수 KB 모듈 하나로 `routes --role server`가 수십 초~수 시간을 쓰던
   문제다.
 - 버전 선언(`requirements*.txt`·잠금 파일·`pyproject.toml`·`Pipfile`·`setup.cfg`)과 graph 라이브러리 판정의
   `pyproject.toml` 표 머리를 읽는 정규식을 입력 길이에 선형으로 바꾼다. 긴 공백·빈 줄·닫히지 않은 괄호가 든 선언
