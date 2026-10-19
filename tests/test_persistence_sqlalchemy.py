@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable
 from pathlib import Path
+
+import pytest
 
 from pythograph.persistence.model import PersistenceExtraction
 from pythograph.persistence.scope import ModuleScopes
@@ -13,7 +16,7 @@ from pythograph.persistence.sqltext import SqlText
 from pythograph.source.evaluate import Evaluator
 from pythograph.source.project import Project
 from pythograph.source.symbols import SymbolTable
-from tests.conftest import CountingValues, relation_rows, schema_document
+from tests.conftest import CountingValues, class_lattice, relation_rows, schema_document
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -470,3 +473,63 @@ def test_queries_read_only_their_module_mappings(make_project: MakeProject) -> N
     channels = {use.channel for use in extraction.uses if use.column is None and not use.dynamic}
     assert {f"item{number}" for number in range(4)} | {f"links{number}" for number in range(4)} <= channels
     assert {f"special{number}" for number in range(3)} <= channels
+
+
+def _catalog(root: Path) -> SqlAlchemyCatalog:
+    """합성 프로젝트의 모든 모듈로 매핑 목록을 만든다.
+
+    Args:
+        root: 프로젝트 루트.
+
+    Returns:
+        매핑 목록.
+    """
+    symbols = SymbolTable(Project.open(root.resolve()))
+    modules = [index.module for path in symbols.project.python_files() if (index := symbols.index(path))]
+    return SqlAlchemyCatalog(symbols, modules, (3,))
+
+
+def test_non_mapping_class_lattice_resolves_each_class_once(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """매핑이 아닌 클래스의 다이아몬드 상속 격자도 클래스마다 한 번만 푼다(아니라는 결과를 기억한다).
+
+    매핑 클래스만 기억해, 모델과 무관한 깊이 16 격자(클래스 34개)에서 해석이 52만 번 되풀이됐다. 깊이 20인 1 KB 모듈
+    하나로 schema가 18초, 깊이 32면 수십 시간이었다.
+    """
+    source = class_lattice(12)
+    root = make_project({"app/__init__.py": "", "app/shapes.py": source})
+    calls = 0
+    original = SqlAlchemyCatalog._resolve
+
+    def counting(self: SqlAlchemyCatalog, key: str, depth: int) -> object:
+        nonlocal calls
+        calls += 1
+        return original(self, key, depth)
+
+    monkeypatch.setattr(SqlAlchemyCatalog, "_resolve", counting)
+    catalog = _catalog(root)
+    assert catalog.models == {}
+    classes = [node for node in ast.parse(source).body if isinstance(node, ast.ClassDef)]
+    assert calls <= len(classes) + sum(len(node.bases) for node in classes)
+
+
+def test_depth_cut_resolutions_are_retried(make_project: MakeProject) -> None:
+    """상속 깊이 상한에 걸려 매핑이 아니게 나온 결과는 그 깊이에서만, 매핑 목록이 그대로인 동안만 다시 쓴다.
+
+    거꾸로 적은 41단 사슬은 앞 클래스부터 풀면 깊이 상한에서 끊긴다. `P1`·`P2`는 처음 풀 때 사슬 끝이 끊겨 매핑이
+    아니다(`P2`는 `P1`이 남긴 끊긴 결과를 다시 쓴다). 사슬 아래쪽이 매핑으로 풀린 뒤 `Z`가 `P2`를 다시 찾으면 `P2`와
+    사슬 위쪽도 매핑이 된다. 다시 찾는 클래스가 없는 `P1`은 수정 전처럼 매핑이 아니다. 끊긴 결과를 어느 깊이에서나 같은
+    결과로 기억하면 `P2`·`Z`와 사슬 위쪽 여덟 단계를 잃는다.
+    """
+    lines = ["from sqlalchemy import Column, Integer", "from sqlalchemy.orm import DeclarativeBase", ""]
+    for name, parent in [("P1", "M40"), ("P2", "M40")] + [
+        (f"M{n}", f"M{n - 1}" if n else "Base") for n in range(40, -1, -1)
+    ]:
+        lines += [f"class {name}({parent}):", f"    __tablename__ = '{name.lower()}'"]
+        lines += ["    id = Column(Integer, primary_key=True)", ""]
+    lines += ["class Base(DeclarativeBase):", "    pass", ""]
+    lines += ["class Z(P2):", "    __tablename__ = 'z'", "    id = Column(Integer, primary_key=True)", ""]
+    root = make_project({"app/__init__.py": "", "app/models.py": "\n".join(lines)})
+    catalog = _catalog(root)
+    assert sorted(model.name for model in catalog.models.values()) == sorted([f"M{n}" for n in range(41)] + ["P2", "Z"])

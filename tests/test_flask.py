@@ -9,10 +9,21 @@ from pathlib import Path
 
 import pytest
 
+from pythograph.exchange import document as document_module
+from pythograph.routes.flask import extract as flask_extract
 from pythograph.routes.flask import rules as rules_module
 from pythograph.routes.flask.rules import ConverterArguments, parse_converter_arguments, rule_alternatives
 from pythograph.routes.pattern import MAX_ROUTE_SOURCE_LENGTH, Literal, Skeleton, Unconvertible
-from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
+from tests.conftest import (
+    FIXTURES,
+    GENERATED_AT,
+    ROUTE_DECL_METHODS,
+    fact_rows,
+    facts_for,
+    routes_document,
+    run_cli,
+    scoped_limitations,
+)
 
 #: 합성 Flask 프로젝트의 버전 선언이다.
 REQUIREMENTS = {"requirements.txt": "flask>=3.1,<4\n"}
@@ -457,3 +468,152 @@ def test_expansion_cap_uses_the_capped_prefix(make_project: Callable[[dict[str, 
         "route-template-expansion-capped: 1 Flask rules are emitted as dynamic: optional parts expand to more than 16 "
         "templates",
     ]
+
+
+def _blueprint_lattice(depth: int, methods: str | None) -> str:
+    """블루프린트 등록 격자 앱 소스를 만든다.
+
+    단계마다 블루프린트가 둘이고 각각 다음 단계의 둘을 모두 등록한다. 앱은 첫 단계 둘을 등록하므로 등록 경로는
+    2^(depth+2) - 2개다. 앱에 `/home` 규칙 하나, methods를 주면 블루프린트마다 규칙 하나가 있다.
+
+    Args:
+        depth: 단계 수 - 1.
+        methods: 블루프린트 규칙의 `methods` 목록 원문(None이면 블루프린트에 규칙이 없다).
+
+    Returns:
+        `app.py` 소스.
+    """
+    lines = ["from flask import Flask, Blueprint", "app = Flask(__name__, static_folder=None)"]
+    lines += ['@app.get("/home")', "def home():", "    pass"]
+    for level in range(depth + 1):
+        for side in "ab":
+            lines.append(f'b{level}{side} = Blueprint("b{level}{side}", __name__, url_prefix="/{side}")')
+            if methods is not None:
+                lines += [f'@b{level}{side}.route("/r", methods={methods})', f"def r{level}{side}():", "    pass"]
+    for level in range(depth):
+        lines += [f"b{level}{side}.register_blueprint(b{level + 1}{child})" for side in "ab" for child in "ab"]
+    lines += ["app.register_blueprint(b0a)", "app.register_blueprint(b0b)"]
+    return "\n".join(lines) + "\n"
+
+
+def test_blueprint_registration_cycle_is_a_coverage_gap(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """서로(또는 자기)를 등록한 블루프린트는 순환을 닫는 등록을 따라가지 않고 `route-coverage:` 한계로 센다.
+
+    Flask는 그런 앱을 등록하다 실패한다(자기 등록은 ValueError, 서로 등록은 끝없는 재귀). 수정 전에는 하위 등록을 방문
+    집합 없이 따라가 8줄짜리 순환 하나로 routes 전체가 내부 오류(RecursionError, 종료 2)와 빈 출력으로 끝났다. 순환에
+    닿기 전까지의 등록은 그대로 낸다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask, Blueprint
+        app = Flask(__name__, static_folder=None)
+        bp_a = Blueprint("a", __name__, url_prefix="/a")
+        bp_b = Blueprint("b", __name__, url_prefix="/b")
+        @bp_a.get("/x")
+        def ax():
+            pass
+        @bp_b.get("/y")
+        def by():
+            pass
+        bp_a.register_blueprint(bp_b)
+        bp_b.register_blueprint(bp_a)
+        bp_b.register_blueprint(bp_b, url_prefix="/again")
+        app.register_blueprint(bp_a)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/a/x", False, "app.py#ax"), ("GET", "/a/b/y", False, "app.py#by")}
+    assert document["limitations"] == [
+        "route-coverage: 2 Flask blueprint registrations close a registration cycle that Flask cannot complete, "
+        "so they were not followed"
+    ]
+
+
+def test_blueprint_lattice_stops_at_the_fact_limit(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 블루프린트를 여러 경로로 등록한 격자는 계약 동사 선언이 사실 상한을 넘는 순간 더 펼치지 않고, 지금과 같은
+    출력 상한 오류(종료 2)로 끝난다.
+
+    Flask는 등록 경로마다 규칙을 다시 등록하므로(이름 접두사가 달라 허용된다) 깊이 d 격자는 선언이 2^d개다. 수정
+    전에는 선언을 모두 만든 뒤에야 상한에 걸려 깊이 20인 4 KB 앱 하나가 수백만 개 선언을 메모리에 만들었다. 상한은
+    작게 바꿔 본다.
+    """
+    monkeypatch.setattr(flask_extract, "MAX_FACTS", 40)
+    monkeypatch.setattr(document_module, "MAX_FACTS", 40)
+    emitted = 0
+    original = flask_extract._emit_rule
+
+    def counting(*arguments: object) -> None:
+        nonlocal emitted
+        emitted += 1
+        original(*arguments)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(flask_extract, "_emit_rule", counting)
+    root = make_project({**REQUIREMENTS, "app.py": _blueprint_lattice(5, '["GET", "PURGE"]')})
+    code, out, err = run_cli(["routes", "--role", "server", "--project", str(root), "--generated-at", GENERATED_AT])
+    assert (code, out) == (2, "")
+    assert "more than 40 route-decl facts" in err
+    assert emitted <= 42
+
+
+def test_methods_outside_the_contract_do_not_stop_a_blueprint_lattice(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """계약 밖 동사 선언은 나중에 빠지므로 사실 상한 계산에 넣지 않는다(상한 아래면 지금처럼 문서를 낸다)."""
+    monkeypatch.setattr(flask_extract, "MAX_FACTS", 40)
+    monkeypatch.setattr(document_module, "MAX_FACTS", 40)
+    root = make_project({**REQUIREMENTS, "app.py": _blueprint_lattice(5, '["PURGE"]')})
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/home", False, "app.py#home")}
+    assert any(sentence.startswith(OUTSIDE_METHODS.format(count=1)) for sentence, _ in scoped_limitations(document))
+    templates = {template for _, scope in scoped_limitations(document) for template in scope["templates"]}  # type: ignore[attr-defined]
+    assert templates == {f"/{path}/r" for path in _lattice_paths(5)}
+
+
+def test_rule_less_blueprint_lattice_stops_at_the_registration_limit(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """규칙이 없는 블루프린트 격자도 펼친 하위 등록이 상한에 닿으면 멈추고 `route-coverage:` 한계를 한 번 남긴다.
+
+    선언이 늘지 않아 사실 상한에 걸리지 않으므로 수정 전에는 깊이 40 격자(3 KB) 하나로 등록 2^41개를 펼치며 멈췄다.
+    그 전까지 낸 선언은 그대로다. 상한은 작게 바꿔 본다.
+    """
+    monkeypatch.setattr(flask_extract, "MAX_BLUEPRINT_REGISTRATIONS", 20)
+    expanded = 0
+    original = flask_extract._child_prefix
+
+    def counting(*arguments: object) -> object:
+        nonlocal expanded
+        expanded += 1
+        return original(*arguments)
+
+    monkeypatch.setattr(flask_extract, "_child_prefix", counting)
+    root = make_project({**REQUIREMENTS, "app.py": _blueprint_lattice(5, None)})
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/home", False, "app.py#home")}
+    assert document["limitations"] == [
+        "route-coverage: Flask blueprint registrations expand to more than 20 registrations (the same blueprints "
+        "registered along many paths), so the remaining registrations were not followed"
+    ]
+    assert expanded == 20
+
+
+def _lattice_paths(depth: int) -> list[str]:
+    """`_blueprint_lattice` 등록 경로의 접두사(`a/b/…`)를 모두 돌려준다.
+
+    Args:
+        depth: 단계 수 - 1.
+
+    Returns:
+        접두사 목록.
+    """
+    paths = ["a", "b"]
+    found = list(paths)
+    for _ in range(depth):
+        paths = [f"{path}/{side}" for path in paths for side in "ab"]
+        found += paths
+    return found

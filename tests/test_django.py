@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
+from random import Random
 
 import pytest
 
 from pythograph.exchange.order import order_problem
+from pythograph.routes import classes as classes_module
+from pythograph.routes.classes import ClassInfo, analyze_class
 from pythograph.routes.django import extract as extract_module
 from pythograph.routes.django.extract import DEFAULT_CONVERTERS, route_to_regex
 from pythograph.routes.pattern import MAX_ROUTE_SOURCE_LENGTH, RegexPieces, Unconvertible
-from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
+from pythograph.source.project import Project
+from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, SymbolTable
+from tests.conftest import (
+    FIXTURES,
+    GENERATED_AT,
+    REPOSITORY,
+    ROUTE_DECL_METHODS,
+    class_lattice,
+    fact_rows,
+    facts_for,
+    routes_document,
+    scoped_limitations,
+)
 
 #: 합성 Django 프로젝트의 기본 파일이다.
 BASE = {
@@ -772,3 +790,288 @@ def test_expansion_cap_uses_the_capped_prefix(make_project: Callable[[dict[str, 
         "route-template-expansion-capped: 1 URL patterns are emitted as dynamic: optional parts expand to more than "
         "16 templates",
     ]
+
+
+#: 무작위 계층에서 기반으로 고르는 계층 밖 이름이다(표에 있는 프레임워크 클래스, 표에 없는 외부 클래스, 해석 실패).
+_FOREIGN_BASES = ("View", "TemplateView", "ExternalBase", "Missing")
+
+#: 무작위 계층의 클래스 본문 재료다. 같은 이름을 여러 클래스가 정의해 사슬 순서가 속성 값을 가른다.
+_BODY_LINES = (
+    "def get(self, request):\n        pass",
+    "def post(self, request):\n        pass",
+    'http_method_names = ["get"]',
+    'http_method_names = ["post", "options"]',
+    'template_name = "first"',
+    'template_name = "second"',
+)
+
+#: 손으로 고른 계층이다(모듈 경로 → 소스). 경로마다 다시 펴는 구현과 메모가 갈리기 쉬운 모양이다.
+_HAND_HIERARCHIES = {
+    # 같은 깊이에서 다시 만나는 X의 사슬이 경로에 따라 다르다(A가 조상이면 X 아래의 A를 건너뛴다).
+    "pkg/hand_cycle.py": """
+class R(B1, A):
+    pass
+
+class B1(X):
+    pass
+
+class A(X):
+    template_name = "a"
+
+class X(A):
+    template_name = "x"
+""",
+    # 상속 깊이 상한(32)을 넘는 긴 순환에 가지가 붙었다.
+    "pkg/hand_ring.py": "\n".join(
+        [f"class C{index}(C{(index + 1) % 40}):\n    template_name = 'c{index}'\n" for index in range(40)]
+        + ["class D(C5, C20):\n    pass\n", "class E(C30, D, C30):\n    pass\n"]
+    ),
+    # 깊이 상한을 넘는 사슬 위의 작은 다이아몬드다(두 경로 모두 같은 깊이에서 잘린다).
+    "pkg/hand_chain.py": "from django.views import View\n\n"
+    + "class Base0(View):\n    def get(self, request):\n        pass\n\n"
+    + "".join(f"class Base{index}(Base{index - 1}):\n    pass\n\n" for index in range(1, 41))
+    + "class Left(Base40):\n    pass\n\nclass Right(Base40):\n    template_name = 'r'\n\n"
+    + "class Join(Left, Right):\n    pass\n",
+    # 이름을 가린 기반(`class View(View)`는 정적으로 자기 자신)과 그 위의 다이아몬드다.
+    "pkg/hand_shadow.py": """
+from django.views import View
+
+class View(View):
+    template_name = "base"
+
+class A(View):
+    pass
+
+class B(View):
+    template_name = "b"
+
+class C(A, B, Missing):
+    pass
+""",
+    # 바닥이 꼭대기를 다시 상속하는 순환 격자와 다른 모듈의 순환 계층을 섞는다.
+    "pkg/hand_lattice.py": "from django.views import View\nfrom pkg.hand_cycle import R, X\n\n"
+    + class_lattice(6, "View, X", 'template_name = "bottom"', back_edge=True)
+    + "\nclass Mixed(Top, R, L3b):\n    pass\n",
+}
+
+
+def _reference_order(
+    symbols: SymbolTable, symbol: ProjectSymbol, depth: int = 0, seen: frozenset[str] = frozenset()
+) -> list[ProjectSymbol | ExternalSymbol | None]:
+    """수정 전 `routes.classes._linearize`를 옮긴 오라클이다. 경로마다 기반 사슬을 다시 펴고 뒤에 다시 나온 것만 남긴다.
+
+    Args:
+        symbols: 이름 해석기.
+        symbol: 시작 클래스.
+        depth: 현재 깊이.
+        seen: 지금 경로의 조상 id.
+
+    Returns:
+        클래스 목록(해석 실패는 None).
+    """
+    if depth > classes_module.MAX_CLASS_DEPTH or symbol.id in seen:
+        return [None] if depth > classes_module.MAX_CLASS_DEPTH else []
+    node = symbol.node
+    assert isinstance(node, ast.ClassDef)
+    order: list[ProjectSymbol | ExternalSymbol | None] = [symbol]
+    for base in node.bases:
+        resolved = symbols.resolve_expr(symbol.path, base)
+        if isinstance(resolved, ProjectSymbol) and isinstance(resolved.node, ast.ClassDef):
+            order.extend(_reference_order(symbols, resolved, depth + 1, seen | {symbol.id}))
+        elif isinstance(resolved, ExternalSymbol):
+            order.append(resolved)
+        else:
+            order.append(None)
+    keys = [entry.id if isinstance(entry, ProjectSymbol) else getattr(entry, "dotted", None) for entry in order]
+    return [entry for index, entry in enumerate(order) if keys[index] is None or keys[index] not in keys[index + 1 :]]
+
+
+def _reference_info(symbols: SymbolTable, symbol: ProjectSymbol) -> ClassInfo:
+    """오라클 사슬로 `analyze_class`와 같은 방식의 분석 결과를 만든다.
+
+    Args:
+        symbols: 이름 해석기.
+        symbol: 클래스.
+
+    Returns:
+        분석 결과.
+    """
+    info = ClassInfo(symbol=symbol)
+    for entry in _reference_order(symbols, symbol):
+        if isinstance(entry, ProjectSymbol):
+            classes_module._add_project(symbols, info, entry)
+        elif isinstance(entry, ExternalSymbol):
+            classes_module._add_external(info, entry.dotted)
+        else:
+            info.unknown_bases = True
+    return info
+
+
+def _random_hierarchy(random: Random) -> str:
+    """순환·다이아몬드·외부 기반·해석 실패가 섞인 작은 클래스 계층 모듈 소스를 만든다.
+
+    Args:
+        random: 난수 생성기(시드 고정).
+
+    Returns:
+        모듈 소스.
+    """
+    lines = ["from django.views import View", "from django.views.generic import TemplateView"]
+    lines += ["from somewhere import ExternalBase", ""]
+    names = [f"K{index}" for index in range(random.randint(4, 7))]
+    for name in names:
+        bases = random.sample(names + list(_FOREIGN_BASES), random.choice((0, 1, 1, 2, 2, 3)))
+        lines.append(f"class {name}({', '.join(bases)}):" if bases else f"class {name}:")
+        lines += [f"    {line}" for line in random.sample(_BODY_LINES, random.randint(0, 2))] or ["    pass"]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _module_classes(symbols: SymbolTable) -> list[ProjectSymbol]:
+    """프로젝트의 모든 모듈 수준 클래스를 돌려준다.
+
+    Args:
+        symbols: 이름 해석기.
+
+    Returns:
+        클래스 목록(파일 순서).
+    """
+    found: list[ProjectSymbol] = []
+    for path in symbols.project.python_files():
+        index = symbols.index(path)
+        assert index is not None
+        found += [
+            ProjectSymbol(path, index.qualname(node), node)
+            for node in index.module.tree.body
+            if isinstance(node, ast.ClassDef)
+        ]
+    return found
+
+
+def test_class_analysis_matches_the_path_by_path_reference(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상속 사슬을 (클래스, 깊이)마다 한 번 펴도 경로마다 다시 펴던 구현과 같은 분석 결과다.
+
+    다이아몬드·순환(자기 자신, 같은 깊이에서 경로마다 갈리는 순환, 깊이 상한을 넘는 순환)·깊이 절단·모르는 기반이 섞인
+    무작위 계층과 손으로 고른 계층의 모든 모듈 수준 클래스를 비교한다. 클래스마다 새로 분석하므로 앞선 분석의 메모가
+    뒤 분석을 바꾸지 않는지도 본다.
+    """
+    random = Random(20261019)
+    files = {"pkg/__init__.py": "", **_HAND_HIERARCHIES}
+    files |= {f"pkg/random{number}.py": _random_hierarchy(random) for number in range(150)}
+    root = make_project(files)
+    symbols = SymbolTable(Project.open(root.resolve()))
+    found = _module_classes(symbols)
+    assert len(found) > 800
+    for symbol in found:
+        assert analyze_class(symbols, symbol) == _reference_info(symbols, symbol), symbol.id
+
+
+def test_class_lattice_resolves_each_class_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """다이아몬드 상속 격자를 분석할 때 (클래스, 깊이)마다 기반을 한 번만 푼다(순환 격자, 자기 자신을 상속한 바닥 포함).
+
+    경로마다 사슬을 다시 펴서 깊이 d 격자 하나에 2^d번 재귀하던 문제다. 1 KB 남짓한 모듈 하나로 graph·schema·routes가
+    깊이 20에서 수십 초, 깊이 32에서 수십 시간을 썼다(graph는 모듈 수준 클래스마다 이 분석을 부른다). 자기 자신에 걸린
+    순환 가드는 그 클래스 안쪽 일이라 위 단계가 기억한 결과를 다시 쓰는 데 방해가 되지 않아야 한다.
+    """
+    sources = {
+        "pkg/plain.py": "from django.views import View\n"
+        + class_lattice(12, "View", "def get(self, request):\n        pass"),
+        "pkg/ring.py": "from django.views import View\n" + class_lattice(12, "View", back_edge=True),
+        "pkg/shadowed.py": "from django.views import View\n" + class_lattice(12, "View, L0a"),
+    }
+    root = make_project({"pkg/__init__.py": "", **sources})
+    symbols = SymbolTable(Project.open(root.resolve()))
+    resolved = 0
+    original = SymbolTable.resolve_expr
+
+    def counting(self: SymbolTable, path: str, expr: ast.expr, hops: int = 0) -> object:
+        nonlocal resolved
+        resolved += 1
+        return original(self, path, expr, hops)
+
+    monkeypatch.setattr(SymbolTable, "resolve_expr", counting)
+    for path, source in sources.items():
+        resolved = 0
+        info = analyze_class(symbols, symbols.resolve_name(path, "Top"))
+        assert info is not None and info.kinds == {"django-view"}
+        bases = sum(len(node.bases) for node in ast.parse(source).body if isinstance(node, ast.ClassDef))
+        assert resolved <= 2 * bases, path
+        assert ("get" in info.names) == (path == "pkg/plain.py")
+
+
+def _dense_cycles(levels: int) -> str:
+    """모든 클래스가 아래 단계 둘과 위 단계의 모든 클래스를 상속하는 촘촘한 정적 순환 계층을 만든다(바닥은 `View`도).
+
+    순환 가드가 지나온 경로에 따라 다른 판정을 내 기억한 결과를 거의 다시 쓸 수 없는 모양이다.
+
+    Args:
+        levels: 단계 수(단계마다 클래스 둘).
+
+    Returns:
+        모듈 소스.
+    """
+    lines = ["from django.views import View", ""]
+    for level in range(levels):
+        for side in "ab":
+            bases = ["View"] if level == 0 else [f"D{level - 1}{other}" for other in "ab"]
+            bases += [f"D{upper}{other}" for upper in range(level + 1, levels) for other in "ab"]
+            lines += [f"class D{level}{side}({', '.join(bases)}):", "    pass", ""]
+    return "\n".join(lines)
+
+
+def test_dense_cyclic_class_hierarchy_stops_relinearizing(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """경로마다 순환 가드 판정이 갈리는 촘촘한 순환 계층은 다시 펴는 상한에서 멈추고 남은 기반을 해석 실패로 둔다.
+
+    실제 파이썬으로는 만들 수 없는 계층이라 정확한 사슬이 없다. 해석 실패로 두면 뷰 method는 확정하지 못한 쪽(`ANY`와
+    한계)으로 간다. 상한이 없으면 클래스 수의 계승만큼 경로를 편다(단계 8이면 수정 전처럼 끝나지 않는다). 상한은 작게
+    바꿔 본다.
+    """
+    monkeypatch.setattr(classes_module, "MAX_RELINEARIZATIONS", 5)
+    source = _dense_cycles(4)
+    root = make_project({"pkg/__init__.py": "", "pkg/dense.py": source})
+    symbols = SymbolTable(Project.open(root.resolve()))
+    resolved = 0
+    original = SymbolTable.resolve_expr
+
+    def counting(self: SymbolTable, path: str, expr: ast.expr, hops: int = 0) -> object:
+        nonlocal resolved
+        resolved += 1
+        return original(self, path, expr, hops)
+
+    monkeypatch.setattr(SymbolTable, "resolve_expr", counting)
+    info = analyze_class(symbols, symbols.resolve_name("pkg/dense.py", "D0a"))
+    assert info is not None and info.unknown_bases and info.kinds == {"django-view"}
+    classes = [node for node in ast.parse(source).body if isinstance(node, ast.ClassDef)]
+    expansions = len(classes) * (len(classes) + 1) + 5
+    assert resolved <= expansions * max(len(node.bases) for node in classes)
+
+
+def test_view_class_lattice_routes_finish(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상속 깊이 상한(32)까지 닿는 다이아몬드 격자 뷰도 routes가 끝나고 바닥에서 물려받은 핸들러를 낸다.
+
+    별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일 뿐 성능 측정이 아니다(수정 전에는 2^32번 재귀).
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": "from django.urls import path\nfrom site_pkg.views import Top\n"
+            'urlpatterns = [path("x/", Top.as_view())]\n',
+            "site_pkg/views.py": "from django.views import View\n"
+            + class_lattice(31, "View", "def get(self, request):\n        pass"),
+        },
+    )
+    command = ["routes", "--role", "server", "--project", str(root), "--generated-at", GENERATED_AT]
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert fact_rows(json.loads(result.stdout)) == {("GET", "/x/", False, "site_pkg/views.py#Top.get")}

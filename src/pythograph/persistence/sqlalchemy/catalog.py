@@ -193,6 +193,12 @@ class SqlAlchemyCatalog:
         self._bodies: dict[str, _ClassBody] = {}
         self._bases: dict[str, BaseInfo | None] = {}
         self._classes: dict[str, ProjectSymbol] = {}
+        # `_resolve`의 "매핑이 아니다" 결과를 기억한다. 깊이 절단이 끼지 않은 결과는 어느 깊이에서나 같아 키만으로
+        # 둔다. 끼어든 결과는 깊이에 따라 다르고 뒤에 조상이 매핑으로 풀리면 달라질 수 있어 (키, 깊이)와 그때의 매핑
+        # 수로 둔다. 깊이 절단(기억한 절단 결과를 다시 쓴 것 포함)은 `_depth_cuts`로 세어 결과가 절단에 기댔는지 가린다.
+        self._non_models: set[str] = set()
+        self._cut_misses: dict[tuple[str, int], int] = {}
+        self._depth_cuts = 0
         for module in modules:
             self._collect_module(module)
         for key in list(self._classes):
@@ -562,6 +568,9 @@ class SqlAlchemyCatalog:
     def _resolve(self, key: str, depth: int) -> SaModel | None:
         """클래스가 매핑 클래스(또는 추상 매핑 클래스)면 해석한다(부모 먼저, 캐시).
 
+        매핑이 아니라는 결과도 기억한다. 기억하지 않으면 모델과 무관한 다이아몬드 상속 격자에서 같은 클래스를 경로마다
+        다시 풀어 깊이 d에 2^d번 재귀한다. 상속 순환은 깊이 상한에서만 끊기므로 순환 격자도 같다.
+
         Args:
             key: 클래스 키.
             depth: 깊이.
@@ -571,8 +580,49 @@ class SqlAlchemyCatalog:
         """
         if key in self.models:
             return self.models[key]
+        if key in self._non_models:
+            return None
         symbol = self._classes.get(key)
-        if symbol is None or depth > MAX_CLASS_DEPTH or self._class_base(symbol) is not None:
+        if symbol is not None and (depth > MAX_CLASS_DEPTH or self._cut_misses.get((key, depth)) == len(self.models)):
+            self._depth_cuts += 1
+            return None
+        cuts, mapped = self._depth_cuts, len(self.models)
+        model = self._resolve_class(symbol, depth) if symbol is not None else None
+        if model is None:
+            self._remember_miss(key, depth, cuts, mapped)
+        return model
+
+    def _remember_miss(self, key: str, depth: int, cuts: int, mapped: int) -> None:
+        """매핑이 아니라는 결과를 기억한다.
+
+        해석 중 깊이 절단이 없었으면 어느 깊이·순서에서도 같은 결과다. 절단이 끼었으면 더 얕은 깊이에서는 끊긴
+        조상까지 닿을 수 있고, 다른 클래스가 뒤에 매핑으로 풀리면(역순 사슬의 조상) 같은 깊이에서도 달라진다. 그래서
+        같은 깊이에서 매핑 목록이 그대로인 동안만 쓴다. 해석 중 매핑이 새로 생겼으면 앞서 본 부모의 결과가 이미 낡았을
+        수 있어 기억하지 않는다.
+
+        Args:
+            key: 클래스 키.
+            depth: 해석한 깊이.
+            cuts: 해석을 시작할 때의 깊이 절단 수.
+            mapped: 해석을 시작할 때의 매핑 수.
+        """
+        if self._depth_cuts == cuts:
+            self._non_models.add(key)
+        elif len(self.models) == mapped:
+            self._cut_misses[(key, depth)] = mapped
+
+    def _resolve_class(self, symbol: ProjectSymbol, depth: int) -> SaModel | None:
+        """깊이 상한 안의 클래스가 매핑 클래스면 부모를 먼저 풀어 해석한다(`_resolve`가 기억을 맡는다).
+
+        Args:
+            symbol: 클래스.
+            depth: 깊이.
+
+        Returns:
+            매핑 클래스 또는 None.
+        """
+        key = symbol.id
+        if self._class_base(symbol) is not None:
             return None
         node = symbol.node
         assert isinstance(node, ast.ClassDef)

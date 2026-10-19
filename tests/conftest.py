@@ -38,6 +38,32 @@ DEEP_SOURCES = {
 }
 
 
+def class_lattice(depth: int, bottom_bases: str = "", bottom_body: str = "pass", back_edge: bool = False) -> str:
+    """다이아몬드 상속 격자 모듈 소스를 만든다.
+
+    바닥은 `L0a`·`L0b`이고, 단계 k의 두 클래스(`Lka`·`Lkb`)는 단계 k-1의 두 클래스를 모두 상속한다. 꼭대기 `Top`은 단계
+    depth의 두 클래스를 상속하므로 바닥은 `Top`에서 상속 깊이 depth + 1에 있다. 경로마다 사슬을 다시 펴면 `Top` 하나에
+    2^(depth+1)번 재귀한다.
+
+    Args:
+        depth: 바닥 위 단계 수.
+        bottom_bases: 바닥 두 클래스의 기반 식(빈 문자열이면 없음).
+        bottom_body: 바닥 `L0a`의 본문(한 줄).
+        back_edge: 바닥 `L0a`가 꼭대기 `Top`도 상속하게 해 정적 상속 순환을 만든다.
+
+    Returns:
+        모듈 소스.
+    """
+    first = ", ".join(base for base in (bottom_bases, "Top" if back_edge else "") if base)
+    lines = [f"class L0a({first}):" if first else "class L0a:", f"    {bottom_body}", ""]
+    lines += [f"class L0b({bottom_bases}):" if bottom_bases else "class L0b:", "    pass", ""]
+    for level in range(1, depth + 1):
+        for side in "ab":
+            lines += [f"class L{level}{side}(L{level - 1}a, L{level - 1}b):", "    pass", ""]
+    lines += [f"class Top(L{depth}a, L{depth}b):", "    pass", ""]
+    return "\n".join(lines)
+
+
 class CountingValues(dict[Any, Any]):
     """`values()`로 돈 항목 수를 세는 사전. 모듈마다 카탈로그 전체를 다시 도는지 확인하는 테스트가 쓴다."""
 

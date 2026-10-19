@@ -160,7 +160,10 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | `INSTALLED_APPS`를 읽지 못함 | `framework-provided-routes:`(스코프 없음) |
 | Flask 정적 파일 | `framework-provided-routes:` + `templatePrefixes: [static_url_path]`, `methods: ["GET", "HEAD"]` |
 | 라우트를 따로 등록하는 Flask 확장(flask_restful·flask_restx·flask_smorest·connexion·flask_appbuilder·flask_admin) import | `route-coverage:`(스코프 없음) |
+| Flask 블루프린트 등록 순환(자기 자신이나 등록 경로의 조상을 다시 등록. Flask는 그런 앱을 등록하다 실패한다) | 순환을 닫는 등록을 따라가지 않고 `route-coverage:`(스코프 없음). 순환에 닿기 전 등록의 사실은 그대로다 |
+| 같은 블루프린트를 여러 경로로 등록한 격자(Flask는 경로마다 규칙을 다시 등록한다) | 경로마다 펼친다. 펼친 하위 등록이 200,000개(사실 상한의 두 배)를 넘으면 나머지를 따라가지 않고 `route-coverage:`(스코프 없음). 펼치는 도중 계약 동사 사실이 100,000개를 넘으면 바로 멈추고 사실 상한 오류(종료 2)로 끝난다 |
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
+| 뷰 클래스 상속 사슬이 32단을 넘음, 또는 정적 상속 순환이 촘촘해 같은 클래스를 경로마다 1,024번 넘게 다시 펴야 함(파이썬으로는 만들 수 없는 계층) | 넘는 기반을 모르는 기반으로 본다(method를 확정하지 못한 뷰와 같다). 다이아몬드 상속은 (클래스, 깊이)마다 한 번 펴므로 경로 수와 무관하다 |
 | 계약 동사 집합 밖 method(`PURGE`·`PROPFIND` 등: Flask `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action` 인자) | 그 method의 decl을 내지 않고 등록마다 `route-coverage:`. 템플릿을 확정한 root 앵커 등록이면 그 `templates` 스코프(스코프 `methods`에는 계약 동사만 쓸 수 있어 싣지 않는다), dynamic·base 앵커면 스코프 없음 |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |
 | 경로 원문(Flask 규칙은 연속 `/`를 합친 뒤, Django는 include 접두사까지 이은 `path()`·`re_path()` 문자열)이 32 KiB(템플릿 상한 2,048자의 16배)를 넘음 | 변환하지 않고 템플릿 상한 초과와 같은 dynamic 사실 + `route-coverage:`("… (too-long)"). 변환 비용이 원문 길이를 따라 늘기 때문이다. 원문은 이보다 긴데 템플릿은 짧았을 극단(아주 긴 파라미터 이름·변환기 인자·파라미터 정규식)도 dynamic이다 |

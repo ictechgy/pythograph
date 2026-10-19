@@ -396,6 +396,15 @@ longer than 32 KiB (16 times the 2,048-character template limit; Flask rules aft
 `re_path()` strings joined with their include prefixes) are not converted and become dynamic facts like any
 over-long template.
 
+Class hierarchies (view classes for routes and graph, SQLAlchemy mappings for schema) are followed at most 32 levels
+deep, and each class is analyzed once per depth, so a diamond-shaped hierarchy costs time proportional to its classes
+rather than to its exponentially many paths. A static inheritance cycle, which Python itself cannot build, makes the
+result depend on the path taken; when one view class would need more than 1,024 such re-linearizations, its remaining
+bases are treated as unknown. Flask blueprint registrations that close a cycle (Flask fails to register them) are not
+followed and count as `route-coverage:`. Registering the same blueprints along many paths is expanded per path as
+Flask does, up to 200,000 nested registrations (`route-coverage:` beyond that); the expansion stops early once more
+than 100,000 route-decl facts make the document impossible, ending with the usual fact-limit error (exit code 2).
+
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
 once. The directory walk counts only links that could hide sources it would otherwise read: links to directories it
