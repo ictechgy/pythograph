@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import islice
 from pathlib import PurePosixPath
 
-from pythograph.source.project import Project
+from pythograph.source.project import MAX_SCANNED_ENTRIES, Project
 
 #: 읽을 선언 파일의 최대 크기다.
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
@@ -96,24 +97,36 @@ def _requirement_files(project: Project, root: str) -> list[str]:
         경로 목록.
     """
     found: list[str] = []
-    try:
-        with project.scan_directory(root) as iterator:
-            names = sorted(entry.name for entry in iterator)
-    except OSError:
-        return found
-    for name in names:
+    for name in _directory_names(project, root):
         relative = PurePosixPath(root, name).as_posix() if root else name
         if name.startswith("requirements") and name.endswith(".txt"):
             found.append(relative)
         elif name == "requirements" and project.is_directory(relative):
-            try:
-                with project.scan_directory(relative) as iterator:
-                    found.extend(
-                        sorted(f"{relative}/{child.name}" for child in iterator if child.name.endswith(".txt"))
-                    )
-            except OSError:
-                continue
+            found.extend(
+                f"{relative}/{child}" for child in _directory_names(project, relative) if child.endswith(".txt")
+            )
     return found
+
+
+def _directory_names(project: Project, relative: str) -> list[str]:
+    """디렉터리 항목 이름을 정렬해 돌려준다. 열거는 소스 순회와 같은 항목 상한보다 하나 더 꺼내면 멈춘다.
+
+    상한을 넘으면 파일시스템 열거 순서에 따른 일부를 고르지 않고 아무것도 돌려주지 않는다. 그런 디렉터리는 소스
+    순회에서도 항목 상한을 넘겨 한계(`Project.scan_capped`)로 남으므로, 요구 파일을 읽지 않은 공백이 조용히 숨지 않는다.
+
+    Args:
+        project: 프로젝트.
+        relative: 프로젝트 상대 디렉터리.
+
+    Returns:
+        항목 이름(정렬), 읽지 못하거나 상한을 넘으면 빈 목록.
+    """
+    try:
+        with project.scan_directory(relative) as iterator:
+            names = [entry.name for entry in islice(iterator, MAX_SCANNED_ENTRIES + 1)]
+    except OSError:
+        return []
+    return sorted(names) if len(names) <= MAX_SCANNED_ENTRIES else []
 
 
 def _manifest_majors(path: str, text: str) -> list[tuple[str, int | None]]:

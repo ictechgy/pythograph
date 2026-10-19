@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +19,7 @@ from pythograph.cli.main import main
 from pythograph.graph import revision as revision_module
 from pythograph.graph.roots import RootsError, collect_roots, parse_roots_text
 from pythograph.source.syntax import MAX_AST_DEPTH
-from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, run_cli, tree_depth
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, run_cli, tree_depth
 
 #: 해석 fixture다.
 RESOLUTION = str(FIXTURES / "graph" / "resolution")
@@ -287,6 +288,47 @@ def test_roots_input_limits(tmp_path: Path) -> None:
         collect_roots([f"a#{index}" for index in range(10_001)], None, io.StringIO())
     with pytest.raises(RootsError):
         collect_roots([], "-", io.StringIO("x" * (16 * 1024 * 1024 + 1)))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")
+def test_roots_from_reads_only_regular_files(tmp_path: Path) -> None:
+    """`--roots-from` 파일은 일반 파일만 읽는다(파이프는 `-`로 넘긴다). 일반 파일을 가리키는 링크는 따라간다.
+
+    디렉터리·장치·장치를 가리키는 링크는 내용을 읽지 않고 사용법 오류다. 전에는 장치를 상한까지 읽은 뒤 내용 오류로
+    거부했다.
+    """
+    roots = tmp_path / "roots.json"
+    roots.write_text(json.dumps(["a#b"]), encoding="utf-8")
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(roots)
+    assert collect_roots([], str(linked), io.StringIO()) == ("a#b",)
+    device = tmp_path / "device.json"
+    device.symlink_to(os.devnull)
+    for target in (tmp_path, Path(os.devnull), device):
+        with pytest.raises(RootsError, match="readable regular file"):
+            collect_roots([], str(target), io.StringIO())
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
+def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -> None:
+    """쓰는 쪽이 없는 FIFO도 열기에서 멈추지 않고 사용법 오류(64)다.
+
+    전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
+    뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
+    """
+    fifo = tmp_path / "roots.json"
+    os.mkfifo(fifo)
+    command = ["reach", "--project", RESOLUTION, "--roots-from", str(fifo), "app/helpers.py#slugify"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert (result.returncode, result.stdout) == (64, ""), result.stderr
+    assert "--roots-from could not be read" in result.stderr
 
 
 def test_depth_and_reached_limits_truncate() -> None:

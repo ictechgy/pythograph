@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pythograph.exchange.methods import HTTP_METHODS
+from pythograph.source.inputs import open_regular_file
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 선언 파일 최대 크기(바이트)다.
@@ -145,6 +146,9 @@ class MethodToken:
 def load_wrappers(path: Path) -> list[WrapperDecl]:
     """선언 파일을 읽어 파이썬 래퍼를 돌려준다.
 
+    일반 파일만 열고(마지막 링크는 따라간다) 상한보다 1바이트만 더 읽어 크기를 판정한다. 파일 전체를 읽은 뒤 자르면
+    큰 파일이나 `/dev/zero`를 가리키는 링크가 상한과 무관하게 메모리를 쓴다.
+
     Args:
         path: 선언 파일 경로.
 
@@ -152,10 +156,11 @@ def load_wrappers(path: Path) -> list[WrapperDecl]:
         `language: "python"` 래퍼 목록.
 
     Raises:
-        OSError: 파일을 읽지 못할 때.
+        OSError: 파일을 읽지 못하거나 일반 파일이 아닐 때(디렉터리·장치·FIFO).
         WrapperDeclarationError: 스키마 위반·크기 초과.
     """
-    data = path.read_bytes()[: MAX_WRAPPERS_BYTES + 1]
+    with open_regular_file(path) as handle:
+        data = handle.read(MAX_WRAPPERS_BYTES + 1)
     if len(data) > MAX_WRAPPERS_BYTES:
         raise WrapperDeclarationError("the wrappers file is larger than 4 MiB; split or trim it.")
     try:

@@ -260,6 +260,7 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   `truncationReasons`의 `root-not-found`, `root-not-found:` 한계를 싣는다. 나머지 root로 순회한 문서를 쓰고 64로 끝난다(표준 오류에는
   수만 쓴다). 제어 문자·빈 id, 10,000개 초과, 읽지 못하는 `--roots-from`은 문서 없는 64다.
 - `--roots-from <file|->`: JSON 문자열 배열 또는 bridge-facts 문서(사실의 `symbol.usr`), `-`는 표준 입력, 16 MiB까지.
+  파일은 일반 파일만 읽는다(마지막 심볼릭 링크는 따라간다). 디렉터리·장치·FIFO는 내용을 읽지 않고 64이므로 파이프는 `-`로 넘긴다.
 - `revision`: `--revision`, 없으면 프로젝트 루트 git의 HEAD — 작업 트리가 깨끗할 때만(추적하지 않는 파일도 더럽다). git은 프로젝트
   루트에 `.git`이 있을 때만 `GIT_OPTIONAL_LOCKS=0`·`core.fsmonitor=false`로 60초 제한을 두고 실행한다(isthmus capture와 같은 설정).
   git 실행 파일은 `PATH`의 절대 경로 항목에서만 찾아(빈·상대 항목은 건너뛴다, Windows는 `git.exe`만) 그 절대 경로로 실행하고,

@@ -352,8 +352,8 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
         파이썬 래퍼 선언.
 
     Raises:
-        UsageError: 선언 오류.
-        InputError: 읽지 못할 때.
+        UsageError: 선언 오류(4 MiB 초과 포함).
+        InputError: 읽지 못하거나 일반 파일이 아닐 때.
     """
     if argument is None:
         return []
@@ -362,7 +362,9 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
     except WrapperDeclarationError as error:
         raise UsageError(f"invalid --wrappers declaration: {error}") from error
     except OSError as error:
-        raise InputError("--wrappers does not name a readable file; pass an http-wrappers v1 JSON file.") from error
+        raise InputError(
+            "--wrappers does not name a readable regular file; pass an http-wrappers v1 JSON file."
+        ) from error
 
 
 def _schema(rest: list[str]) -> str:

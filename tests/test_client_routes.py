@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import subprocess
+import sys
+import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -26,8 +30,9 @@ from pythograph.routes.client.compose import (
 )
 from pythograph.routes.client.formats import Field, format_pieces, percent_pieces
 from pythograph.routes.client.parts import MAX_URL_PARTS
+from pythograph.routes.client.wrappers import MAX_WRAPPERS_BYTES, WrapperDeclarationError, load_wrappers
 from pythograph.routes.versions import spec_minimum
-from tests.conftest import GENERATED_AT, run_cli
+from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -966,6 +971,67 @@ def test_unreadable_wrapper_file_exits_2(make_project: MakeProject, tmp_path: Pa
     missing = tmp_path / "missing.json"
     code, out, _ = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(missing)])
     assert code == 2 and out == ""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")
+@pytest.mark.parametrize("kind", ["directory", "device", "device-link"])
+def test_wrapper_file_must_be_a_regular_file(make_project: MakeProject, tmp_path: Path, kind: str) -> None:
+    """디렉터리·장치·장치를 가리키는 링크는 내용을 읽지 않고 입력 오류(2)다. 일반 파일을 가리키는 링크는 따라간다.
+
+    전에는 장치 내용까지 끝까지 읽어, 저장소의 선언 파일을 `/dev/zero` 링크로 바꾸면 메모리를 끝없이 썼다(`/dev/null`은
+    빈 내용이라 선언 오류 64였다).
+    """
+    root = make_project({"a.py": "X = 1\n"})
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(_wrappers(tmp_path, []))
+    assert run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(linked)])[0] == 0
+    target = {"directory": tmp_path, "device": Path(os.devnull), "device-link": tmp_path / "device.json"}[kind]
+    if kind == "device-link":
+        target.symlink_to(os.devnull)
+    code, out, err = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(target)])
+    assert (code, out) == (2, "")
+    assert "--wrappers does not name a readable regular file" in err
+
+
+def test_oversized_wrapper_file_reads_only_the_byte_budget(make_project: MakeProject, tmp_path: Path) -> None:
+    """4 MiB를 넘는 선언 파일은 상한+1바이트만 읽고 선언 오류(64)다. 전에는 파일 전체를 메모리에 올린 뒤 잘랐다."""
+    path = tmp_path / "wrappers.json"
+    with path.open("wb") as handle:
+        handle.truncate(16 * MAX_WRAPPERS_BYTES)  # 내용은 0바이트로 채운 희소 파일이다.
+    tracemalloc.start()
+    try:
+        with pytest.raises(WrapperDeclarationError, match="larger than 4 MiB"):
+            load_wrappers(path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 2 * MAX_WRAPPERS_BYTES
+    root = make_project({"a.py": "X = 1\n"})
+    code, out, err = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(path)])
+    assert (code, out) == (64, "")
+    assert "larger than 4 MiB" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
+def test_wrapper_fifo_exits_2_without_waiting_for_a_writer(make_project: MakeProject, tmp_path: Path) -> None:
+    """쓰는 쪽이 없는 FIFO도 열기에서 멈추지 않고, 일반 파일이 아니라서 입력 오류(2)다.
+
+    전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
+    뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
+    """
+    root = make_project({"a.py": "X = 1\n"})
+    fifo = tmp_path / "wrappers.json"
+    os.mkfifo(fifo)
+    command = ["routes", "--role", "client", "--project", str(root), "--wrappers", str(fifo)]
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert (result.returncode, result.stdout) == (2, ""), result.stderr
 
 
 def test_compose_helpers() -> None:

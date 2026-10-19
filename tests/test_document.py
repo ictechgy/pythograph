@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from pythograph.exchange.document import (
     format_timestamp,
 )
 from pythograph.graph.document import encode_snapshot
+from pythograph.routes import versions as versions_module
 from pythograph.routes.model import Extraction, Location, ParamConstraint, RouteDecl, RouteShape, ScopeRange
 from pythograph.routes.versions import declared_majors, spec_major, version_gap
 from pythograph.source.project import Project
@@ -157,3 +160,55 @@ def test_declared_majors_from_manifests(make_project: Callable[[dict[str, str]],
     majors = declared_majors(Project.open(root))
     assert majors["flask"] == {3} and majors["djangorestframework"] == {3}
     assert declared_majors(Project.open(root))["django"] == {5, None}
+
+
+@pytest.mark.parametrize(
+    ("files", "expected", "expected_reads"),
+    [
+        # 루트가 상한(3)을 넘으면 루트의 요구 파일도 requirements/도 읽지 않는다.
+        (
+            {"requirements.txt": "django==5.2\n", "requirements/base.txt": "flask==3.0\n"}
+            | {f"{name}.txt": "" for name in "abcd"},
+            {},
+            4,
+        ),
+        # 루트는 상한 안이고 requirements/만 넘으면 루트의 요구 파일은 그대로 읽는다.
+        (
+            {"requirements.txt": "django==5.2\n"} | {f"requirements/{name}.txt": "flask==3.0\n" for name in "abcde"},
+            {"django": {5}},
+            2 + 4,
+        ),
+    ],
+)
+def test_requirement_search_enumerates_at_most_the_entry_budget(
+    make_project: Callable[[dict[str, str]], Path],
+    monkeypatch: pytest.MonkeyPatch,
+    files: dict[str, str],
+    expected: dict[str, set[int | None]],
+    expected_reads: int,
+) -> None:
+    """요구 파일을 찾는 디렉터리 열거도 소스 순회처럼 항목 상한+1개만 꺼내고, 넘친 디렉터리는 일부만 고르지 않는다.
+
+    전에는 루트와 `requirements/`를 끝까지 나열했다. 넘친 디렉터리는 소스 순회도 통째로 빼고 한계로 센다.
+    """
+    project = Project.open(make_project(files))
+    monkeypatch.setattr(versions_module, "MAX_SCANNED_ENTRIES", 3)
+    original = os.scandir
+    reads = 0
+
+    def counting(entries: Iterator[os.DirEntry[str]]) -> Iterator[os.DirEntry[str]]:
+        """꺼낸 항목 수를 센다."""
+        nonlocal reads
+        for entry in entries:
+            reads += 1
+            yield entry
+
+    @contextmanager
+    def scan(directory: int | Path) -> Iterator[Iterator[os.DirEntry[str]]]:
+        """실제 열거를 감싼다."""
+        with original(directory) as entries:
+            yield counting(entries)
+
+    monkeypatch.setattr(os, "scandir", scan)
+    assert declared_majors(project) == expected
+    assert reads == expected_reads
