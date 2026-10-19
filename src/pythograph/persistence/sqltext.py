@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import ast
-import re
 
 from pythograph.persistence.location import fact_location
 from pythograph.persistence.model import PersistenceExtraction, RelationUse
@@ -26,8 +25,8 @@ from pythograph.routes.model import Location
 from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, MAX_MEMO_LENGTH, Evaluator
 from pythograph.source.symbols import ValueSymbol
 
-#: DB-API 파라미터 표기다(`%s`, `%(name)s`, `%d` 등). `%%`는 글자 그대로의 `%`다.
-_PARAMETER = re.compile(r"%\([^)]*\)[sdifr]|%[sdifr]")
+#: DB-API 파라미터 표기(`%s`, `%(name)s`, `%d` 등)의 서식 문자다. `replace_parameters`가 이 표기를 찾는다.
+_CONVERSIONS = frozenset("sdifr")
 
 #: 알 수 없는 조각을 나타내는 플레이스홀더다.
 _HOLE = "{}"
@@ -110,15 +109,19 @@ class SqlText:
             node: 위치로 쓸 노드.
             strict: 대문자 게이트 여부.
         """
-        result = sql_relations(_PARAMETER.sub("?", text), strict)
+        result = sql_relations(replace_parameters(text, "?"), strict)
         location = self._location(node)
         symbol = self.scopes.symbol_for(node)
         for relation in result.relations:
             # SQL 추출기가 이미 조각별로 escape한 이름이다.
             self.extraction.uses.append(RelationUse(relation.name, None, False, location, symbol))
+        if not result.unresolved:
+            return
+        # 미해석 피연산자마다 같은 원문을 싣는다. 피연산자마다 텍스트 전체를 다시 줄이면 개수 × 길이가 든다.
+        channel = truncate(text)
         for _ in range(result.unresolved):
             self.extraction.add_dynamic(
-                truncate(text), location, symbol, "{count} SQL relation operands are not literal names"
+                channel, location, symbol, "{count} SQL relation operands are not literal names"
             )
 
     def text(self, node: ast.expr, depth: int = 0) -> str | None:
@@ -234,7 +237,7 @@ class SqlText:
         left = self.text(node.left, depth + 1)
         if isinstance(node.op, ast.Mod):
             # 문자열 보간이라 `%s`는 값이 아니라 SQL 조각이다. 알 수 없는 조각으로 바꾼다.
-            return None if left is None else _PARAMETER.sub(_HOLE, left)
+            return None if left is None else replace_parameters(left, _HOLE)
         right = self.text(node.right, depth + 1)
         if left is None and right is None:
             return None
@@ -291,7 +294,7 @@ class SqlText:
                 continue
             if looks_like_sql(text, strict=True):
                 self.emit(text, node, strict=True)
-            elif looks_like_sql(text) and sql_relations(_PARAMETER.sub("?", text)).relations:
+            elif looks_like_sql(text) and sql_relations(replace_parameters(text, "?")).relations:
                 self.extraction.add_gap(
                     "skipped-sql-literals:", "{count} lowercase SQL-looking string literals were not read"
                 )
@@ -367,3 +370,56 @@ def truncate(text: str) -> str:
     """
     flat = " ".join(text.split())
     return flat if len(flat) <= MAX_EXPRESSION_LENGTH else flat[: MAX_EXPRESSION_LENGTH - 1] + "…"
+
+
+def replace_parameters(text: str, replacement: str) -> str:
+    """DB-API 파라미터 표기(`%s`, `%(name)s` 등)를 `replacement`로 바꾼다.
+
+    정규식 `%\\([^)]*\\)[sdifr]|%[sdifr]`의 `re.sub`와 결과가 같다(`%%s`의 뒤 `%s`도 바꾸고, `%(` 뒤 이름은 줄을
+    넘을 수 있다). 그 정규식은 `%(`마다 다음 `)`까지(없으면 끝까지) 다시 훑어, 닫히지 않은 `%(`가 많은 리터럴
+    하나에서 길이의 제곱이 들었다. 여기서는 마지막으로 찾은 `)` 위치를 기억해 원문을 한 번만 훑는다.
+
+    Args:
+        text: SQL 텍스트.
+        replacement: 표기 자리에 넣을 문자열.
+
+    Returns:
+        바꾼 텍스트.
+    """
+    pieces: list[str] = []
+    copied = 0
+    close = -1
+    position = text.find("%")
+    while position >= 0:
+        end, close = _parameter_end(text, position, close)
+        if end < 0:
+            position = text.find("%", position + 1)
+            continue
+        pieces += (text[copied:position], replacement)
+        copied = end
+        position = text.find("%", end)
+    pieces.append(text[copied:])
+    return "".join(pieces)
+
+
+def _parameter_end(text: str, position: int, close: int) -> tuple[int, int]:
+    """`position`의 `%`에서 시작하는 파라미터 표기의 끝을 구한다.
+
+    `%(`는 그 뒤 첫 `)` 다음 글자가 서식 문자일 때만 표기다(정규식의 `[^)]*`는 첫 `)`를 넘지 못한다). 첫 `)`는
+    `position`이 커져도 뒤로만 가므로, 받은 `close`가 아직 뒤에 있으면 다시 찾지 않는다.
+
+    Args:
+        text: SQL 텍스트.
+        position: `%` 위치.
+        close: 앞서 찾은 `)` 위치(없었으면 텍스트 길이, 아직 찾지 않았으면 -1).
+
+    Returns:
+        (표기 끝 위치 또는 표기가 아니면 -1, 갱신한 `close`).
+    """
+    marker = text[position + 1 : position + 2]
+    if marker != "(":
+        return (position + 2 if marker in _CONVERSIONS else -1), close
+    if close < position + 2:
+        found = text.find(")", position + 2)
+        close = found if found >= 0 else len(text)
+    return (close + 2 if text[close + 1 : close + 2] in _CONVERSIONS else -1), close

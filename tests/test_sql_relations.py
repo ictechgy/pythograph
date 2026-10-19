@@ -6,7 +6,20 @@
 
 from __future__ import annotations
 
-from pythograph.persistence.sql import escape_name, escape_qualified, lex_sql, looks_like_sql, sql_relations
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
+
+from pythograph.persistence import sql as sql_module
+from pythograph.persistence.sql import (
+    SqlToken,
+    escape_name,
+    escape_qualified,
+    lex_sql,
+    looks_like_sql,
+    sql_relations,
+)
 
 
 def relations(sql: str, strict: bool = False) -> list[str]:
@@ -164,3 +177,83 @@ def test_table_valued_functions_are_not_table_names() -> None:
     assert relations("SELECT * FROM pragma_table_info('t') AS p, users") == ["users"]
     assert sql_relations("SELECT * FROM pragma_table_info('t')").unresolved == 1
     assert relations("INSERT INTO users (id) VALUES (1)") == ["users"]
+
+
+def test_semicolon_tokens_bound_the_keyword_context() -> None:
+    """INTO·UPDATE·ON 판정이 보는 문장 범위는 `;` 토큰에서 끝난다. 인용 식별자 `";"`·`[;]`도 범위를 끊는다
+    (포트 원본 그대로, 문장 머리 표시와는 다르다)."""
+    assert relations("SELECT 1 INTO t") == ["t"]
+    assert relations("SELECT 1; INTO t") == []
+    assert relations('SELECT 1 ";" INTO t') == []
+    assert relations("SELECT 1 [;] INTO t") == []
+    assert relations('INSERT "x" INTO t') == ["t"]
+    assert relations("UPDATE t SET x = 1") == ["t"]
+    assert relations("UPDATE t; SET x = 1") == []
+    assert relations('UPDATE t ";" SET x = 1') == []
+    assert relations('UPDATE t "SET" x = 1') == []
+    assert relations("UPDATE t set x = 1", True) == []
+    assert relations("UPDATE a SET x = (SELECT y FROM b); UPDATE c SET z = 1") == ["a", "b", "c"]
+    assert relations('CREATE INDEX i ";" ON t (x)') == []
+    assert relations("CREATE index i ON t (x)", True) == []
+    assert relations('GRANT SELECT ";" ON t TO r') == []
+    assert relations("GRANT select ON t TO r", True) == []
+    assert relations('SELECT * FROM (SELECT * FROM a ")" ) x, b') == ["b", "a"]
+
+
+class _CountingTokens(list[SqlToken]):
+    """읽은 토큰 수를 세는 토큰 목록. 위치 읽기, 슬라이스(복사한 길이), 순회를 모두 센다."""
+
+    def __init__(self, tokens: list[SqlToken]) -> None:
+        """토큰을 담고 계수를 0으로 둔다.
+
+        Args:
+            tokens: 어휘 목록.
+        """
+        super().__init__(tokens)
+        self.reads = 0
+
+    def __getitem__(self, key: Any) -> Any:
+        """읽은 토큰 수를 더하고 목록과 같게 돌려준다."""
+        result = super().__getitem__(key)
+        self.reads += len(result) if isinstance(key, slice) else 1
+        return result
+
+    def __iter__(self) -> Iterator[SqlToken]:
+        """순회한 토큰 수를 더한다."""
+        for token in super().__iter__():
+            self.reads += 1
+            yield token
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT " + "INTO " * 2_000,
+        "CREATE " + "ON " * 2_000,
+        "GRANT SELECT " + "ON " * 2_000,
+        "UPDATE t SET x = 1; " * 1_000,
+        "SELECT " + "FROM ( " * 2_000,
+        "SELECT * FROM (" * 1_000 + "SELECT 1" + ")" * 1_000,
+        "GRANT ALL " + "ON FUNCTION f ( " * 1_000,
+    ],
+    ids=["into", "create-on", "grant-on", "update-set", "unclosed-parens", "nested-subqueries", "grant-object-parens"],
+)
+def test_scan_reads_each_token_a_bounded_number_of_times(sql: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """관계 스캔은 키워드마다 문장·짝 괄호를 다시 훑지 않는다(읽는 토큰 수가 토큰 수에 비례).
+
+    세미콜론 없는 긴 문장에서 INTO·ON·UPDATE마다 문장 앞뒤를, `(` 피연산자마다 짝 괄호까지 다시 훑으면 대문자 SQL
+    리터럴 하나로 schema가 입력 길이의 제곱 시간을 썼다(INTO 1만 개 6초, 4 MiB면 십여 시간).
+    """
+    counted: list[_CountingTokens] = []
+    lex = sql_module.lex_sql
+
+    def counting_lex(text: str) -> list[SqlToken]:
+        tokens = _CountingTokens(lex(text))
+        counted.append(tokens)
+        return tokens
+
+    monkeypatch.setattr(sql_module, "lex_sql", counting_lex)
+    sql_relations(sql, True)
+    (tokens,) = counted
+    # 지금은 토큰마다 6~15번 읽는다. 수정 전에는 이 크기에서 토큰마다 250~1,500번이었다.
+    assert tokens.reads <= 64 * len(tokens)

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import ast
 import json
+import random
+import re
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +20,7 @@ from pythograph.persistence import sqltext as sqltext_module
 from pythograph.persistence.command import is_migration_path
 from pythograph.persistence.model import PersistenceExtraction, RelationName, RelationUse
 from pythograph.routes.model import Location
-from tests.conftest import FIXTURES, GENERATED_AT, relation_rows, run_cli, schema_document
+from tests.conftest import FIXTURES, GENERATED_AT, REPOSITORY, relation_rows, run_cli, schema_document
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -208,6 +212,82 @@ def run(connection):
     assert isinstance(limitations, list)
     assert "skipped-sql-literals: 3 string expressions longer than 64 KiB were not read as SQL" in limitations
     assert any(item.startswith("unresolved-sql-arguments: 2 ") for item in limitations)
+
+
+def test_unresolved_operands_flatten_the_sql_text_once(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """미해석 피연산자가 여럿이어도 dynamic 사실 channel에 실을 한 줄 원문은 SQL 텍스트마다 한 번만 만든다.
+
+    피연산자마다 텍스트 전체를 다시 split·join하면 미해석 n개짜리 리터럴 하나가 n × 길이를 써서, `JOIN ?` 1만 개
+    리터럴 하나로 schema가 2.7초를 썼다(대부분 이 반복).
+    """
+    sql = "SELECT * FROM t" + " JOIN ?" * 50
+    root = make_project({"queries.py": f'QUERY = "{sql}"\n'})
+    calls: list[str] = []
+    truncate = sqltext_module.truncate
+
+    def counting(text: str) -> str:
+        calls.append(text)
+        return truncate(text)
+
+    monkeypatch.setattr(sqltext_module, "truncate", counting)
+    document = schema_document(root)
+    assert calls == [sql]
+    assert {("t", None, False), (truncate(sql), None, True)} <= {row[:3] for row in relation_rows(document)}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert "dynamic-relation-names: 50 SQL relation operands are not literal names" in limitations
+
+
+#: 수정 전 DB-API 파라미터 표기 정규식이다. `replace_parameters`가 이 정규식의 `re.sub`와 같은 결과를 내는지 본다.
+_PARAMETER_PATTERN = re.compile(r"%\([^)]*\)[sdifr]|%[sdifr]")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "", "%", "%s", "%%s", "%x", "a % b", "%(name)s", "%(name)d %(other)r %i %f", "%(name)x", "%(name", "%()s",
+        "%(\n)s", "%(a%s)x", "%(a)s%(b)s", "%(a(b)s", "%(%(%(x)s", "%(x)", "%(x))s", "%(x)s)s", "%(x)s%",
+        "SELECT * FROM t WHERE a = %s AND b = %(b)s",
+        "SELECT * FROM t WHERE name LIKE '%(%'\nAND id IN (SELECT id FROM u WHERE v = %(v)s)",
+    ],
+)  # fmt: skip
+def test_parameter_markers_follow_the_dbapi_pattern(text: str) -> None:
+    """DB-API 파라미터 표기 치환은 수정 전 정규식의 `re.sub`와 결과가 같다(줄을 넘는 `%(…)`, `%%s` 포함)."""
+    for replacement in ("?", "{}"):
+        assert sqltext_module.replace_parameters(text, replacement) == _PARAMETER_PATTERN.sub(replacement, text)
+
+
+def test_parameter_markers_follow_the_dbapi_pattern_on_random_text() -> None:
+    """고정 시드의 무작위 짧은 텍스트에서도 치환 결과가 수정 전 정규식과 같다."""
+    generator = random.Random(20261019)
+    for _ in range(20_000):
+        text = "".join(generator.choice("%()sdx\n") for _ in range(generator.randrange(16)))
+        assert sqltext_module.replace_parameters(text, "?") == _PARAMETER_PATTERN.sub("?", text)
+
+
+def test_long_parameter_marker_runs_stay_linear(tmp_path: Path) -> None:
+    """닫히지 않은 `%(`가 많이 든 대문자 SQL 리터럴도 선형 시간에 읽는다.
+
+    수정 전 정규식은 `%(`마다 다음 `)`까지(없으면 끝까지) 다시 훑어 `%(` 4만 개에 1.5초가 들었고 길이의 제곱으로
+    늘었다(4 MiB 파일이면 한 시간 넘게). 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일 뿐 성능 측정이
+    아니다(지금은 몇 초 안에 끝난다).
+    """
+    root = tmp_path / "project"
+    root.mkdir()
+    literal = "SELECT * FROM marker_table WHERE a = " + "%(" * 400_000
+    (root / "queries.py").write_text(f"QUERY = {literal!r}\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", "schema", "--project", str(root), "--generated-at", GENERATED_AT],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("marker_table", None, False) in {row[:3] for row in relation_rows(json.loads(result.stdout))}
 
 
 def test_unsupported_and_non_relational_packages(make_project: MakeProject) -> None:
