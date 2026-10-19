@@ -6,8 +6,9 @@ import ast
 import io
 import json
 import textwrap
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -35,6 +36,25 @@ DEEP_SOURCES = {
     "elifs.py": "def dispatch(code):\n    if code == 0:\n        return 0\n"
     + "".join(f"    elif code == {index}:\n        return {index}\n" for index in range(1, 500)),
 }
+
+
+class CountingValues(dict[Any, Any]):
+    """`values()`로 돈 항목 수를 세는 사전. 모듈마다 카탈로그 전체를 다시 도는지 확인하는 테스트가 쓴다."""
+
+    def __init__(self, items: dict[Any, Any]) -> None:
+        """항목을 담고 계수를 0으로 둔다.
+
+        Args:
+            items: 감쌀 사전.
+        """
+        super().__init__(items)
+        self.visits = 0
+
+    def values(self) -> Iterator[Any]:  # type: ignore[override]
+        """돈 항목 수를 더하며 값을 차례로 돌려준다."""
+        for value in super().values():
+            self.visits += 1
+            yield value
 
 
 def tree_depth(source: str) -> int:

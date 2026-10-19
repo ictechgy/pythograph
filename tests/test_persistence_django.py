@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import relation_rows, schema_document
+from pythograph.persistence.django.catalog import DjangoCatalog
+from pythograph.persistence.django.declarations import DjangoDeclarations
+from pythograph.persistence.django.settings import read_project_settings
+from pythograph.persistence.model import PersistenceExtraction
+from pythograph.persistence.scope import ModuleScopes
+from pythograph.source.project import Project
+from pythograph.source.symbols import SymbolTable
+from tests.conftest import CountingValues, relation_rows, schema_document
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -834,3 +841,60 @@ def closure():
     assert {("app_book", None, False), ("app_book", "title", False), ("app_author", None, False)} <= rows
     assert not any(row[0] == "app_tag" for row in rows)
     assert ("models.Tag.objects", None, True) in rows
+
+
+def _app_models(app: int) -> str:
+    """앱 하나의 모델 모듈 소스를 만든다(구체 모델 둘과 추상 모델 하나, 앞 앱 모델을 상속하는 모델 하나).
+
+    Args:
+        app: 앱 번호.
+
+    Returns:
+        모듈 소스.
+    """
+    parent = f"from app{app + 1}.models import Root{app + 1}\n" if app < 3 else ""
+    child = f"\n\nclass Child{app}(Root{app + 1}):\n    note = models.CharField(max_length=5)\n" if app < 3 else ""
+    return (
+        f"from django.db import models\n{parent}{child}\n\n"
+        f"class Root{app}(models.Model):\n    name = models.CharField(max_length=5)\n\n\n"
+        f"class Mixin{app}(models.Model):\n    class Meta:\n        abstract = True\n\n\n"
+        f"class Leaf{app}(Mixin{app}):\n    root = models.ForeignKey(Root{app}, on_delete=models.CASCADE)\n"
+    )
+
+
+def test_declarations_read_only_their_module_models(make_project: MakeProject) -> None:
+    """모델 선언 사실은 모듈마다 그 모듈에 정의된 모델만 본다. 경로별 색인은 카탈로그 순서 그대로다.
+
+    모듈마다 카탈로그 전체 모델을 돌며 경로로 거르면 모듈 수 × 모델 수가 든다. 앱 800개(모듈 1만·모델 6,400개)
+    합성 저장소에서 이 순회가 schema 시간의 3분의 1쯤 됐다. 다른 앱의 모델을 상속하면 부모가 먼저 해석되어
+    카탈로그 순서가 파일 순서와 달라지므로(app1의 Root1이 Child1보다 앞) 그 순서도 함께 본다.
+    """
+    files = {
+        "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "proj.settings")\n',
+        "proj/__init__.py": "",
+        "proj/settings.py": "INSTALLED_APPS = [" + ", ".join(f'"app{app}"' for app in range(4)) + "]\n",
+    }
+    for app in range(4):
+        files |= {f"app{app}/__init__.py": "", f"app{app}/models.py": _app_models(app), f"app{app}/util.py": "X = 1\n"}
+    root = make_project(files)
+    symbols = SymbolTable(Project.open(root.resolve()))
+    modules = [index.module for path in symbols.project.python_files() if (index := symbols.index(path))]
+    catalog = DjangoCatalog(symbols, read_project_settings(symbols, None), modules)
+    filtered: dict[str, list[str]] = {}
+    for model in catalog.models.values():
+        if model.path is not None:
+            filtered.setdefault(model.path, []).append(model.key)
+    indexed = {path: [model.key for model in models] for path, models in catalog.models_by_path.items()}
+    assert indexed == filtered
+    assert indexed["app1/models.py"] == [f"app1/models.py#{name}" for name in ("Root1", "Child1", "Mixin1", "Leaf1")]
+    counting = CountingValues(catalog.models)
+    catalog.models = counting
+    extraction = PersistenceExtraction()
+    for module in modules:
+        index = symbols.index(module.path)
+        assert index is not None
+        DjangoDeclarations(catalog, ModuleScopes(index), extraction).run()
+    assert counting.visits <= len(counting)
+    tables = {use.channel for use in extraction.uses if use.column is None and not use.dynamic}
+    assert {f"app{app}_{kind}{app}" for app in range(4) for kind in ("root", "leaf")} <= tables
+    assert not any("mixin" in table for table in tables)

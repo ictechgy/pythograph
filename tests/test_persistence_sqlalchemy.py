@@ -5,7 +5,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from tests.conftest import relation_rows, schema_document
+from pythograph.persistence.model import PersistenceExtraction
+from pythograph.persistence.scope import ModuleScopes
+from pythograph.persistence.sqlalchemy.catalog import SqlAlchemyCatalog
+from pythograph.persistence.sqlalchemy.queries import SqlAlchemyQueries
+from pythograph.persistence.sqltext import SqlText
+from pythograph.source.evaluate import Evaluator
+from pythograph.source.project import Project
+from pythograph.source.symbols import SymbolTable
+from tests.conftest import CountingValues, relation_rows, schema_document
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -403,3 +411,62 @@ def run(session):
     rows = _rows(document)
     assert {("employee", "name", False), ("employee", "id", False), ("employee", "rate", False)} <= rows
     assert not any(row[0] == "contractor" for row in rows)
+
+
+def _mapping_module(number: int) -> str:
+    """매핑 클래스·추상 매핑·Core 테이블을 하나씩 둔 모듈 소스를 만든다(뒤 모듈의 클래스를 상속하는 클래스 포함).
+
+    Args:
+        number: 모듈 번호.
+
+    Returns:
+        모듈 소스.
+    """
+    lines = ["from sqlalchemy import Column, Integer, Table", "from app.base import Base"]
+    if number < 3:
+        lines += [f"from app.models{number + 1} import Item{number + 1}", "", ""]
+        lines += [f"class Special{number}(Item{number + 1}):", f'    __tablename__ = "special{number}"']
+    lines += ["", "", f"class Item{number}(Base):", f'    __tablename__ = "item{number}"']
+    lines += ["    id = Column(Integer, primary_key=True)", "", "", f"class Abstract{number}(Base):"]
+    lines += ["    __abstract__ = True", "", "", f'links{number} = Table("links{number}", Base.metadata)']
+    return "\n".join(lines) + "\n"
+
+
+def test_queries_read_only_their_module_mappings(make_project: MakeProject) -> None:
+    """매핑 선언 사실은 모듈마다 그 모듈의 매핑 클래스·Core 테이블만 본다. 경로별 색인은 카탈로그 순서 그대로다.
+
+    모듈마다 카탈로그 전체 매핑과 테이블을 돌며 경로로 거르면 모듈 수 × (매핑 + 테이블) 수가 든다. 다른 모듈의
+    클래스를 상속하면 부모가 먼저 해석되어 카탈로그 순서가 파일 순서와 달라지므로 그 순서도 함께 본다.
+    """
+    files = {
+        "app/__init__.py": "",
+        "app/base.py": "from sqlalchemy.orm import DeclarativeBase\n\n\nclass Base(DeclarativeBase):\n    pass\n",
+    }
+    for number in range(4):
+        files |= {f"app/models{number}.py": _mapping_module(number), f"app/util{number}.py": "X = 1\n"}
+    root = make_project(files)
+    symbols = SymbolTable(Project.open(root.resolve()))
+    modules = [index.module for path in symbols.project.python_files() if (index := symbols.index(path))]
+    catalog = SqlAlchemyCatalog(symbols, modules, (3,))
+    filtered_models: dict[str, list[str]] = {}
+    for model in catalog.models.values():
+        filtered_models.setdefault(model.path, []).append(model.key)
+    filtered_tables: dict[str, list[int]] = {}
+    for table in catalog.tables.values():
+        filtered_tables.setdefault(table.path, []).append(id(table))
+    assert {path: [model.key for model in models] for path, models in catalog.models_by_path.items()} == filtered_models
+    assert {path: [id(table) for table in tables] for path, tables in catalog.tables_by_path.items()} == filtered_tables
+    assert [model.name for model in catalog.models_by_path["app/models1.py"]] == ["Item1", "Special1", "Abstract1"]
+    models, tables = CountingValues(catalog.models), CountingValues(catalog.tables)
+    catalog.models, catalog.tables = models, tables
+    extraction = PersistenceExtraction()
+    for module in modules:
+        index = symbols.index(module.path)
+        assert index is not None
+        scopes = ModuleScopes(index)
+        SqlAlchemyQueries(catalog, scopes, extraction, SqlText(extraction, scopes, Evaluator(symbols))).run()
+    assert models.visits <= len(models)
+    assert tables.visits <= len(tables)
+    channels = {use.channel for use in extraction.uses if use.column is None and not use.dynamic}
+    assert {f"item{number}" for number in range(4)} | {f"links{number}" for number in range(4)} <= channels
+    assert {f"special{number}" for number in range(3)} <= channels

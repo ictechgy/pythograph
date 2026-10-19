@@ -186,6 +186,8 @@ class SqlAlchemyCatalog:
         self.evaluator = Evaluator(symbols)
         self.models: dict[str, SaModel] = {}
         self.tables: dict[int, SaTable] = {}
+        self.models_by_path: dict[str, list[SaModel]] = {}
+        self.tables_by_path: dict[str, list[SaTable]] = {}
         self.unknown_tablenames = 0
         self.unsupported: set[str] = set()
         self._bodies: dict[str, _ClassBody] = {}
@@ -197,6 +199,18 @@ class SqlAlchemyCatalog:
             self._resolve(key, 0)
         for model in list(self.models.values()):
             self._link_relationships(model)
+        self._index_by_path()
+
+    def _index_by_path(self) -> None:
+        """선언 모듈 경로마다 그 모듈의 매핑 클래스와 Core 테이블을 카탈로그 순서대로 모은다.
+
+        모듈마다 전체 목록을 돌며 경로로 거르면 모듈 수 × (매핑 + 테이블) 수가 들어 생성자 끝에서 한 번 만든다.
+        생성자가 끝난 뒤에는 매핑·테이블을 더하지 않으므로 색인이 낡지 않는다.
+        """
+        for model in self.models.values():
+            self.models_by_path.setdefault(model.path, []).append(model)
+        for table in self.tables.values():
+            self.tables_by_path.setdefault(table.path, []).append(table)
 
     # ------------------------------------------------------------------ 조회
 
