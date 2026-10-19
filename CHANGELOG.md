@@ -4,6 +4,91 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `graph`·`reach`·`impact`가 `revision`용 git을 PATH의 절대 경로 항목에서만 찾아 그 절대 경로로 실행한다. 빈·상대
+  PATH 항목, 프로젝트 안, 현재 디렉터리에 바로 있는 git(Windows에서 현재 디렉터리의 `git.exe` 포함)은 실행하지 않고,
+  찾지 못하면 `revision`을 생략한다. 프로젝트·현재 디렉터리는 파일 신원(장치·inode)으로 비교해 대소문자·유니코드
+  정규화만 다른 PATH 철자(macOS 기본 APFS)도 막는다. 분석 대상 저장소에 심은 git이 실행될 수 있던 문제다.
+
+- 구문 트리 중첩이 128단을 넘는 모듈(긴 연산자·속성·호출·첨자 사슬, 긴 `elif`)은 분석하지 않고 파싱 실패와 같은
+  한계(graph `unparsed-files:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`)로 남긴다.
+  파일 하나 때문에 모든 명령이 내부 오류(RecursionError, 종료 2)와 빈 출력으로 끝나던 문제다.
+- Python 3.10에서는 한 논리 줄의 사슬 토큰(이항 연산자·`.`·`(`·`[`)이 5만 개를 넘는 모듈을 파싱 전에 같은 파싱
+  실패로 거른다. `ast.parse`가 세그폴트해 종료 코드 139와 빈 출력으로 끝나던 문제다. 얕은 한 줄 목록이라도 사슬
+  토큰이 5만 개를 넘으면 함께 걸러진다.
+- 문자열 주석 파싱을 한 함수로 모아, NUL이 든 주석(3.10)·아주 긴 주석에서 schema가, 깊은 `"X | None | …"` 주석에서
+  graph·`routes --role client`가 내부 오류로 끝나던 문제를 고친다. 그런 주석은 모르는 주석으로 본다.
+- 50단보다 깊게 중첩된 `re_path`·변환기 정규식은 변환하지 않고 dynamic 사실과 `route-coverage:` 한계로 낸다. 깊게
+  중첩된 정규식 하나로 `routes --role server` 전체가 내부 오류(종료 2)로 끝나던 문제다.
+
+- 이름(디렉터리 성분 포함)에 교환 형식이 금지하는 문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)가 든 파이썬
+  파일은 분석하지 않고 한계(graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema
+  `unreadable-sources:`)로 센다. 그런 이름이 `symbol.usr`·`location.path`에 실려 isthmus가 문서 전체를 거부하던 문제다.
+- 짝 없는 서러게이트가 든 dynamic 라우트 원문과 정규식 `pattern`, 제어 문자가 든 `pattern`을 싣지 않는다. 출력
+  쓰기가 UnicodeEncodeError로 종료 2와 빈 출력이 되거나 isthmus가 `paramConstraints`로 문서를 거부하던 문제다. 그래도
+  UTF-8로 쓸 수 없는 문서는 원인(짝 없는 서러게이트)을 밝히고 종료 2로 끝나며, 래퍼 선언 텍스트의 서러게이트는 선언
+  오류(64)다.
+- `routes --role server`가 교환 형식의 method 집합(GET·HEAD·POST·PUT·PATCH·DELETE·OPTIONS·TRACE) 밖 동사(Flask
+  `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action`의 `PURGE`·`PROPFIND`
+  등)를 route-decl로 내지 않고 그 등록의 `route-coverage:` 한계로 남긴다. 템플릿을 증명한 등록이면 그 템플릿 스코프를
+  싣고, `ANY`로 바꾸지 않는다. 동사 하나 때문에 isthmus가 서버 문서 전체를 입력 오류(종료 2)로 거부하던 문제다.
+- `routes --role client`가 래퍼 선언의 `service`가 `--service`와 다른 사실을 내면 문서 수준 `service`를 싣지 않는다
+  (사실마다의 service는 그대로다). 문서 값과 사실 값이 갈려 isthmus가 문서 전체를 입력 오류(종료 2)로 거부하던 문제다.
+- Flask 규칙의 템플릿 펼침이 16개를 넘으면(`any()` 곱, 큰 `any()`, 빈 값 변형) Django와 같이
+  `route-template-expansion-capped:`로 센다(전에는 `route-coverage:`).
+
+- `routes --role client`가 `globals()`(어느 범위든)·모듈 수준 `vars()`·`locals()`를 부르는 모듈의 이름과, 수신자를
+  모르는 같은 이름의 속성 대입(`sys.modules[__name__].X = …`)이 있는 이름을 URL 상수로 치환하지 않는다(graph와 같은
+  판정). 런타임에 바뀌는 base URL이 정적 `root`·`authority` 사실로 나가던 문제다.
+- 디렉터리 순회가 소스를 가릴 수 있는 심볼릭 링크(들어갔을 디렉터리를 가리키는 링크, `*.py` 이름의 링크)만 한계로
+  센다. `CLAUDE.md -> AGENTS.md`·`README.md`·`.venv` 같은 링크 하나가 스코프 없는 한계가 되어 isthmus가 그 문서의
+  `route-call-without-decl`·`route-method-mismatch` 진단을 모두 완화하고 graph `bound` 닫힌 세계 증명을 막던 문제다.
+
+- `routes --role client --wrappers`가 선언 파일을 일반 파일일 때만 열고 최대 4 MiB + 1바이트만 읽는다. 파일 전체를
+  읽은 뒤 자르던 탓에 큰 파일·`/dev/zero` 링크가 상한과 무관하게 메모리를 쓰고, 쓰는 쪽이 없는 FIFO는 명령을 멈추던
+  문제다. 디렉터리·장치·FIFO는 내용을 읽지 않고 2로 끝난다(마지막 링크는 지금처럼 따라간다).
+  `reach`·`impact --roots-from`의 파일도 일반 파일만 읽는다(파이프로 넘기려면 `-`, 일반 파일이 아니면 64).
+- `requirements*.txt`·`requirements/*.txt`를 찾는 디렉터리 열거도 순회 항목 상한(200,000개)을 지킨다. 넘친
+  디렉터리는 일부만 고르지 않고 요구 파일을 읽지 않는다.
+
+- 같은 상수를 여러 번 참조하는 f-string·`+`·목록 사슬(`B = f"{A}{A}…"`)을 한 번만 펼치고, 이렇게 만든 값이 64 KiB
+  (클라이언트 URL은 조각 4,096개)를 넘으면 모르는 값으로 본다. 수백 바이트 모듈 하나로 schema·routes가 수 초~수 분과
+  수백 MiB를 쓰던 문제다. 상한을 넘은 SQL 텍스트는 `skipped-sql-literals:` 한계로 센다.
+- 32 KiB(템플릿 상한의 16배)보다 긴 라우트 원문(슬래시를 합친 Flask 규칙, include 접두사까지 이은 Django 경로)은
+  변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 내고, 나머지 변환(Flask 규칙·변환기 인자, Django 변환기 자리·
+  정규식 토큰열)을 원문 길이에 선형으로 만든다. 수십 KB 경로 하나로 `routes --role server`가 수십 초~수 시간을 쓰던
+  문제다.
+- 버전 선언(`requirements*.txt`·잠금 파일·`pyproject.toml`·`Pipfile`·`setup.cfg`)과 graph 라이브러리 판정의
+  `pyproject.toml` 표 머리를 읽는 정규식을 입력 길이에 선형으로 바꾼다. 긴 공백·빈 줄·닫히지 않은 괄호가 든 선언
+  파일 하나로 schema·routes·graph·reach·impact가 수 시간 멈출 수 있던 문제다. PEP 508·TOML에 맞는 선언의 결과는 같다.
+- 대문자 SQL 리터럴과 SQL 인자의 관계 스캔·DB-API 파라미터 치환을 리터럴 길이에 선형으로 만든다. 수십 KB 리터럴
+  하나로 schema가 수 초~수십 초(4 MiB면 수 시간)를 쓰던 문제다. 출력은 같다.
+- 같은 부모를 여러 경로로 물려받는 다이아몬드 상속 격자를 (클래스, 깊이)마다 한 번만 편다(뷰 클래스 분석, SQLAlchemy
+  매핑 해석). 1 KB 남짓한 모듈 하나로 graph·schema·routes가 깊이 20에서 수십 초를 쓰고 상속 깊이 상한(32)에 닿으면
+  끝나지 않던 문제다. 출력은 같다. 파이썬으로 만들 수 없는 촘촘한 정적 상속 순환 때문에 같은 클래스를 1,024번 넘게
+  다시 펴야 하면 남은 기반을 모르는 기반으로 본다.
+- `routes --role server`가 서로(또는 자기)를 등록한 Flask 블루프린트의 순환을 닫는 등록을 따라가지 않고
+  `route-coverage:` 한계로 센다. 순환 하나로 내부 오류(RecursionError, 종료 2)와 빈 출력으로 끝나던 문제다. 같은
+  블루프린트를 여러 경로로 등록한 격자는 계약 동사 사실이 100,000개를 넘는 순간 멈춰 같은 사실 상한 오류를 빨리
+  내고, 하위 등록이 200,000개를 넘으면 `route-coverage:` 한계와 함께 멈춘다(규칙 없는 격자가 끝나지 않던 문제).
+
+- 모듈 이름 해석 결과를 한 실행 안에서 기억한다. `manage.py`가 여러 개(모두 모듈 루트)인 저장소에서 같은 외부
+  이름을 찾을 때마다 루트 수 × 후보 2개의 성분별 lstat을 되풀이하던 문제다(합성 6서비스 monorepo에서 schema
+  17.1 → 1.6 s, graph 10.2 → 1.6 s). 출력은 같다.
+- graph가 클래스 수준 대입을 클래스마다 한 번만 모은다. 메서드만 있는 클래스를 MRO 조회마다 다시 훑던 문제다. 출력은
+  같다.
+- schema의 Django 모델·SQLAlchemy 매핑 선언 단계가 모듈마다 자기 모듈의 모델·테이블만 본다. 모듈마다 전체 모델을
+  훑어 모듈 수 × 모델 수가 들던 문제다(합성 앱 800개에서 6.8 → 4.9 s). 출력은 같다.
+- Flask 앱 팩토리 안 `add_url_rule(view_func=지역 함수)`가 등록마다 모듈 구문 트리 전체를 걷지 않는다(등록 4,000개
+  9.5 → 0.35 s). 출력은 같다.
+
+### Changed
+
+- CI와 릴리스 빌드가 hatchling과 그 의존성의 버전·해시를 고정한 `build-constraints.txt`를 `--require-hashes`로
+  쓰고, setup-uv의 uv를 0.12.17로 고정한다. 태그 시점의 PyPI 최신 빌드 백엔드가 게시물에 들어가지 않게 하기
+  위해서다. 다시 만드는 절차는 `RELEASING.md` "빌드 도구 고정"에 있다.
+
 ## [0.2.2] - 2026-10-13 (UTC)
 
 PyPI에 발행했다.
