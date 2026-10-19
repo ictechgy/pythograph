@@ -159,6 +159,43 @@ def run(connection, name, table):
     assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
 
 
+def test_sql_text_rebound_constants_are_not_read(make_project: MakeProject) -> None:
+    """두 번 이상 묶이거나(`+=` 포함) 조건부로 다시 묶은 모듈 상수는 SQL 인자·조각으로 읽지 않는다.
+
+    마지막 무조건 대입만 SQL로 읽어 `QUERY += " JOIN audit …"`·조건부 테이블 이름을 한계 없이 첫 값으로 냈다.
+    읽지 못한 인자는 `unresolved-sql-arguments:`, 읽지 못한 조각은 `{}`이고, 대문자 SQL 리터럴은 리터럴 스캔이 읽는다.
+    """
+    root = make_project(
+        {
+            "db.py": """
+import os
+import sqlite3
+
+QUERY = "SELECT * FROM orders"
+QUERY += " JOIN audit ON audit.id = orders.id"
+TABLE = "accounts"
+if os.environ.get("ARCHIVE"):
+    TABLE = "archived_accounts"
+STABLE = "SELECT * FROM stable_table"
+
+
+def run(connection):
+    cursor = connection.cursor()
+    cursor.execute(QUERY)
+    cursor.execute(f"select * from {TABLE}")
+    cursor.execute(STABLE)
+""",
+        }
+    )
+    document = schema_document(root)
+    rows = {row[:3] for row in relation_rows(document)}
+    assert {("stable_table", None, False), ("orders", None, False), ("select * from {}", None, True)} <= rows
+    assert ("accounts", None, False) not in rows
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
+
+
 def test_sql_text_expands_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
     """같은 상수를 여러 번 참조하는 f-string 사슬은 (식, 깊이)마다 한 번만 펼친다.
 

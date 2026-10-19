@@ -4,7 +4,8 @@
 대문자 이름 관례는 증명이 아니다. 다음이 하나라도 있으면 그 이름은 상수가 아니다:
 
 - 모듈 수준(조건문·반복문·`try`·`with` 안 포함, 함수·클래스 본문 제외)에서 두 번 이상 묶임 — 대입·주석 대입·누적
-  대입·반복 변수·`with … as`·import·함수·클래스 정의·`del`·예외 이름·바다코끼리·match 캡처를 모두 센다.
+  대입·반복 변수·`with … as`·import·함수·클래스 정의·`del`·예외 이름·바다코끼리·match 캡처를 모두 센다. 셈은 routes·
+  schema 상수 평가와 같은 `source.bindings.module_bindings`다.
 - 그 모듈의 어느 함수·클래스든 `global 이름`을 선언함(실행 중 다시 대입할 수 있다).
 - 그 모듈이 어느 범위든 `globals()`를, 모듈 수준에서 `vars()`·`locals()`를 부름(`globals()["API_ROOT"] = …`처럼
   이름공간 사전으로 어떤 이름이든 다시 쓸 수 있다). 판정은 graph 해석기와 같은 `source.symbols.uses_namespace`다.
@@ -16,13 +17,13 @@
 
 from __future__ import annotations
 
-import ast
 from collections import Counter
 
+from pythograph.source.bindings import ModuleBindings
 from pythograph.source.symbols import SymbolTable, uses_namespace
 
-#: 함수·클래스 본문처럼 모듈 범위가 아닌 노드다.
-_NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+#: 읽지 못한 모듈의 묶음 요약이다(아무 이름도 한 번 묶이지 않아 상수가 없다).
+_UNREAD = ModuleBindings(Counter(), frozenset(), frozenset(), frozenset(), Counter())
 
 
 class ModuleConstants:
@@ -39,7 +40,7 @@ class ModuleConstants:
         self.symbols = symbols
         self.module_writes = module_writes
         self.untyped_writes = untyped_writes
-        self._counts: dict[str, tuple[Counter[str], set[str], bool]] = {}
+        self._modules: dict[str, tuple[ModuleBindings, bool]] = {}
 
     def proven(self, path: str, name: str) -> bool:
         """모듈의 이름이 한 번만 묶이고 다시 쓰이지 않는 상수인지 본다.
@@ -53,114 +54,21 @@ class ModuleConstants:
         """
         if (path, name) in self.module_writes or name in self.untyped_writes:
             return False
-        counts, globals_declared, namespace = self._module(path)
-        return not namespace and counts[name] == 1 and name not in globals_declared
+        bindings, namespace = self._module(path)
+        return not namespace and bindings.counts[name] == 1 and name not in bindings.declared_globals
 
-    def _module(self, path: str) -> tuple[Counter[str], set[str], bool]:
-        """모듈의 묶음 수, `global` 선언 이름, 이름공간 사전 사용 여부를 모은다(캐시).
+    def _module(self, path: str) -> tuple[ModuleBindings, bool]:
+        """모듈의 묶음 요약과 이름공간 사전 사용 여부를 모은다(캐시).
 
         Args:
             path: 모듈 경로.
 
         Returns:
-            (이름 → 모듈 수준 묶음 수, `global`로 선언된 이름, `globals()`·모듈 수준 `vars()`·`locals()`를 부르는지).
+            (모듈 색인의 묶음 요약, `globals()`·모듈 수준 `vars()`·`locals()`를 부르는지). 읽지 못한 모듈은 빈 요약이다.
         """
-        if path not in self._counts:
+        if path not in self._modules:
             index = self.symbols.index(path)
-            counts: Counter[str] = Counter()
-            declared: set[str] = set()
-            namespace = False
-            if index is not None:
-                _count_module(index.module.tree, counts, declared)
-                namespace = uses_namespace(index.module.tree)
-            self._counts[path] = (counts, declared, namespace)
-        return self._counts[path]
-
-
-def _count_module(tree: ast.Module, counts: Counter[str], declared: set[str]) -> None:
-    """모듈 수준 묶음과 모든 범위의 `global` 선언을 센다.
-
-    Args:
-        tree: 모듈 구문 트리.
-        counts: 채울 묶음 수.
-        declared: 채울 `global` 이름.
-    """
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Global):
-            declared.update(node.names)
-    pending: list[ast.AST] = list(tree.body)
-    while pending:
-        node = pending.pop()
-        for name in _bound_names(node):
-            counts[name] += 1
-        if isinstance(node, _NESTED_SCOPES):
-            pending.extend(_definition_time_nodes(node))
-            continue
-        pending.extend(child for child in ast.iter_child_nodes(node) if not _is_comprehension(child))
-
-
-def _definition_time_nodes(node: ast.AST) -> list[ast.AST]:
-    """정의 시점에 바깥(모듈) 범위에서 평가되는 식을 돌려준다: 장식자, 기본값, 주석, 클래스 기반·키워드.
-
-    이 식 안의 바다코끼리 대입은 모듈 이름을 다시 묶는다.
-
-    Args:
-        node: 함수·클래스·람다 정의.
-
-    Returns:
-        식 목록.
-    """
-    if isinstance(node, ast.Lambda):
-        return [*node.args.defaults, *(item for item in node.args.kw_defaults if item is not None)]
-    found: list[ast.AST] = list(getattr(node, "decorator_list", []))
-    if isinstance(node, ast.ClassDef):
-        found.extend(node.bases)
-        found.extend(keyword.value for keyword in node.keywords)
-        return found
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        arguments = node.args
-        found.extend(arguments.defaults)
-        found.extend(item for item in arguments.kw_defaults if item is not None)
-        every = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs, arguments.vararg, arguments.kwarg]
-        found.extend(item.annotation for item in every if item is not None and item.annotation is not None)
-        if node.returns is not None:
-            found.append(node.returns)
-    return found
-
-
-def _is_comprehension(node: ast.AST) -> bool:
-    """컴프리헨션(자기 범위)인지 본다. 안의 바다코끼리 대입만 바깥에 묶이지만 모르는 값이라 센다.
-
-    Args:
-        node: 구문 노드.
-
-    Returns:
-        컴프리헨션이면 True.
-    """
-    if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-        return not any(isinstance(child, ast.NamedExpr) for child in ast.walk(node))
-    return False
-
-
-def _bound_names(node: ast.AST) -> list[str]:
-    """노드 하나가 모듈 범위에 묶는 이름을 돌려준다.
-
-    Args:
-        node: 구문 노드.
-
-    Returns:
-        이름 목록.
-    """
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return [node.name]
-    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-        return [node.id]
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return [alias.asname or alias.name.split(".")[0] for alias in node.names if alias.name != "*"]
-    if isinstance(node, ast.ExceptHandler) and node.name:
-        return [node.name]
-    if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
-        return [node.name]
-    if isinstance(node, ast.MatchMapping) and node.rest:
-        return [node.rest]
-    return []
+            self._modules[path] = (
+                (_UNREAD, False) if index is None else (index.bindings(), uses_namespace(index.module.tree))
+            )
+        return self._modules[path]

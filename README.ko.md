@@ -121,7 +121,11 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 `django.contrib.staticfiles`·Flask 정적 파일은 접두사 스코프의 `framework-provided-routes:`(Flask 정적 파일은
 `GET`·`HEAD`도), `FORCE_SCRIPT_NAME`·`i18n_patterns`·등록이 보이지 않는 블루프린트는 `base` 앵커와
 `unresolved-route-prefix:`, Django 5·DRF 3·Flask 3으로 버전을 제한하지 않은 프로젝트는
-`route-framework-version-unknown:`이다.
+`route-framework-version-unknown:`이다. 증명하지 못한 모듈 상수·설정([소스 읽기 상한](#소스-읽기-상한): 두 번 묶임,
+`+=`, `if`·반복문·`try`·`with`·`match` 블록 안 대입, `global` 재대입, `INSTALLED_APPS.append(...)` 같은 제자리 변경)은
+모르는 값이다. 그 값으로 만든 경로 문자열은 `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의
+`route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base` 앵커, 그렇게 바뀌는 `INSTALLED_APPS`는 스코프 없는
+`framework-provided-routes:` 한계가 된다.
 
 ### 결정 사항
 
@@ -191,8 +195,9 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
   그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외).
 - **channel**은 코드·매핑이 쓴 관계 이름(한정했을 때만 `schema.table`, 기본 스키마는 추측하지 않음), **method**는
   컬럼, **symbol.usr**는 감싸는 함수·메서드·모델 클래스이며 `routes`와 같은 id다. 백엔드·앱 라벨·Flask-SQLAlchemy
-  버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 실행 중에 만든 SQL은 추측하지 않고 `dynamic` 사실과
-  `dynamic-relation-names:` 한계로 낸다.
+  버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 증명하지 못한 모듈 상수(`TABLE += ...` 뒤의 `db_table = TABLE`,
+  조건부로 다시 대입한 접두사로 만든 `__tablename__`), 실행 중에 만든 SQL은 추측하지 않고 `dynamic` 사실과
+  `dynamic-relation-names:` 한계로 낸다. 그런 상수를 `execute()`에 넘기면 `unresolved-sql-arguments:`로 센다.
 - 테스트 소스(`--include-tests`가 없을 때)와 마이그레이션(Django `migrations/`, Alembic `versions/`)은 읽지 않는다.
   마이그레이션은 과거 스키마를 기술한다.
 
@@ -320,6 +325,14 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 2,048자의 4배)보다 긴 경로 문자열(연속 `/`를 합친 Flask 규칙, include 접두사까지 이은 Django `path()`·`re_path()`
 문자열)과, 그보다 짧아도 리터럴 글자(Flask 변환기 밖, Django `path()` 변환기 자리 밖, `re_path` 묶음 밖)만으로 템플릿
 상한을 넘는 경로는 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 냅니다.
+
+라우트 문자열·설정값·SQL 텍스트·schema 이름은 증명한 모듈 상수만 따라가며, 묶음 규칙은 호출 그래프의 안정 전역 판정·
+`routes --role client`와 같습니다. 모듈 수준에서 두 번 이상 묶이거나(`+=`, 두 번째 대입, 반복 변수, import),
+`if`·`try`·`for`·`while`·`with`·`match` 블록 안에서 묶이거나, 함수가 `global`로 선언하거나, `globals()`(모듈 수준
+`vars()`·`locals()`)를 부르는 모듈에 있는 이름은 무조건 대입이 있어도 모르는 값입니다. 여기에 더해 모듈 어디서든
+제자리에서 바꾸는 이름(`NAME.append(...)`, `NAME[k] = ...`)도 모르는 값으로 보고, import·star import·모듈 별칭으로
+거쳐 가는 모든 모듈의 묶음을 봅니다. 그래서 star import한 설정을 바꾸는 설정 모듈(`from .base import *` 뒤
+`INSTALLED_APPS += [...]`)은 그 설정을 모르는 값으로 만듭니다.
 
 클래스 계층(routes·graph의 뷰 클래스, schema의 SQLAlchemy 매핑)은 32단까지만 따라가고 클래스마다 깊이별로 한 번만 펼치므로,
 다이아몬드 모양 계층도 지수로 많은 경로 수가 아니라 클래스 수에 비례하는 시간이 듭니다. 파이썬으로는 만들 수 없는

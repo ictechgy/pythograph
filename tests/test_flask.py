@@ -110,6 +110,50 @@ def test_unregistered_blueprint_is_base(make_project: Callable[[dict[str, str]],
     assert any(text.startswith("unresolved-route-prefix:") for text in document["limitations"])  # type: ignore[union-attr]
 
 
+def test_rebound_rule_constants_are_dynamic(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """누적 대입(`PREFIX += "/v2"`)이나 조건부로 다시 묶은 모듈 이름은 규칙·접두사 상수로 쓰지 않는다.
+
+    마지막 무조건 대입을 상수로 써서 실제 `/api/v2/users`를 `/api/users`로 한계 없이 냈다. 한 번만 대입한 상수는
+    그대로 정적이다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import os
+        from flask import Blueprint, Flask
+        app = Flask(__name__, static_folder=None)
+        PREFIX = "/api"
+        PREFIX += "/v2"
+        MOUNT = "/shop"
+        if os.environ.get("TENANT"):
+            MOUNT = "/tenant"
+        STABLE = "/stable"
+        shop = Blueprint("shop", __name__)
+        @app.route(PREFIX + "/users")
+        def users():
+            pass
+        @app.route(STABLE + "/items")
+        def items():
+            pass
+        @shop.route("/orders")
+        def orders():
+            pass
+        app.register_blueprint(shop, url_prefix=MOUNT)
+    """,
+        }
+    )
+    facts = routes_document(root)["facts"]
+    assert isinstance(facts, list)
+    assert {(fact["channel"], fact["dynamic"]) for fact in facts if fact["symbol"]["usr"] != "app.py#users"} == {
+        ("/stable/items", False),
+        ("/orders", False),
+    }
+    assert [fact["dynamic"] for fact in facts if fact["symbol"]["usr"] == "app.py#users"] == [True]
+    anchors = {fact["symbol"]["usr"]: fact["pathAnchor"] for fact in facts}
+    assert anchors["app.py#orders"] == "base"
+
+
 def test_factory_local_blueprint_imports(make_project: Callable[[dict[str, str]], Path]) -> None:
     """앱 팩토리 안의 `from pkg.auth import bp as auth_bp` 뒤 `register_blueprint(auth_bp, url_prefix=...)`를 따른다.
 

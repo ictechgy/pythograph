@@ -596,6 +596,46 @@ class Stamped(TimeStampedModel):
     assert any(item.startswith("unmodeled-orm-mappings:") for item in limitations)
 
 
+def test_rebound_db_table_constants_are_dynamic(make_project: MakeProject) -> None:
+    """누적·조건부로 다시 묶은 모듈 상수로 정한 `Meta.db_table`·`db_column`은 정적 이름으로 내지 않는다.
+
+    마지막 무조건 대입을 상수로 써서 `TABLE = "shop_"; TABLE += "orders_v2"`의 테이블을 없는 `shop_`으로 한계 없이
+    냈다. 한 번만 대입한 상수는 그대로 정적이다.
+    """
+    models = """
+import os
+
+from django.db import models
+
+TABLE = "shop_"
+TABLE += "orders_v2"
+COLUMN = "label"
+if os.environ.get("LEGACY"):
+    COLUMN = "legacy_label"
+STABLE = "stable_items"
+
+
+class Order(models.Model):
+    name = models.CharField(max_length=10, db_column=COLUMN)
+
+    class Meta:
+        db_table = TABLE
+
+
+class Item(models.Model):
+    title = models.CharField(max_length=10)
+
+    class Meta:
+        db_table = STABLE
+"""
+    document = schema_document(_project(make_project, "x = 1\n", models=models))
+    rows = {row[:3] for row in relation_rows(document)}
+    assert ("stable_items", "title", False) in rows
+    static = {row[0] for row in rows if not row[2]} | {row[1] for row in rows if not row[2]}
+    assert not static & {"shop_", "shop_orders_v2", "label", "legacy_label"}
+    assert any(row[2] for row in rows)
+
+
 def test_missing_settings_reports_unresolved_labels(make_project: MakeProject) -> None:
     """설정 모듈이 없으면 기본 이름 테이블은 dynamic이고 명시 이름은 정적이다."""
     root = make_project(

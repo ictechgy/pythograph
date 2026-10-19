@@ -37,6 +37,13 @@ pythograph schema --project <root> [--include-tests] [--settings <module>] [--ge
 `migrations/`, Alembic·Flask-Migrate `alembic/versions/`·`migrations/versions/`, `skipped-migration-sources:`로 셈).
 마이그레이션은 과거 스키마를 기술하므로 지금 카탈로그와 조인하면 거짓 `relation-use-without-decl`이 된다.
 
+모듈 상수: 이름 규칙(`Meta.db_table`·`db_column`·`__tablename__`·`Table(...)` 이름·스키마), SQL 인자, 설정값
+(`AUTH_USER_MODEL`)은 증명한 모듈 상수만 쓴다(routes·graph·client와 같은 기준,
+[README 소스 읽기 상한](../README.ko.md#소스-읽기-상한)). 모듈 수준에서 두 번 이상 묶이거나(`+=` 포함),
+`if`·반복문·`try`·`with`·`match` 블록 안에서 묶이거나, 함수가 `global`로 다시 묶거나, 모듈 어디서든 제자리에서
+바뀌거나(`NAME.append(…)`·`NAME[k] = …`), `globals()`를 부르는 모듈의 이름은 무조건 대입이 있어도 모르는 값이다.
+그 이름으로 만든 테이블은 dynamic 사실, SQL 인자는 읽지 못한 인자다.
+
 ## Django
 
 ### 이름 규칙
@@ -142,7 +149,8 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   `MySQLdb`·`mysql`·`cx_Oracle`·`oracledb`·`asyncpg`·`aiosqlite`·`aiomysql`·`pyodbc`·`django`·`sqlalchemy`·
   `flask_sqlalchemy` — 를 import한 모듈의 `execute`·`executemany`·`executescript`)는 소문자 SQL도 읽는다.
 - 인자는 리터럴, 모듈 상수, 같은 함수의 유일한 대입, f-string, `+`, `%`, `.format()`으로 만든 문자열까지 읽고, 알
-  수 없는 조각은 `{}` 플레이스홀더다. 관계 자리의 플레이스홀더는 dynamic 사실 하나다.
+  수 없는 조각은 `{}` 플레이스홀더다. 관계 자리의 플레이스홀더는 dynamic 사실 하나다. 모듈 상수는 증명한 이름만 읽는다
+  (`QUERY += " JOIN …"`처럼 다시 묶은 이름은 모르는 조각이고, 그 값 식의 대문자 SQL은 아래 리터럴 규칙으로 읽는다).
 - DB-API 파라미터 표기(`%s`, `%(name)s`)는 값 자리라 `?`로 바꾼다(그대로 두면 `FROM %s`의 `s`가 관계로 읽힌다).
   문자열 보간 `"… %s" % x`의 `%s`는 SQL 조각이라 `{}`로 바꾼다. 파이썬 전용 전처리다.
 - 명시 ORM sink의 읽지 못한 인자는 dynamic 사실, 일반 `execute`의 읽지 못한 이름 인자는

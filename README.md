@@ -165,7 +165,12 @@ templates; unresolved includes and third-party URL modules are scoped to their i
 `static()`, `django.contrib.staticfiles`, and Flask static files are `framework-provided-routes:` with prefix
 scopes (Flask static also with `GET`/`HEAD`); `FORCE_SCRIPT_NAME`, `i18n_patterns`, and blueprints whose
 registration is not visible use a `base` anchor with `unresolved-route-prefix:`; a project that does not pin
-Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
+Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`. A module constant or setting that is not
+provable (see [Bounded source scanning](#bounded-source-scanning): bound twice, `+=`, assigned inside an `if`, loop,
+`try`, `with`, or `match` block, rebound through `global`, or changed in place such as `INSTALLED_APPS.append(...)`)
+is unknown: a route string built from it is `dynamic`, a method list from it leaves the view with its known methods
+or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
+`INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation.
 
 ### Decisions
 
@@ -247,8 +252,10 @@ facts), and one `relation-use` fact per observed relation or column reference. i
 - **channel** is the relation name as written or mapped (`schema.table` only when qualified; no default schema is
   guessed), **method** is the column, and **symbol.usr** is the enclosing function, method, or model class with the
   same ids as `routes`. A name that depends on an unknown backend, app label, or Flask-SQLAlchemy version, an
-  unresolved model or lookup, and SQL built at runtime become `dynamic` facts with a `dynamic-relation-names:`
-  limitation instead of guesses.
+  unresolved model or lookup, a module constant that is not provable (`db_table = TABLE` after `TABLE += ...`, a
+  `__tablename__` built from a conditionally reassigned prefix), and SQL built at runtime become `dynamic` facts with a
+  `dynamic-relation-names:` limitation instead of guesses; such a constant passed to `execute()` is counted under
+  `unresolved-sql-arguments:`.
 - Test sources (unless `--include-tests`) and migrations (Django `migrations/`, Alembic `versions/`) are not scanned;
   migrations describe past schemas.
 
@@ -401,6 +408,15 @@ longer than 8 KiB (4 times the 2,048-character template limit; Flask rules after
 `re_path()` strings joined with their include prefixes), and shorter ones whose literal characters alone (outside Flask
 converters, outside Django `path()` converters, outside `re_path` groups) exceed the template limit, are not converted
 and become dynamic facts like any over-long template.
+
+Route strings, settings, SQL text, and schema names follow only provable module constants, by the same binding rule as
+the call graph's stable globals and `routes --role client`: a name bound more than once at module level (`+=`, a second
+assignment, a loop variable, an import), bound inside an `if`/`try`/`for`/`while`/`with`/`match` block, declared
+`global` in a function, or defined in a module that calls `globals()` (or module-level `vars()`/`locals()`) is unknown
+even when it also has an unconditional assignment. They also treat a name changed in place anywhere in its module
+(`NAME.append(...)`, `NAME[k] = ...`) as unknown and check every module on an import, star-import, or module-alias
+chain, so a settings module that changes a star-imported setting (`from .base import *` followed by
+`INSTALLED_APPS += [...]`) makes that setting unknown.
 
 Class hierarchies (view classes for routes and graph, SQLAlchemy mappings for schema) are followed at most 32 levels
 deep, and each class is analyzed once per depth, so a diamond-shaped hierarchy costs time proportional to its classes

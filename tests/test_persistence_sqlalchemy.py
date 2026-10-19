@@ -124,6 +124,49 @@ def test_declarations_schemas_and_foreign_keys(make_project: MakeProject) -> Non
     } <= rows
 
 
+def test_rebound_table_name_constants_are_dynamic(make_project: MakeProject) -> None:
+    """조건부·누적으로 다시 묶은 모듈 상수로 만든 `__tablename__`·Core `Table` 이름은 정적 이름으로 내지 않는다.
+
+    마지막 무조건 대입을 상수로 써서 `PREFIX = "shop_"; if …: PREFIX = "tenant_"`의 테이블을 `shop_orders`로 한계
+    없이 냈다. 한 번만 대입한 상수로 만든 이름은 그대로 정적이다.
+    """
+    models = """
+import os
+
+from sqlalchemy import Column, Integer, Table
+from sqlalchemy.orm import DeclarativeBase
+
+PREFIX = "shop_"
+if os.environ.get("TENANT"):
+    PREFIX = "tenant_"
+LOG = "log"
+LOG += "_v2"
+STABLE = "stable_"
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Order(Base):
+    __tablename__ = PREFIX + "orders"
+    id = Column(Integer, primary_key=True)
+
+
+class Item(Base):
+    __tablename__ = STABLE + "items"
+    id = Column(Integer, primary_key=True)
+
+
+events = Table(LOG, Base.metadata, Column("id", Integer))
+"""
+    document = schema_document(_project(make_project, "x = 1\n", models))
+    rows = {row[:3] for row in relation_rows(document)}
+    assert ("stable_items", "id", False) in rows
+    assert not {row[0] for row in rows if not row[2]} & {"shop_orders", "tenant_orders", "log", "log_v2"}
+    assert ("Order", None, True) in rows
+
+
 def test_unparseable_string_annotations_are_not_columns(make_project: MakeProject) -> None:
     """파싱할 수 없거나 너무 깊은 문자열 주석(NUL·5만 항)은 컬럼으로 보지 않고 schema는 성공한다.
 

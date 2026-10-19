@@ -151,6 +151,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 |---|---|
 | 설정 모듈·`ROOT_URLCONF`를 찾지 못함 | 사실 0건 + `route-coverage:` |
 | `FORCE_SCRIPT_NAME` 설정 | 모든 사실 `pathAnchor: "base"` + `unresolved-route-prefix:` |
+| 증명하지 못한 모듈 상수·설정: 모듈 수준에서 두 번 이상 묶임(`+=` 포함), `if`·반복문·`try`·`with`·`match` 블록 안 대입, 함수의 `global` 재대입, `globals()`(모듈 수준 `vars()`·`locals()`)를 부르는 모듈, 모듈 어디서든 `NAME.append(…)`·`NAME[k] = …` 같은 제자리 변경. import·star import·모듈 별칭으로 거쳐 간 모듈의 묶음도 본다 | 모르는 값이다(마지막 무조건 대입이 있어도). 경로 문자열은 dynamic 사실 + `route-coverage:`("… is not a literal"), method 목록은 method를 확정하지 못한 뷰와 같고, 설정은 읽지 못한 설정이다(조건부 `FORCE_SCRIPT_NAME`은 base 앵커 + `unresolved-route-prefix:`, `INSTALLED_APPS`는 스코프 없는 `framework-provided-routes:`). 설정 모듈이 star import로 합친 기반 설정을 바꾸면(`INSTALLED_APPS += [...]`) 그 설정도 같다 |
 | 조건문(`if`·`try`) 안 등록 | decl 대신 `route-coverage:`, 템플릿을 확정하면 `templates` 스코프 |
 | 반복문으로 만든 목록, 모르는 호출·식, 모르는 호출로 바꾼 목록 | 그 자리에 `route-coverage:`, include 접두사가 정적이면 세그먼트 경계 `templatePrefixes` 스코프 |
 | 프로젝트 밖 URL 모듈 include | Django·DRF 모듈이면 `framework-provided-routes:`, 그 밖은 `route-coverage:`, 접두사 스코프 |
@@ -189,6 +190,11 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   (`route-decl-shadowed`)가 `order`로 한다.
 - **조건부 등록은 decl이 아니라 스코프 있는 한계다.** 설정에 따라 없는 경로를 선언으로 내면 거짓 match가 되고,
   빼면 거짓 error가 되므로, "있을 수 있음"을 템플릿 스코프 한계로 나타낸다.
+- **다시 묶는 모듈 상수는 상수가 아니다.** 마지막 무조건 대입을 상수로 쓰면 `PREFIX += "v2/"`의 실제 경로
+  `/api/v2/users/`를 `/api/users/`로, 조건부로 바뀌는 접두사를 한 값으로, 두 대입 사이에서 쓴 앞 값을 뒤 값으로 내고
+  `INSTALLED_APPS += [...]`·조건부 `FORCE_SCRIPT_NAME`의 한계를 빠뜨린다. 호출 그래프의 안정 전역 판정·client 모듈 상수
+  증명과 같은 기준으로 모르는 값을 낸다. routes는 `INSTALLED_APPS`를 persistence처럼 순서대로 읽어 상위 집합으로 두지
+  않고 읽지 못한 설정으로 둔다. 스코프 없는 `framework-provided-routes:` 한계라 거짓 error 쪽으로는 틀리지 않는다.
 - **HEAD·자동 OPTIONS는 내지 않는다.** tsograph(Next.js)와 같은 결정이다. 소비자의 `head-as-get`·`options-any`가
   처리한다.
 - **계약 밖 동사는 `ANY`로 바꾸지 않는다.** isthmus는 route-decl `method`가 계약 동사나 `ANY`가 아니면 문서 전체를

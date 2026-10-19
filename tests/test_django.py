@@ -510,6 +510,127 @@ def test_i18n_force_script_name_and_converters(make_project: Callable[[dict[str,
     assert any("INSTALLED_APPS" in text for text in limitations)  # type: ignore[union-attr]
 
 
+def test_rebound_route_constants_are_dynamic(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """두 번 이상 묶이거나(`+=` 포함) 조건·예외 블록에서 다시 대입한 모듈 이름은 경로·method 상수로 쓰지 않는다.
+
+    마지막 무조건 대입을 상수로 써서 실제 `/api/v2/users/`를 `/api/users/`로, 조건부로 바뀌는 접두사를 한 값으로,
+    두 대입 사이에서 쓴 앞 값(`/api/first/`)을 뒤 값(`/shop/first/`)으로, `ALLOWED += ["POST"]`인 뷰를 GET 전용으로
+    한계 없이 냈다(isthmus 거짓 match·거짓 error). 한 번만 대입한 상수는 그대로 정적이다.
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": """
+            from django.conf import settings
+            from django.urls import path
+            from site_pkg import views
+            GROWN = "api/"
+            GROWN += "v2/"
+            BRANCHED = "shop/"
+            if settings.DEBUG:
+                BRANCHED = "debug-shop/"
+            TRIED = "orders/"
+            try:
+                from site_pkg.local import LOCAL
+                TRIED = "local-orders/"
+            except ImportError:
+                pass
+            ONCE = "api/v2/"
+            prefix = "api/"
+            urlpatterns = [
+                path(GROWN + "users/", views.a),
+                path(BRANCHED + "orders/", views.a),
+                path(TRIED + "list/", views.a),
+                path(ONCE + "items/", views.a),
+                path(prefix + "first/", views.a),
+            ]
+            prefix = "shop/"
+            urlpatterns += [path(prefix + "second/", views.a), path("form/", views.form)]
+        """,
+            "site_pkg/views.py": """
+            from django.views.decorators.http import require_http_methods
+            ALLOWED = ["GET"]
+            ALLOWED += ["POST"]
+            def a(request):
+                pass
+            @require_http_methods(ALLOWED)
+            def form(request):
+                pass
+        """,
+        },
+    )
+    document = routes_document(root)
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    assert {(fact["method"], fact["channel"]) for fact in facts if not fact["dynamic"]} == {
+        ("ANY", "/api/v2/items/"),
+        ("ANY", "/form/"),
+    }
+    assert sum(1 for fact in facts if fact["dynamic"]) == 5
+    scoped = scoped_limitations(document)
+    assert any(scope.get("templates") == ["/form/"] for _, scope in scoped)
+
+
+@pytest.mark.parametrize(
+    ("settings", "base", "expected"),
+    [
+        (
+            'INSTALLED_APPS = ["django.contrib.admin"]\n'
+            'INSTALLED_APPS += ["django.contrib.staticfiles", "rest_framework"]\n',
+            "",
+            "framework-provided-routes: INSTALLED_APPS could not be read",
+        ),
+        (
+            'INSTALLED_APPS = ["django.contrib.admin"]\nINSTALLED_APPS.append("django.contrib.staticfiles")\n',
+            "",
+            "framework-provided-routes: INSTALLED_APPS could not be read",
+        ),
+        (
+            "from .base import *\nINSTALLED_APPS += ['django.contrib.staticfiles']\n",
+            'INSTALLED_APPS = ["django.contrib.admin"]\n',
+            "framework-provided-routes: INSTALLED_APPS could not be read",
+        ),
+        (
+            'import os\nINSTALLED_APPS = []\nif os.environ.get("X"):\n    FORCE_SCRIPT_NAME = "/sub"\n',
+            "",
+            "unresolved-route-prefix: FORCE_SCRIPT_NAME",
+        ),
+        (
+            'import os\nINSTALLED_APPS = []\nFORCE_SCRIPT_NAME = None\nif os.environ.get("X"):\n'
+            '    FORCE_SCRIPT_NAME = "/sub"\n',
+            "",
+            "unresolved-route-prefix: FORCE_SCRIPT_NAME",
+        ),
+    ],
+    ids=["grown-apps", "appended-apps", "derived-apps", "branched-prefix", "reset-prefix"],
+)
+def test_rebound_settings_are_unread_settings(
+    make_project: Callable[[dict[str, str]], Path], settings: str, base: str, expected: str
+) -> None:
+    """누적·제자리 변경·조건부 대입으로 바뀌는 설정은 읽지 못한 설정이다(star import로 합친 기반 값도 덮는다).
+
+    `INSTALLED_APPS += [...]`·`.append(...)`를 보지 않고 첫 목록을 써서 staticfiles·DRF 한계를 빠뜨렸고, 조건부
+    `FORCE_SCRIPT_NAME`을 없는 설정으로 봐 root 앵커에 한계 없이 냈다. 파생 설정이 `from .base import *` 뒤 앱을 더하는
+    흔한 꼴도 기반 목록을 그대로 썼다.
+    """
+    root = _project(
+        make_project,
+        {
+            "site_pkg/base.py": base,
+            "site_pkg/urls.py": "from django.urls import path\nfrom site_pkg import views\n"
+            "urlpatterns = [path('x/', views.a)]\n",
+            "site_pkg/views.py": "def a(request):\n    pass\n",
+        },
+        settings='ROOT_URLCONF = "site_pkg.urls"\nSTATIC_URL = "static/"\n' + settings,
+    )
+    document = routes_document(root)
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert any(text.startswith(expected) for text in limitations), limitations
+    anchors = {fact["pathAnchor"] for fact in document["facts"]}  # type: ignore[union-attr]
+    assert anchors == ({"base"} if "FORCE_SCRIPT_NAME" in expected else {"root"})
+
+
 def test_deep_urlconf_module_is_a_coverage_gap(make_project: Callable[[dict[str, str]], Path]) -> None:
     """패턴 목록을 너무 깊게 이은 URLconf 모듈은 읽지 못한 소스 한계가 되고 다른 패턴은 그대로 낸다.
 
