@@ -580,3 +580,46 @@ def test_external_result_receivers_may_be_modules(make_project: MakeProject) -> 
     }
     graph = build_graph(Project.open(make_project(files)), False)
     assert bound_targets(graph, "app.py#global_site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
+
+
+def test_module_receiver_writes_feed_only_their_module_globals(make_project: MakeProject) -> None:
+    """모듈이 수신자인 쓰기(`wiring.repo = …`)는 그 모듈 전역에만 더하고, 같은 이름의 다른 모듈 전역에는 더하지 않는다.
+
+    모듈 전역 질의는 수신자 모듈 경로로 나눈 버킷에서 그 모듈 쓰기만 고른다. 버킷을 경로로 가르지 못하면(예: 모든
+    모듈 쓰기를 합치면) `other.repo = OtherRepo()`가 `wiring.repo` 흐름에 섞여 `wiring.site`가 부를 수 없는
+    `OtherRepo.save`로 잇는다. 반대로 버킷을 잃으면 `wiring.site`가 `MemRepo.save`를 놓친다.
+    """
+    files = {
+        "repos.py": REPOS,
+        "wiring.py": """
+            from repos import Repo
+
+            repo = Repo()
+
+
+            def site():
+                return repo.save()
+        """,
+        "other.py": """
+            from repos import Repo
+
+            repo = Repo()
+
+
+            def site():
+                return repo.save()
+        """,
+        "app.py": """
+            import other
+            import wiring
+            from repos import MemRepo, OtherRepo
+
+
+            def install():
+                wiring.repo = MemRepo()
+                other.repo = OtherRepo()
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    assert bound_targets(graph, "wiring.py#site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
+    assert bound_targets(graph, "other.py#site") == {"repos.py#Repo.save", "repos.py#OtherRepo.save"}
