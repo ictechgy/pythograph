@@ -127,11 +127,14 @@ class _NameWrites:
     그래서 이름마다 한 번만 나눠 두고, 질의는 걸리는 위치만 원래 순서로 합쳐 돈다(흐름 계산 순서가 모두 훑을 때와 같다).
     쓰기 하나는 많아야 두 목록에 든다. 하위 클래스까지 가리키는 정적 수신자도 하위 클래스마다 펼치지 않고 수신자
     클래스 하나에 담는다(펼치면 같은 수신자 쓰기 수 × 하위 클래스 수로 메모리가 커진다). 질의가 조상 쪽에서 찾는다.
+    색인을 만들 때는 하위 클래스 표를 묻지 않는다. 표는 모든 클래스의 MRO를 계산하므로, 옛 판정처럼 속성 자리·메서드
+    가림 질의가 하위 클래스까지 가리키는 첫 쓰기를 판정할 때 만든다(모듈 전역 질의는 만들지 않았다).
 
     Attributes:
         writes: 쓰기(원래 순서).
-        exact: 클래스 id → 정적 수신자(프로젝트 인스턴스·클래스)가 가리킬 수 있는 클래스가 그 클래스 하나뿐인 쓰기.
-        widened: 클래스 id → 정적 수신자가 그 클래스와 그 하위 클래스(있을 때만)의 인스턴스·클래스 객체일 수 있는 쓰기.
+        exact: 클래스 id → 정적 수신자가 그 클래스의 인스턴스만 가리키는 쓰기(정확한 인스턴스).
+        widened: 클래스 id → 정적 수신자가 그 클래스와 하위 클래스의 인스턴스·클래스 객체일 수 있는 쓰기.
+        first_widened: `widened`의 첫 쓰기 (순번, 수신자 클래스), 없으면 None.
         by_module: 모듈 경로 → 그 모듈이 수신자인 쓰기.
         unresolved: 수신자 흐름으로 판정할 쓰기(람다 뿌리, 모듈·함수·외부 값이 아닌 모르는 값).
         module_candidates: 모듈일 수 있는 수신자(람다 뿌리, 타입 모르는 값, 외부 호출 결과) 쓰기.
@@ -140,9 +143,43 @@ class _NameWrites:
     writes: tuple[AttributeWrite, ...]
     exact: dict[str, list[int]] = field(default_factory=dict)
     widened: dict[str, list[int]] = field(default_factory=dict)
+    first_widened: tuple[int, Definition] | None = None
     by_module: dict[str, list[int]] = field(default_factory=dict)
     unresolved: list[int] = field(default_factory=list)
     module_candidates: list[int] = field(default_factory=list)
+
+
+def _index_static(index: _NameWrites, position: int, value: InstanceValue | ClassValue) -> None:
+    """정적 인스턴스·클래스 수신자 쓰기를 수신자 클래스의 버킷에 넣는다(하위 클래스 표는 묻지 않는다).
+
+    하위 클래스까지 가리키는 값은 하위 클래스가 없어도 `widened`에 둔다. 질의가 질의 클래스와 그 조상의 버킷을 읽으므로
+    판정은 같고, 하위 클래스가 있는지 물으면 하위 클래스 표를 옛 판정보다 먼저 만들게 된다.
+
+    Args:
+        index: 채울 색인.
+        position: 쓰기 순번.
+        value: 수신자 값.
+    """
+    owner = value.definition
+    if not _includes_subclasses(value):
+        index.exact.setdefault(owner.id, []).append(position)
+        return
+    index.widened.setdefault(owner.id, []).append(position)
+    if index.first_widened is None:
+        index.first_widened = (position, owner)
+
+
+def _exact_writes(index: _NameWrites, classes: frozenset[str]) -> set[int]:
+    """정확한 인스턴스 수신자 쓰기 가운데 그 클래스들의 인스턴스에 닿는 것(수신자 클래스가 질의 클래스)의 순번이다.
+
+    Args:
+        index: 이름의 쓰기 색인.
+        classes: 클래스 id.
+
+    Returns:
+        쓰기 순번 집합.
+    """
+    return {position for class_id in classes for position in index.exact.get(class_id, ())}
 
 
 class FlowAnalyzer:
@@ -879,11 +916,7 @@ class FlowAnalyzer:
             return
         value = self.resolver.value(write.scope, write.receiver)
         if isinstance(value, (InstanceValue, ClassValue)):
-            # 하위 클래스가 없으면 그 클래스 하나만 가리킨다. 이 확인이 하위 클래스 표를 옛 판정(`instance_classes`)과
-            # 같은 때 만든다(MRO 메모는 처음 계산한 순서를 따라 깊은 사슬·순환에서 근사가 달라질 수 있다).
-            owner = value.definition
-            widened = _includes_subclasses(value) and bool(self.linearizer.subclasses(owner))
-            (index.widened if widened else index.exact).setdefault(owner.id, []).append(position)
+            _index_static(index, position, value)
         elif isinstance(value, ModuleValue):
             index.by_module.setdefault(value.path, []).append(position)
         elif not isinstance(value, _NOT_INSTANCES):
@@ -896,7 +929,9 @@ class FlowAnalyzer:
 
         정적 수신자 쓰기는 색인에서 바로 고르고, 수신자 흐름으로 판정할 쓰기만 `write_reaches`로 본다. 하나 낼 때마다
         호출자가 소비하므로 흐름 메모·순환 끊기·단계 예산을 쓰는 순서가 모든 쓰기를 차례로 판정할 때와 같다(처음 열린
-        이유도 같다).
+        이유도 같다). 하위 클래스 표가 아직 없으면 하위 클래스까지 가리키는 첫 쓰기 앞의 쓰기를 먼저 판정하고, 그
+        순번에 와서 표를 만든다(옛 판정은 그 쓰기의 `instance_classes`에서 만들었고, 메서드 가림 질의가 그 앞에서 멈추면
+        만들지 않았다).
 
         Args:
             name: 속성 이름.
@@ -907,20 +942,56 @@ class FlowAnalyzer:
             닿을 수 있는 쓰기.
         """
         index = self._writes_named(name)
-        reached = self._static_writes(index, classes)
-        for position in sorted(reached.union(index.unresolved)):
+        reached = _exact_writes(index, classes)
+        split = self._table_split(index)
+        early = sorted(position for position in reached.union(index.unresolved) if position < split)
+        yield from self._judged_writes(index, early, reached, classes, depth)
+        reached |= self._widened_writes(index, classes)
+        late = sorted(position for position in reached.union(index.unresolved) if position >= split)
+        yield from self._judged_writes(index, late, reached, classes, depth)
+
+    def _judged_writes(
+        self, index: _NameWrites, positions: list[int], reached: set[int], classes: frozenset[str], depth: int
+    ) -> Iterator[AttributeWrite]:
+        """순번을 차례로 보며 정적으로 닿는 쓰기는 바로, 나머지는 `write_reaches`로 판정해 닿는 쓰기를 낸다.
+
+        Args:
+            index: 이름의 쓰기 색인.
+            positions: 볼 순번(오름차순).
+            reached: 정적으로 닿는 순번.
+            classes: 클래스 id.
+            depth: 깊이.
+
+        Yields:
+            닿을 수 있는 쓰기.
+        """
+        for position in positions:
             write = index.writes[position]
             if position in reached or self.write_reaches(
                 write.scope, write.receiver, classes, depth, write.lambda_receiver
             ):
                 yield write
 
-    def _static_writes(self, index: _NameWrites, classes: frozenset[str]) -> set[int]:
-        """정적 수신자 쓰기 가운데 그 클래스들의 인스턴스(또는 클래스 객체)에 닿는 것의 순번이다.
+    def _table_split(self, index: _NameWrites) -> int:
+        """하위 클래스 표를 만들 쓰기 순번이다(표가 이미 있거나 하위 클래스까지 가리키는 쓰기가 없으면 0).
 
-        수신자 값의 `instance_classes`가 질의 클래스 c를 담는 쓰기다: 수신자 클래스가 c이거나, 하위 클래스까지 가리키는
-        수신자의 클래스가 c의 프로젝트 상위 클래스다(`Linearizer.superclass_ids`는 하위 클래스 표의 역관계라 두 판정이
-        정확히 같다). 질의 클래스와 그 조상을 먼저 모아 버킷마다 한 번만 읽는다.
+        Args:
+            index: 이름의 쓰기 색인.
+
+        Returns:
+            순번.
+        """
+        if index.first_widened is None or self.linearizer.has_subclass_table():
+            return 0
+        return index.first_widened[0]
+
+    def _widened_writes(self, index: _NameWrites, classes: frozenset[str]) -> set[int]:
+        """하위 클래스까지 가리키는 수신자 쓰기 가운데 그 클래스들의 인스턴스(또는 클래스 객체)에 닿는 것의 순번이다.
+
+        수신자 값의 `instance_classes`가 질의 클래스 c를 담는 쓰기다: 수신자 클래스가 c이거나 c의 프로젝트 상위
+        클래스다(`Linearizer.superclass_ids`는 하위 클래스 표의 역관계라 두 판정이 정확히 같다). 질의 클래스와 그 조상을
+        먼저 모아 버킷마다 한 번만 읽는다. 하위 클래스 표가 없으면 옛 판정이 첫 쓰기의 `instance_classes`에서 했듯이
+        지금 만든다.
 
         Args:
             index: 이름의 쓰기 색인.
@@ -929,13 +1000,14 @@ class FlowAnalyzer:
         Returns:
             쓰기 순번 집합.
         """
-        reached = {position for class_id in classes for position in index.exact.get(class_id, ())}
-        if index.widened:
-            owners = set(classes)
-            for class_id in classes:
-                owners.update(self.linearizer.superclass_ids(class_id))
-            reached.update(position for owner in owners for position in index.widened.get(owner, ()))
-        return reached
+        if index.first_widened is None:
+            return set()
+        # 반환값은 쓰지 않는다: 하위 클래스 표를 옛 판정과 같은 순번에서 만들려고 부른다.
+        self.linearizer.subclasses(index.first_widened[1])
+        owners = set(classes)
+        for class_id in classes:
+            owners.update(self.linearizer.superclass_ids(class_id))
+        return {position for owner in owners for position in index.widened.get(owner, ())}
 
     def _class_body_opaque(self, definition: Definition, name: str) -> str | None:
         """MRO의 프로젝트 클래스 본문이 이름을 멤버 표가 모르는 방식으로 묶는지 본다(두 번 대입, 반복 변수, import 등).

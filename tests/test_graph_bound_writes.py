@@ -623,3 +623,57 @@ def test_module_receiver_writes_feed_only_their_module_globals(make_project: Mak
     graph = build_graph(Project.open(make_project(files)), False)
     assert bound_targets(graph, "wiring.py#site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
     assert bound_targets(graph, "other.py#site") == {"repos.py#Repo.save", "repos.py#OtherRepo.save"}
+
+
+def test_module_global_queries_do_not_linearize_unused_hierarchies(make_project: MakeProject) -> None:
+    """모듈 전역 질의가 같은 이름 쓰기를 색인해도 하위 클래스 표(모든 클래스의 MRO)를 옛 판정보다 먼저 만들지 않는다.
+
+    옛 판정은 모듈 전역 질의에서 수신자 클래스의 하위 클래스를 묻지 않았고, 이 프로젝트에서는 끝까지 하위 클래스 표를
+    만들지 않는다. 색인이 `self.repo` 쓰기를 나누며 표를 만들면 아무도 쓰지 않는 일관성 없는 계층(`Bad`)까지 선형화해
+    `mroApproximated`와 그 limitation이 새로 생긴다(출력이 바뀐다).
+    """
+    files = {
+        "repos.py": REPOS,
+        "wiring.py": """
+            import os
+
+            from repos import MemRepo, Repo
+
+            repo = Repo() if os.environ.get("REPO") else MemRepo()
+
+
+            def site():
+                return repo.save()
+        """,
+        "models.py": """
+            from repos import Repo
+
+
+            class Holder:
+                def set(self):
+                    self.repo = Repo()
+        """,
+        "legacy.py": """
+            class X:
+                pass
+
+
+            class Y:
+                pass
+
+
+            class A(X, Y):
+                pass
+
+
+            class B(Y, X):
+                pass
+
+
+            class Bad(A, B):
+                pass
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    assert bound_targets(graph, "wiring.py#site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
+    assert graph.statistics["mroApproximated"] == 0
