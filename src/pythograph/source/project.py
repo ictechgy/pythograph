@@ -193,7 +193,7 @@ class Project:
         """
         relative = PurePosixPath(directory, entry.name).as_posix()
         if _is_link(entry.stat(follow_symlinks=False)):
-            if _link_may_hide_sources(entry):
+            if _link_may_hide_sources(entry.name):
                 self._record_link(relative)
             return
         if entry.is_dir(follow_symlinks=False):
@@ -507,26 +507,27 @@ def _is_skipped_directory(name: str) -> bool:
     return name.startswith(".") or name in SKIPPED_DIRECTORIES
 
 
-def _link_may_hide_sources(entry: os.DirEntry[str]) -> bool:
-    """링크를 따라갔다면 순회가 읽었을 소스를 가리는지 판정한다. 대상 종류만 보고 들어가지는 않는다.
+def _link_may_hide_sources(name: str) -> bool:
+    """링크를 따라갔다면 순회가 읽었을 소스를 가릴 수 있는지 링크 이름만 보고 판정한다. 대상에는 접근하지 않는다.
 
-    순회가 들어갔을 이름의 디렉터리를 가리키거나, 이름이 `.py`인(끊어진 링크 포함) 링크만 소스를 가린다. `CLAUDE.md`·
-    `README.md`·`.venv`처럼 소스와 무관한 링크까지 세면 링크 하나가 문서 전체 커버리지 한계가 되어 진단을 묻고 닫힌 세계
-    `bound` 증명을 막는다. 대상 종류를 확인하지 못하면(권한·순환 링크) 가린다고 본다(과소 신고보다 안전하다).
+    이름이 `.py`인 링크(끊어진 링크 포함)는 파일 소스를, 확장자가 없고 순회가 건너뛰지 않는 이름의 링크는 들어갔을
+    디렉터리를 가릴 수 있다고 본다. `CLAUDE.md`·`README.md`처럼 확장자가 있는 이름은 파일 링크로 보고, `.venv`·
+    `node_modules`처럼 건너뛰는 이름은 디렉터리여도 순회가 들어가지 않으므로 세지 않는다. 소스와 무관한 링크까지 세면
+    링크 하나가 문서 전체 커버리지 한계가 되어 진단을 묻고 닫힌 세계 `bound` 증명을 막는다.
+
+    대상을 stat해 종류를 고르지 않는 이유: 프로젝트 밖 대상의 존재와 종류가 한계 수로 드러나(`probe -> /usr/bin`은
+    1, `-> /nonexistent`는 0) 출력을 보는 사람이 분석 머신의 경로를 알아낼 수 있고, 링크를 따라가지 않는다는 원칙과도
+    어긋난다. 그 대가로 확장자 있는 이름의 디렉터리 링크(`conf.d`)는 세지 않고, 확장자 없는 파일 링크(`LICENSE`)는 센다.
 
     Args:
-        entry: 링크인 디렉터리 항목.
+        name: 링크인 디렉터리 항목의 이름.
 
     Returns:
         소스를 가릴 수 있으면 True.
     """
-    try:
-        points_to_directory = entry.is_dir(follow_symlinks=True)
-    except OSError:
+    if name.endswith(".py"):
         return True
-    if points_to_directory:
-        return not _is_skipped_directory(entry.name)
-    return entry.name.endswith(".py")
+    return "." not in name and not _is_skipped_directory(name)
 
 
 def _is_link(info: os.stat_result) -> bool:

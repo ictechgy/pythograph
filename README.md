@@ -409,9 +409,12 @@ than 100,000 route-decl facts make the document impossible, ending with the usua
 
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
-once. The directory walk counts only links that could hide sources it would otherwise read: links to directories it
-would enter and links named `*.py` (including broken ones). Links such as `CLAUDE.md -> AGENTS.md`, `README.md`, or
-`.venv` therefore do not become limitations, while links met during module resolution or manifest reads always count.
+once. The directory walk counts only links whose name could hide sources it would otherwise read, judged from the
+name alone without touching the target: links named `*.py` (including broken ones) and extensionless links with a
+name the walk would enter. Links such as `CLAUDE.md -> AGENTS.md`, `README.md`, or `.venv` therefore do not become
+limitations, and the count never depends on what exists on the analyzing machine. A directory link with an extension
+(`conf.d`) is not counted and an extensionless file link (`LICENSE`) is. Links met during module resolution or
+manifest reads always count.
 On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and source reads open each component
 without following links, and verify the opened file before reading. Other systems recheck components and file identity
 before reading, but those checks are not atomic. Analyze a stable project tree; this is not a filesystem snapshot or a

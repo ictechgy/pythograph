@@ -155,15 +155,39 @@ def test_links_that_cannot_hide_sources_are_not_counted(make_project: MakeProjec
     ],
 )
 def test_links_that_may_hide_sources_are_counted(make_project: MakeProject, link: str, target: str) -> None:
-    """들어갔을 디렉터리를 가리키거나 `.py` 이름(끊어진 링크 포함)인 링크는 따라가지 않고 한 번 센다.
+    """들어갔을 디렉터리 이름(확장자 없음)이거나 `.py` 이름(끊어진 링크 포함)인 링크는 따라가지 않고 한 번 센다.
 
-    점으로 시작하는 `.py` 파일도 순회가 읽으므로 그 이름의 파일 링크는 센다. 대상 종류를 알 수 없는 순환 링크도 센다.
+    점으로 시작하는 `.py` 파일도 순회가 읽으므로 그 이름의 파일 링크는 센다. 순환 링크도 이름으로 센다.
     """
     root = make_project({"pkg/__init__.py": "", "other.py": "x = 1\n"})
     (root / link).symlink_to(target, target_is_directory=target == "pkg")
     project = Project.open(root)
     assert project.python_files() == ["other.py", "pkg/__init__.py"]
     assert project.skipped_links == 1
+
+
+@pytest.mark.parametrize("kind", ["directory", "file", "missing"])
+def test_link_count_does_not_depend_on_the_link_target(make_project: MakeProject, tmp_path: Path, kind: str) -> None:
+    """링크를 셀지는 이름만으로 정하고 대상에는 접근하지 않는다. 프로젝트 밖 대상의 종류·존재와 무관하게 같다.
+
+    대상을 stat해 종류를 골랐을 때는 `probe -> /usr/bin`이 1, `-> /nonexistent-dir`·`-> /etc/hosts`가 0이라, 출력이나
+    CI 로그를 보는 저장소 작성자가 분석 머신에 어떤 경로가 있는지 링크 하나에 한 비트씩 알아낼 수 있었다.
+    """
+    outside = tmp_path / "outside"
+    (outside / "lib").mkdir(parents=True)
+    (outside / "lib" / "mod.py").write_text("value = 'outside-only'\n")
+    (outside / "file.txt").write_text("text\n")
+    target = {"directory": outside / "lib", "file": outside / "file.txt", "missing": outside / "missing"}[kind]
+    root = make_project({"app.py": "x = 1\n"})
+    for name in ("probe", "probe.txt", "probe.py"):
+        (root / name).symlink_to(target, target_is_directory=kind == "directory")
+    project = Project.open(root)
+    assert project.python_files() == ["app.py"]
+    assert project.skipped_links == 2
+    document = json.loads(run_cli(["schema", "--project", str(root)])[1])
+    assert [text for text in document["limitations"] if "symbolic links" in text] == [
+        "skipped-symlinks: 2 symbolic links were not followed"
+    ]
 
 
 @pytest.mark.parametrize("hiding", [False, True])

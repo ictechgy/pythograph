@@ -42,9 +42,10 @@
 - `routes --role client`가 `globals()`(어느 범위든)·모듈 수준 `vars()`·`locals()`를 부르는 모듈의 이름과, 수신자를
   모르는 같은 이름의 속성 대입(`sys.modules[__name__].X = …`)이 있는 이름을 URL 상수로 치환하지 않는다(graph와 같은
   판정). 런타임에 바뀌는 base URL이 정적 `root`·`authority` 사실로 나가던 문제다.
-- 디렉터리 순회가 소스를 가릴 수 있는 심볼릭 링크(들어갔을 디렉터리를 가리키는 링크, `*.py` 이름의 링크)만 한계로
-  센다. `CLAUDE.md -> AGENTS.md`·`README.md`·`.venv` 같은 링크 하나가 스코프 없는 한계가 되어 isthmus가 그 문서의
-  `route-call-without-decl`·`route-method-mismatch` 진단을 모두 완화하고 graph `bound` 닫힌 세계 증명을 막던 문제다.
+- 디렉터리 순회가 소스를 가릴 수 있는 이름의 심볼릭 링크(끊어진 것을 포함한 `*.py` 이름, 확장자가 없고 순회가
+  건너뛰지 않는 이름)만 한계로 센다. `CLAUDE.md -> AGENTS.md`·`README.md`·`.venv` 같은 링크 하나가 스코프 없는 한계가
+  되어 isthmus가 그 문서의 `route-call-without-decl`·`route-method-mismatch` 진단을 모두 완화하고 graph `bound` 닫힌
+  세계 증명을 막던 문제다. 링크 대상에는 접근하지 않아, 분석 머신에 어떤 경로가 있는지가 한계 수로 드러나지 않는다.
 
 - `routes --role client --wrappers`가 선언 파일을 일반 파일일 때만 열고 최대 4 MiB + 1바이트만 읽는다. 파일 전체를
   읽은 뒤 자르던 탓에 큰 파일·`/dev/zero` 링크가 상한과 무관하게 메모리를 쓰고, 쓰는 쪽이 없는 FIFO는 명령을 멈추던
