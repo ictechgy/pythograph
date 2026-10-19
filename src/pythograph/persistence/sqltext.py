@@ -8,6 +8,9 @@
   관계 이름으로 읽힌다(파이썬 전용 전처리, 공유 벡터 밖).
 - 그 밖의 문자열 리터럴은 SQL 동사와 관계 키워드가 대문자일 때만 읽는다(가족 strict 규칙). docstring은 읽지
   않는다. 소문자라 읽지 않은 SQL 모양 리터럴은 `skipped-sql-literals:`로 센다.
+- 이어 붙인 텍스트(f-string·`+`)가 `MAX_EVALUATED_LENGTH`(64 KiB)를 넘으면 그 식은 모르는 텍스트다. 같은 상수를 여러
+  번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 길이를 단계마다 곱으로 늘리기 때문이다. 같은 (식, 깊이)의
+  짧은 결과는 메모해 다시 펼치지 않는다.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ from pythograph.persistence.model import PersistenceExtraction, RelationUse
 from pythograph.persistence.scope import ModuleScopes
 from pythograph.persistence.sql import looks_like_sql, sql_relations
 from pythograph.routes.model import Location
-from pythograph.source.evaluate import Evaluator
+from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, MAX_MEMO_LENGTH, Evaluator
 from pythograph.source.symbols import ValueSymbol
 
 #: DB-API 파라미터 표기다(`%s`, `%(name)s`, `%d` 등). `%%`는 글자 그대로의 `%`다.
@@ -48,6 +51,10 @@ class SqlText:
         self.scopes = scopes
         self.evaluator = evaluator
         self.consumed: set[int] = set()
+        # (식 id, 깊이) → (식, 텍스트). 키의 id는 값에 함께 담은 노드가 살아 있는 동안 다른 노드에 다시 쓰이지 않는다.
+        self._texts: dict[tuple[int, int], tuple[ast.expr, str | None]] = {}
+        # 상한을 넘은 식의 id다(식마다 한계를 한 번 센다).
+        self._too_long_nodes: set[int] = set()
 
     def sink(self, node: ast.expr, explicit: bool) -> None:
         """SQL 인자 하나를 읽어 관계 사실을 낸다.
@@ -117,6 +124,9 @@ class SqlText:
     def text(self, node: ast.expr, depth: int = 0) -> str | None:
         """식을 SQL 텍스트로 바꾼다. 모르는 조각은 `{}`다. 전체를 모르면 None이다.
 
+        이어 붙인 텍스트가 `MAX_EVALUATED_LENGTH`를 넘어도 None이다. 결과가 None이거나 `MAX_MEMO_LENGTH` 이하면
+        (식, 깊이)마다 메모한다. 깊이를 키에 넣어 깊이 상한에서 잘린 결과를 메모 없는 결과와 같게 둔다.
+
         Args:
             node: 식.
             depth: 이름을 따라간 깊이.
@@ -126,10 +136,29 @@ class SqlText:
         """
         if depth > 8:
             return None
+        key = (id(node), depth)
+        cached = self._texts.get(key)
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        result = self._text(node, depth)
+        if result is None or len(result) <= MAX_MEMO_LENGTH:
+            self._texts[key] = (node, result)
+        return result
+
+    def _text(self, node: ast.expr, depth: int) -> str | None:
+        """`text`의 계산이다(메모 없이 식 하나를 바꾼다).
+
+        Args:
+            node: 식.
+            depth: 이름을 따라간 깊이.
+
+        Returns:
+            텍스트 또는 None.
+        """
         if isinstance(node, ast.Constant):
             return node.value if isinstance(node.value, str) else None
         if isinstance(node, ast.JoinedStr):
-            return "".join(self._joined_part(part, depth) for part in node.values)
+            return self._joined(node, depth)
         if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
             return self._binary(node, depth)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
@@ -139,6 +168,40 @@ class SqlText:
         if isinstance(node, ast.Attribute):
             return self.evaluator.string(self.scopes.path, node)
         return None
+
+    def _joined(self, node: ast.JoinedStr, depth: int) -> str | None:
+        """f-string을 텍스트로 바꾼다. 길이가 `MAX_EVALUATED_LENGTH`를 넘는 순간 나머지 조각을 보지 않고 멈춘다.
+
+        Args:
+            node: f-string.
+            depth: 깊이.
+
+        Returns:
+            텍스트 또는 None(상한 초과).
+        """
+        pieces: list[str] = []
+        length = 0
+        for part in node.values:
+            piece = self._joined_part(part, depth)
+            length += len(piece)
+            if length > MAX_EVALUATED_LENGTH:
+                self._count_too_long(node)
+                return None
+            pieces.append(piece)
+        return "".join(pieces)
+
+    def _count_too_long(self, node: ast.expr) -> None:
+        """이은 텍스트가 상한을 넘었음을 식마다 한 번 한계로 센다. 읽지 않은 텍스트가 관계를 가릴 수 있어 조용히
+        넘기지 않는다.
+
+        Args:
+            node: 상한을 넘은 식(f-string 또는 `+`).
+        """
+        if id(node) not in self._too_long_nodes:
+            self._too_long_nodes.add(id(node))
+            self.extraction.add_gap(
+                "skipped-sql-literals:", "{count} string expressions longer than 64 KiB were not read as SQL"
+            )
 
     def _joined_part(self, part: ast.expr, depth: int) -> str:
         """f-string 조각 하나를 텍스트로 바꾼다.
@@ -166,7 +229,7 @@ class SqlText:
             depth: 깊이.
 
         Returns:
-            텍스트 또는 None.
+            텍스트 또는 None(둘 다 모르거나 이은 길이가 `MAX_EVALUATED_LENGTH`를 넘음).
         """
         left = self.text(node.left, depth + 1)
         if isinstance(node.op, ast.Mod):
@@ -175,7 +238,12 @@ class SqlText:
         right = self.text(node.right, depth + 1)
         if left is None and right is None:
             return None
-        return (left if left is not None else _HOLE) + (right if right is not None else _HOLE)
+        left_text = left if left is not None else _HOLE
+        right_text = right if right is not None else _HOLE
+        if len(left_text) + len(right_text) > MAX_EVALUATED_LENGTH:
+            self._count_too_long(node)
+            return None
+        return left_text + right_text
 
     def _name_text(self, node: ast.Name, depth: int) -> str | None:
         """이름을 같은 함수의 유일한 대입이나 모듈 상수로 푼다.
@@ -231,9 +299,14 @@ class SqlText:
     def _consume(self, node: ast.AST) -> None:
         """노드와 그 하위 문자열을 대문자 리터럴 스캔에서 뺀다.
 
+        이미 뺀 노드는 하위 트리도 모두 빠져 있다(`consumed`는 이 메서드만 하위 트리째 채운다). 그래서 같은 상수를
+        여러 번 참조해도 그 값 식을 한 번만 돈다.
+
         Args:
             node: 노드.
         """
+        if id(node) in self.consumed:
+            return
         for child in ast.walk(node):
             self.consumed.add(id(child))
 

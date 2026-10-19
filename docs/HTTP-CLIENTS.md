@@ -166,6 +166,9 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 - 수신자를 증명하지 못한 클라이언트(생성자 매개변수로 받아 주석 없이 필드에 넣은 클라이언트, 팩토리 함수 반환값, 컨테이너 원소)는
   사실로 내지 않고 URL 리터럴 호출만 `route-call-coverage:`로 센다.
 - 계산된 이름의 `setattr`·`__dict__` 쓰기로 바꾼 클래스 속성·모듈 상수는 따라가지 않는다.
+- f-string·`+`·서식으로 모은 URL 조각이 4,096개를 넘거나 리터럴 문자가 64 KiB를 넘으면 식 전체를 값 하나로 본다(dynamic).
+  같은 상수를 여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 조각 수를 단계마다 곱으로 늘리기 때문이다. 같은
+  상수는 한 번만 펼친다. 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 - `__init__.py` 없는 이름공간 패키지 안의 모듈 import는 이름 해석기가 외부 모듈로 본다(서버·그래프와 같은 해석기).
 - requests-toolbelt `BaseUrlSession`, 사용자 base 헬퍼, `requests.Session.request`를 감싼 하위 클래스의 재정의 동작은 모델링하지
   않는다(래퍼 선언으로 알려 준다).

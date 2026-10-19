@@ -163,6 +163,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
 | 계약 동사 집합 밖 method(`PURGE`·`PROPFIND` 등: Flask `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action` 인자) | 그 method의 decl을 내지 않고 등록마다 `route-coverage:`. 템플릿을 확정한 root 앵커 등록이면 그 `templates` 스코프(스코프 `methods`에는 계약 동사만 쓸 수 있어 싣지 않는다), dynamic·base 앵커면 스코프 없음 |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |
+| f-string·`+`·목록 리터럴·모듈 상수로 만든 경로 문자열·설정값이 64 KiB를 넘음(같은 상수를 여러 번 참조하는 사슬 `B = f"{A}{A}…"`) | 모르는 값으로 본다. 경로는 리터럴이 아닌 경로처럼 dynamic 사실 + `route-coverage:`("… is not a literal"), 설정값은 읽지 못한 설정과 같다. 같은 상수는 한 번만 펼친다 |
 | i18n 접두사 | 그 아래 사실 `pathAnchor: "base"` |
 | 맨 앞 include 문자열이 리터럴이 아님(앞 조각이 빈 문자열·`re_path`의 `^`·언어 접두사뿐) | 그 조각을 떼고 하위 사실 `pathAnchor: "base"` + `unresolved-route-prefix:`. 앞에 리터럴 경로가 있으면 dynamic |
 | 프로젝트 밖 핸들러(usr 없음) | `missing-route-usrs:`(체인 전용) |

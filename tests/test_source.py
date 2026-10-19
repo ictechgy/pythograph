@@ -12,7 +12,7 @@ import pytest
 
 from pythograph.source import project as project_module
 from pythograph.source import syntax
-from pythograph.source.evaluate import UNKNOWN, Evaluator
+from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, UNKNOWN, Evaluator, value_size
 from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
 from pythograph.source.symbols import (
     ExternalSymbol,
@@ -64,6 +64,90 @@ def test_evaluator_constants(make_project: Callable[[dict[str, str]], Path]) -> 
     assert evaluator.value("pkg/mod.py", None) is UNKNOWN
     assert evaluator.string("pkg/mod.py", _expr("1")) is None
     assert evaluator.string_list("pkg/mod.py", _expr("[1]")) is None
+
+
+def _reference_chain(prefix: str, width: int, levels: int, *, as_list: bool) -> str:
+    """앞 단계 이름을 `width`번 참조하는 모듈 상수 사슬 소스를 만든다(`X1 = f"{X0}{X0}…"` 또는 `[X0, X0, …]`).
+
+    Args:
+        prefix: 이름 접두사.
+        width: 단계마다 참조 수.
+        levels: 단계 수(맨 아래 `X0`은 `"a"`).
+        as_list: 목록 사슬인지(아니면 f-string 사슬).
+
+    Returns:
+        모듈 소스.
+    """
+    lines = [f'{prefix}0 = "a"']
+    for level in range(1, levels + 1):
+        previous = f"{prefix}{level - 1}"
+        body = ", ".join([previous] * width) if as_list else "".join("{" + previous + "}" for _ in range(width))
+        lines.append(f"{prefix}{level} = " + (f"[{body}]" if as_list else f'f"{body}"'))
+    return "\n".join(lines) + "\n"
+
+
+def test_evaluator_expands_repeated_references_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 상수를 여러 번 참조하는 f-string·목록 사슬은 단계마다 한 번만 펼친다(평가 횟수가 참조 수의 거듭제곱이 아님).
+
+    설정 모듈의 대문자 이름을 모두 평가하므로 수백 바이트 사슬 하나가 명령을 수십 초·GiB 메모리로 끌고 가던 문제다.
+    """
+    root = make_project(
+        {
+            "chain.py": _reference_chain("S", 4, 6, as_list=False) + _reference_chain("L", 4, 6, as_list=True),
+        }
+    )
+    symbols = SymbolTable(Project.open(root))
+    index = symbols.index("chain.py")
+    assert index is not None
+    resolved: list[str] = []
+    resolve_name = symbols.resolve_name
+
+    def counting(path: str, name: str, hops: int = 0) -> object:
+        resolved.append(name)
+        return resolve_name(path, name, hops)
+
+    monkeypatch.setattr(symbols, "resolve_name", counting)
+    evaluator = Evaluator(symbols)
+    assert evaluator.value("chain.py", index.values["S6"]) == "a" * 4**6
+    expected: object = "a"
+    for _ in range(6):
+        expected = [expected] * 4
+    assert evaluator.value("chain.py", index.values["L6"]) == expected
+    # 단계마다 참조 4개를 한 번씩 푼다(메모 없이 펼치면 4 + 4² + … + 4⁶ = 5,460번).
+    assert len(resolved) == 2 * 6 * 4
+
+
+def test_evaluator_caps_constructed_values(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """f-string·`+`·목록 리터럴로 만든 값이 `MAX_EVALUATED_LENGTH`를 넘으면 UNKNOWN이다.
+
+    상한까지 만든 값과 소스의 문자열 리터럴 하나는 그대로다.
+    """
+    block = "a" * 1024
+    eight = "{BLOCK}" * 8
+    root = make_project(
+        {
+            "big.py": f'BLOCK = "{block}"\nEIGHT = f"{eight}"\n'
+            'LIMIT = f"{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}"\n'
+            'OVER = f"{LIMIT}{BLOCK}"\nPLUS = LIMIT + "b"\n'
+            "ITEMS = [EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT]\nFEW = [EIGHT, EIGHT]\n"
+            f'LONG = "{"a" * (MAX_EVALUATED_LENGTH + 1)}"\n',
+        }
+    )
+    symbols = SymbolTable(Project.open(root))
+    index = symbols.index("big.py")
+    assert index is not None
+    evaluator = Evaluator(symbols)
+    assert evaluator.value("big.py", index.values["LIMIT"]) == "a" * MAX_EVALUATED_LENGTH
+    assert evaluator.value("big.py", index.values["OVER"]) is UNKNOWN
+    assert evaluator.value("big.py", index.values["PLUS"]) is UNKNOWN
+    # 목록 크기는 원소 수 8 + 문자 8 × 8 KiB라 상한을 넘는다.
+    assert evaluator.value("big.py", index.values["ITEMS"]) is UNKNOWN
+    assert evaluator.value("big.py", index.values["FEW"]) == ["a" * 8192] * 2
+    assert evaluator.value("big.py", index.values["LONG"]) == "a" * (MAX_EVALUATED_LENGTH + 1)
+    assert value_size([["ab", "c"], ["ab", "c"]]) == 2 + 2 * (2 + 3)
+    assert value_size(["a" * 10], limit=5) == 6
 
 
 def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:

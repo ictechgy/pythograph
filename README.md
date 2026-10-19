@@ -386,6 +386,13 @@ annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) ar
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation.
 
+Constant evaluation follows f-strings, `+`, list literals, and module constants for route strings, settings, SQL text,
+and client URLs. A short chain that references the same constant many times (`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)
+would otherwise grow exponentially, so repeated references are expanded once, values built this way are capped at
+64 KiB (characters for strings; elements plus their characters for lists), and client URL expressions at 4,096 parts.
+A larger value is treated as unknown: a dynamic route or route-call fact, an unread setting, or for SQL text a
+`skipped-sql-literals:` limitation. A single string literal is limited only by the 4 MiB file limit.
+
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
 once. The directory walk counts only links that could hide sources it would otherwise read: links to directories it

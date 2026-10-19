@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ import pytest
 
 from pythograph.exchange.document import DocumentHeader, DocumentLimitError
 from pythograph.exchange.persistence import build_persistence_document
+from pythograph.persistence import sqltext as sqltext_module
 from pythograph.persistence.command import is_migration_path
 from pythograph.persistence.model import PersistenceExtraction, RelationName, RelationUse
 from pythograph.routes.model import Location
@@ -151,6 +153,61 @@ def run(connection, name, table):
     assert isinstance(limitations, list)
     assert any(item.startswith("skipped-sql-literals: 1 ") for item in limitations)
     assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
+
+
+def test_sql_text_expands_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 상수를 여러 번 참조하는 f-string 사슬은 (식, 깊이)마다 한 번만 펼친다.
+
+    대문자 SQL 리터럴 스캔은 모듈의 모든 f-string을 펼치므로, 메모가 없으면 수백 바이트 모듈 하나가 펼침 횟수와
+    텍스트 길이를 참조 수의 거듭제곱으로 늘렸다.
+    """
+    source = 'Q0 = "SELECT * FROM t "\n' + "".join(
+        f'Q{level} = f"' + ("{" + f"Q{level - 1}" + "}") * 4 + '"\n' for level in range(1, 5)
+    )
+    root = make_project({"queries.py": source})
+    calls: list[int] = []
+    joined_part = sqltext_module.SqlText._joined_part
+
+    def counting(self: sqltext_module.SqlText, part: ast.expr, depth: int) -> str:
+        calls.append(depth)
+        return joined_part(self, part, depth)
+
+    monkeypatch.setattr(sqltext_module.SqlText, "_joined_part", counting)
+    document = schema_document(root)
+    assert ("t", None, False) in {row[:3] for row in relation_rows(document)}
+    # f-string 네 개를 스캔하며 Qk는 깊이 0·2·…마다 한 번씩, 모두 열 번 펼치고 한 번에 조각 4개를 본다
+    # (메모 없이 펼치면 Q4 하나만 4 + 4·20 + … = 340번).
+    assert len(calls) == 10 * 4
+    assert not any("64 KiB" in item for item in document["limitations"])  # type: ignore[union-attr]
+
+
+def test_sql_text_longer_than_the_cap_is_a_limitation(make_project: MakeProject) -> None:
+    """이어 붙인 SQL 텍스트가 64 KiB를 넘으면 읽지 않고 식마다 한계로 센다. 상한 안의 텍스트는 그대로 읽는다."""
+    pad = "x" * 40_000
+    root = make_project(
+        {
+            "db.py": f"""
+import sqlite3
+
+PAD = "{pad}"
+NEAR = f"SELECT * FROM near_table {{PAD}}"
+HIDDEN = f"SELECT * FROM hidden_table {{PAD}}{{PAD}}"
+
+
+def run(connection):
+    connection.cursor().execute(f"SELECT * FROM sink_table {{PAD}}{{PAD}}")
+    connection.cursor().execute("SELECT * FROM plain_table " + PAD + PAD)
+""",
+        }
+    )
+    document = schema_document(root)
+    channels = {row[0] for row in relation_rows(document)}
+    assert "near_table" in channels
+    assert not channels & {"hidden_table", "sink_table", "plain_table"}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert "skipped-sql-literals: 3 string expressions longer than 64 KiB were not read as SQL" in limitations
+    assert any(item.startswith("unresolved-sql-arguments: 2 ") for item in limitations)
 
 
 def test_unsupported_and_non_relational_packages(make_project: MakeProject) -> None:

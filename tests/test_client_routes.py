@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any
 
 import pytest
 
+from pythograph.graph.index import Definition
+from pythograph.routes.client import parts as parts_module
 from pythograph.routes.client.compose import (
     JOIN_AIOHTTP,
     JOIN_NONE,
@@ -22,6 +25,7 @@ from pythograph.routes.client.compose import (
     split_url,
 )
 from pythograph.routes.client.formats import Field, format_pieces, percent_pieces
+from pythograph.routes.client.parts import MAX_URL_PARTS
 from pythograph.routes.versions import spec_minimum
 from tests.conftest import GENERATED_AT, run_cli
 
@@ -116,6 +120,54 @@ def test_interpolation_forms_and_constants(make_project: MakeProject) -> None:
     assert summary["fmt_spec"] == ("GET", "/v1/items/{}", "root", "api.example.com")
     # 같은 모듈이 `get`을 다시 정의하므로 `get(...)`은 requests 호출이 아니다.
     assert "fmt" not in summary
+
+
+def test_url_parts_expand_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 상수를 여러 번 참조하는 URL 상수 사슬은 (범위, 식, 깊이)마다 한 번만 펼친다.
+
+    메모가 없으면 수백 바이트 모듈 하나가 조각 튜플을 참조 수의 거듭제곱만큼 다시 만들어 시간·메모리를 썼다.
+    """
+    chain = "".join(f'U{level} = f"' + ("{" + f"U{level - 1}" + "}") * 3 + '"\n' for level in range(1, 7))
+    root = make_project(
+        {
+            "client.py": 'import requests\n\nU0 = "/a"\n' + chain + "\n\ndef fetch():\n"
+            '    return requests.get("https://api.example.com" + U6)\n',
+        }
+    )
+    calls: list[int] = []
+    joined = parts_module.PartBuilder._joined
+
+    def counting(self: parts_module.PartBuilder, scope: Definition, expr: ast.JoinedStr, depth: int) -> object:
+        calls.append(depth)
+        return joined(self, scope, expr, depth)
+
+    monkeypatch.setattr(parts_module.PartBuilder, "_joined", counting)
+    assert rows(client_document(root))["fetch"] == ("GET", "/a" * 3**6, "root", "api.example.com")
+    # 단계 여섯 개를 한 번씩 펼친다(메모 없이 펼치면 1 + 3 + … + 3⁵ = 364번).
+    assert len(calls) == 6
+
+
+def test_url_parts_over_the_cap_are_values(make_project: MakeProject) -> None:
+    """f-string·`+`·서식으로 모은 URL 조각이 `MAX_URL_PARTS`개나 리터럴 64 KiB를 넘으면 값 조각 하나로 본다."""
+    root = make_project(
+        {
+            "client.py": 'import requests\n\nE = ""\nMANY = f"/items' + "{E}" * MAX_URL_PARTS + '"\n'
+            'FEW = f"/items' + "{E}" * (MAX_URL_PARTS - 2) + '"\n' + f'PAD = "{"b" * 40_000}"\n\n\n'
+            "def many():\n"
+            '    return requests.get("https://api.example.com" + MANY)\n\n\n'
+            "def few():\n"
+            '    return requests.get("https://api.example.com" + FEW)\n\n\n'
+            "def wide():\n"
+            '    return requests.get(f"https://api.example.com/items?q={PAD}{PAD}")\n\n\n'
+            "def within():\n"
+            '    return requests.get(f"https://api.example.com/items?q={PAD}")\n',
+        }
+    )
+    summary = rows(client_document(root))
+    assert summary["many"][1][0] == "dynamic"
+    assert summary["few"][1] == "/items"
+    assert summary["wide"][1][0] == "dynamic"
+    assert summary["within"][1] == "/items"
 
 
 def test_unproven_constants_are_values(make_project: MakeProject) -> None:

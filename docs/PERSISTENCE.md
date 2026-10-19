@@ -149,6 +149,10 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   `unresolved-sql-arguments:`로 센다(`select(...)` 같은 호출·그 대입은 SQL 텍스트가 아니라 세지 않는다).
 - 그 밖의 문자열 리터럴은 SQL 동사와 관계 키워드가 대문자일 때만 읽는다(가족 strict 규칙). docstring은 읽지 않는다.
   소문자라 읽지 않은 SQL 모양 리터럴은 `skipped-sql-literals:`로 센다.
+- f-string·`+`로 이어 붙인 텍스트가 64 KiB를 넘으면 읽지 않고 식마다 `skipped-sql-literals:`("string expressions longer
+  than 64 KiB were not read as SQL")로 센다. 그 식을 조각으로 쓰는 바깥 텍스트에서는 알 수 없는 조각 `{}`다. 같은 상수를
+  여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 길이를 단계마다 곱으로 늘리기 때문이다. 같은 상수는 한 번만
+  펼치고, 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 
 ## 한계 접두사
 
@@ -165,7 +169,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `unresolved-django-lookups:` | 모델에 귀속하지 못한 `OuterRef` |
 | `skipped-sql-fragments:` | 읽지 않은 `extra()` SQL 조각 |
 | `unresolved-sql-arguments:` | 읽지 못한 일반 `execute` 인자 |
-| `skipped-sql-literals:` | 읽지 않은 소문자 SQL 모양 리터럴 |
+| `skipped-sql-literals:` | 읽지 않은 소문자 SQL 모양 리터럴, 64 KiB를 넘게 이어 붙인 문자열 식 |
 | `invalid-relation-names:` | 교환 형식이 싣지 못해 dynamic으로 내린 이름 |
 | `missing-relation-usrs:` | symbol이 없는(모듈 수준) 사실 수 |
 | `unsupported-db-packages:`, `non-relational-stores:` | 해석하지 않는 ORM·저장소를 import한 파일 수 |
