@@ -93,6 +93,15 @@
 - Flask 앱 팩토리 안 `add_url_rule(view_func=지역 함수)`가 등록마다 모듈 구문 트리 전체를 걷지 않는다(등록 4,000개
   9.5 → 0.35 s). 출력은 같다.
 
+- `bound` 값 흐름이 같은 이름의 속성 쓰기를 이름마다 한 번만 수신자별로 나눠 둔다. 전에는 질의마다 같은 이름 쓰기
+  전체를 다시 판정해, `self.repo = repo`를 쓰고 `self.repo.save()`를 부르는 평범한 클래스(또는 같은 이름 모듈 전역을
+  부르는 모듈)가 N개면 `graph`·`reach`·`impact`가 N의 제곱으로 느려졌다(합성 서비스 클래스 4,000개에서 `graph` 약
+  12초 → 2초). 출력은 같다.
+
+- `reach`·`impact`의 다중 root 전파가 정점마다 자기 자신이 아닌 가장 작은 root 65개만 보고 전파 중단을 판정한다.
+  전에는 전파마다 허브 정점의 기록 전체를 다시 세어 root가 1천~1만 개일 때 순회가 몇 배 느렸다(sympy 사본 root
+  1만 개 `impact` 약 29초 → 20초). 출력은 같다.
+
 ### Changed
 
 - CI와 릴리스 빌드가 hatchling과 그 의존성의 버전·해시를 고정한 `build-constraints.txt`를 `--require-hashes`로

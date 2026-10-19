@@ -95,6 +95,7 @@ class Linearizer:
         self._active: set[str] = set()
         self.approximated: set[str] = set()
         self._subclasses: dict[str, list[Definition]] | None = None
+        self._superclasses: dict[str, list[str]] | None = None
 
     def bases(self, definition: Definition) -> list[MroEntry]:
         """클래스의 직접 기반 항목을 돌려준다(무시하는 기반은 뺀다).
@@ -262,6 +263,38 @@ class Linearizer:
                         table.setdefault(entry.key, []).append(candidate)
             self._subclasses = table
         return self._subclasses.get(definition.id, [])
+
+    def has_subclass_table(self) -> bool:
+        """하위 클래스 표를 이미 만들었는지 본다.
+
+        표를 만들 때 모든 프로젝트 클래스의 MRO를 id 순으로 계산한다. MRO 메모와 근사(`approximated`)는 처음 계산한
+        순서를 따르므로, 판정 순서를 지켜야 하는 호출자가 표를 원래 만들던 때까지 미룰 수 있게 묻는다.
+
+        Returns:
+            만들었으면 True.
+        """
+        return self._subclasses is not None
+
+    def superclass_ids(self, class_id: str) -> list[str]:
+        """프로젝트 상위 클래스 id(간접 포함)를 id 순으로 돌려준다(처음 부를 때 `subclasses` 표를 뒤집어 만든다).
+
+        `subclasses` 표의 역관계라 a가 이 목록에 있는 것과 이 클래스가 `subclasses(a)`에 있는 것이 정확히 같다. 하위
+        클래스까지 가리키는 값을 하위 클래스마다 펼치지 않고 묻는 쪽 클래스의 조상에서 찾을 때 쓴다. 표에 없는 클래스는
+        빈 목록이다(`subclasses`에도 나오지 않는다).
+
+        Args:
+            class_id: 클래스 id.
+
+        Returns:
+            상위 클래스 id 목록.
+        """
+        if self._superclasses is None:
+            table: dict[str, list[str]] = {}
+            for definition in self.index.classes():
+                for subclass in self.subclasses(definition):
+                    table.setdefault(subclass.id, []).append(definition.id)
+            self._superclasses = table
+        return self._superclasses.get(class_id, [])
 
 
 def c3_merge(sequences: list[list[MroEntry]]) -> list[MroEntry] | None:
