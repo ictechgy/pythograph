@@ -14,7 +14,7 @@ root(같으면 작은 인덱스) 기준 depth, 그 root에서 depth-1에 있는 
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -489,29 +489,77 @@ def test_hub_with_many_unsorted_roots_matches_linear_pruning(seed: int, monkeypa
     assert_equivalent(actual, oracle(graph, request))
 
 
-def test_dominance_check_reads_at_most_the_smallest_roots(monkeypatch: pytest.MonkeyPatch) -> None:
-    """전파 중단 판정은 허브 기록 크기와 무관하게 root 인덱스 65개 이하만 본다(판정 작업량을 결정적으로 센다).
+class CountedRecord(dict[int, int]):
+    """순회로 읽은 항목 수를 세는 정점 root 기록이다(전파 중단 판정·갱신이 기록을 몇 번 다시 읽는지 본다).
 
-    정렬되지 않은 root 400개가 모이는 허브는 기록이 130개를 넘는다. 판정마다 기록 전체를 세면 전파 비용이 (전파 수 ×
-    기록 크기)가 되어, root 1천~1만 개 reach·impact의 순회 시간 대부분이 같은 기록을 다시 훑는 데 든다.
+    `in`·`len`·대입은 세지 않고, `for`·`sorted`·`keys()`·`values()`·`items()`처럼 항목을 하나씩 읽을 때만 센다.
     """
-    inspected: list[int] = []
-    original = traversal_module._dominated
 
-    def dominated(*args: Any) -> bool:
-        """판정이 받은 기록의 크기를 적고 원래 판정을 부른다."""
-        inspected.append(len(args[0]))
-        return bool(original(*args))
+    def __init__(self, items: dict[int, int]) -> None:
+        """기록을 옮겨 담는다.
 
+        Args:
+            items: 원래 기록.
+        """
+        super().__init__(items)
+        self.read = 0
+
+    def __iter__(self) -> Iterator[int]:
+        """키를 낼 때마다 센다."""
+        for key in super().__iter__():
+            self.read += 1
+            yield key
+
+    def keys(self) -> Iterator[int]:  # type: ignore[override]
+        """키를 낼 때마다 센다."""
+        return iter(self)
+
+    def values(self) -> Iterator[int]:  # type: ignore[override]
+        """값을 낼 때마다 센다."""
+        return (self[key] for key in self)
+
+    def items(self) -> Iterator[tuple[int, int]]:  # type: ignore[override]
+        """항목을 낼 때마다 센다."""
+        return ((key, self[key]) for key in self)
+
+
+def count_record_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """전파가 이웃 정점 기록을 읽기 전에 세는 기록으로 바꿔 둔다(원래 `_spread`는 그대로 부른다).
+
+    Args:
+        monkeypatch: pytest monkeypatch.
+    """
+    original = traversal_module._spread
+
+    def spread(levels: Levels, smallest: Any, neighbor: str, *rest: Any) -> bool:
+        """이웃 기록을 세는 기록으로 바꾸고 원래 전파를 부른다."""
+        record = levels.get(neighbor)
+        if not isinstance(record, CountedRecord):
+            levels[neighbor] = CountedRecord(record or {})
+        return bool(original(levels, smallest, neighbor, *rest))
+
+    monkeypatch.setattr(traversal_module, "_spread", spread)
+
+
+def test_pruning_reads_each_vertex_record_at_most_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """전파 중단 판정과 갱신은 허브 기록 크기와 무관하게 정점마다 기록을 많아야 두 번(가장 작은 65개를 모을 때) 읽는다.
+
+    정렬되지 않은 root 400개가 모이는 허브는 기록이 130개를 넘는다. 판정마다 기록 전체를 세거나(수정 전), 힙을 고치는
+    대신 root가 더해질 때마다 기록을 다시 정렬하면 전파 비용이 (전파 수 × 기록 크기)가 된다. 판정 결과는 같아 결과
+    비교로는 드러나지 않고, 비용을 다른 함수로 옮기는 회귀도 있으므로 판정 인자가 아니라 기록에서 읽은 항목 수를 센다.
+    root 정점은 자기 자신을 빼면 65개가 안 되는 때가 있어 한 번 더 읽는다(65 + 66개).
+    """
     graph, request = hub_case(random.Random(7000), 400, "dependencies")
     adjacency = build_adjacency(graph, request.direction, weakest_evidence(request.dispatch))
-    levels, _, pruned = linear_propagate(adjacency, request.root_ids, request.max_depth)
+    expected = linear_propagate(adjacency, request.root_ids, request.max_depth)
+    levels, _, pruned = expected
     assert pruned
     assert max(len(levels[hub]) for hub in ("hub0", "hub1", "hub2")) > 2 * DOMINATING_ROOTS
-    monkeypatch.setattr(traversal_module, "_dominated", dominated)
-    traverse(graph, request)
-    assert len(inspected) > len(request.root_ids)
-    assert max(inspected) <= DOMINATING_ROOTS
+    count_record_reads(monkeypatch)
+    actual = traversal_module._propagate(adjacency, request.root_ids, request.max_depth)
+    assert actual == expected
+    reads = [record.read for record in actual[0].values() if isinstance(record, CountedRecord)]
+    assert DOMINATING_ROOTS <= max(reads) <= 2 * (DOMINATING_ROOTS + 1)
 
 
 def staircase_case() -> tuple[CallGraph, TraversalRequest]:
