@@ -391,7 +391,10 @@ and client URLs. A short chain that references the same constant many times (`B 
 would otherwise grow exponentially, so repeated references are expanded once, values built this way are capped at
 64 KiB (characters for strings; elements plus their characters for lists), and client URL expressions at 4,096 parts.
 A larger value is treated as unknown: a dynamic route or route-call fact, an unread setting, or for SQL text a
-`skipped-sql-literals:` limitation. A single string literal is limited only by the 4 MiB file limit.
+`skipped-sql-literals:` limitation. A single string literal is limited only by the 4 MiB file limit. Route strings
+longer than 32 KiB (16 times the 2,048-character template limit; Flask rules after merging slashes, Django `path()` and
+`re_path()` strings joined with their include prefixes) are not converted and become dynamic facts like any
+over-long template.
 
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path

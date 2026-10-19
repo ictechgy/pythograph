@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from pythograph.routes.flask.rules import parse_converter_arguments, rule_alternatives
-from pythograph.routes.pattern import Unconvertible
+from pythograph.routes.flask import rules as rules_module
+from pythograph.routes.flask.rules import ConverterArguments, parse_converter_arguments, rule_alternatives
+from pythograph.routes.pattern import MAX_ROUTE_SOURCE_LENGTH, Literal, Skeleton, Unconvertible
 from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
 
 #: 합성 Flask 프로젝트의 버전 선언이다.
@@ -275,6 +277,50 @@ def test_rule_parsing_edge_cases() -> None:
     with pytest.raises(Unconvertible):
         parse_converter_arguments("=")
     assert len(rule_alternatives("/<string(minlength=0):s>/<float(signed=True):f>", True, {})) == 1
+    # 인자는 앞 인자에 바로 이어져야 한다(이어지지 않는 뒤 인자가 있으면 거부, 공백뿐이면 인자 없음). Werkzeug
+    # 정규식의 `\d+.`은 아무 글자나 받아 `1,,2`의 `1,`도 인자 하나다.
+    assert parse_converter_arguments(" 1 ,x = 'a b'") == ConverterArguments((1,), {"x": "a b"})
+    assert parse_converter_arguments("1,,2") == ConverterArguments(("1,", 2), {})
+    assert parse_converter_arguments("  ") == ConverterArguments((), {})
+    for text in ("a b", "'a'x", "x=", "x=1 y=2"):
+        with pytest.raises(Unconvertible):
+            parse_converter_arguments(text)
+
+
+def test_overlong_rule_is_too_long_without_tokenizing(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """연속 `/`를 합친 규칙이 `MAX_ROUTE_SOURCE_LENGTH`보다 길면 토큰으로 나누지 않고 템플릿 상한 초과 dynamic이다.
+
+    규칙 길이의 제곱으로 토큰열을 복사한 뒤에야 too-long으로 판정해, 4 MiB 규칙 하나로 명령이 수 시간 멈추던 문제다.
+    """
+    tokens: list[str] = []
+    part_options = rules_module._part_options
+
+    def counting(match: re.Match[str], custom: dict[str, str | None]) -> list[Skeleton]:
+        tokens.append(match.group(0))
+        return part_options(match, custom)
+
+    monkeypatch.setattr(rules_module, "_part_options", counting)
+    rule = "/a" * (MAX_ROUTE_SOURCE_LENGTH // 2 + 1)
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\napp = Flask(__name__, static_folder=None)\n"
+            f'@app.route("{rule}")\ndef long():\n    pass\n'
+            '@app.route("/ok")\ndef ok():\n    pass\n',
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/ok", False, "app.py#ok"), ("GET", None, True, "app.py#long")}
+    assert document["limitations"] == [
+        "route-coverage: 1 Flask rules are emitted as dynamic: the path does not form a canonical template (too-long)"
+    ]
+    assert tokens == ["/", "ok"]
+    # 길이는 슬래시를 합친 뒤에 재므로, 합치면 짧아지는 규칙은 그대로 변환한다.
+    assert rule_alternatives("/" * MAX_ROUTE_SOURCE_LENGTH + "items", True, {}) == [(Literal("/"), Literal("items"))]
+    with pytest.raises(Unconvertible, match=r"\(too-long\)"):
+        rule_alternatives("/" * MAX_ROUTE_SOURCE_LENGTH + "items", False, {})
 
 
 def test_glm_review_regressions(make_project: Callable[[dict[str, str]], Path]) -> None:

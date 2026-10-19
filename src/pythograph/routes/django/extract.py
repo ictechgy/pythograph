@@ -26,6 +26,7 @@ from pythograph.routes.pattern import (
     Literal,
     Skeleton,
     Unconvertible,
+    check_source_length,
     convert_regex,
     dynamic_gap_prefix,
     skeleton_shapes,
@@ -321,10 +322,12 @@ class _Context:
             pieces: 루트부터의 조각.
 
         Returns:
-            판정 목록.
+            판정 목록. include 접두사까지 이은 원문이 `MAX_ROUTE_SOURCE_LENGTH`보다 길면 조각을 변환하지 않고
+            템플릿 상한 초과 dynamic이다(include가 32단까지 겹쳐 endpoint마다 긴 접두사를 다시 바꾸지 않게).
         """
         raw = "/" + "".join(piece.text or "<dynamic>" for piece in pieces if piece.kind != "locale")
         try:
+            check_source_length(raw)
             alternatives: list[Skeleton] = [(Literal("/"),)]
             for piece in pieces:
                 alternatives = _cross(alternatives, self._piece_alternatives(piece))
@@ -431,7 +434,9 @@ def route_to_regex(route: str, endpoint: bool, converters: dict[str, str | None]
     """
     parts = ["^"]
     previous = 0
-    for match in _PARAMETER_COMPONENT.finditer(route):
+    # 변환기 자리는 `<`에서 그 뒤 첫 `>`까지라, 마지막 `>` 뒤에서는 맞는 자리가 없다. 거기까지만 찾아도 찾는 자리는
+    # Django와 같고, `>` 없이 `<`만 이어진 꼬리에서 정규식이 자리마다 끝까지 훑는 제곱 시간을 피한다.
+    for match in _PARAMETER_COMPONENT.finditer(route, 0, route.rfind(">") + 1):
         if any(character.isspace() for character in match.group(0)):
             raise Unconvertible("a path() route has whitespace inside <…>, which Django rejects")
         converter = match.group("converter") or "str"

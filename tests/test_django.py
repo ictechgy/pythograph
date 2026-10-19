@@ -6,7 +6,12 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
 from pythograph.exchange.order import order_problem
+from pythograph.routes.django import extract as extract_module
+from pythograph.routes.django.extract import DEFAULT_CONVERTERS, route_to_regex
+from pythograph.routes.pattern import MAX_ROUTE_SOURCE_LENGTH, RegexPieces, Unconvertible
 from tests.conftest import FIXTURES, ROUTE_DECL_METHODS, fact_rows, facts_for, routes_document, scoped_limitations
 
 #: 합성 Django 프로젝트의 기본 파일이다.
@@ -539,6 +544,74 @@ def test_deeply_nested_regex_route_is_dynamic(make_project: Callable[[dict[str, 
     assert isinstance(limitations, list)
     reason = "the regular expression nests too deeply"
     assert f"route-coverage: 1 URL patterns are emitted as dynamic: {reason}" in limitations
+
+
+def test_overlong_route_strings_are_too_long_without_conversion(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """include 접두사까지 이은 `path()`·`re_path()` 문자열이 `MAX_ROUTE_SOURCE_LENGTH`보다 길면 조각을 변환하지 않고
+    템플릿 상한 초과 dynamic이다(조각 하나하나는 상한 안이어도).
+
+    `<`만 이어진 경로는 변환기 자리 정규식이 자리마다 끝까지 훑었고(길이의 제곱), 긴 리터럴 경로도 토큰열 복사가
+    제곱이라, 짧은 파일 하나로 routes가 수십 분 걸린 뒤에야 같은 too-long dynamic을 냈다.
+    """
+    converted: list[str] = []
+    route_to_regex = extract_module.route_to_regex
+    convert_regex = extract_module.convert_regex
+
+    def counting_route(route: str, endpoint: bool, converters: dict[str, str | None]) -> str:
+        converted.append("path")
+        return route_to_regex(route, endpoint, converters)
+
+    def counting_regex(pattern: str, *, endpoint: bool, anchored_by_fullmatch: bool) -> RegexPieces:
+        converted.append("regex")
+        return convert_regex(pattern, endpoint=endpoint, anchored_by_fullmatch=anchored_by_fullmatch)
+
+    monkeypatch.setattr(extract_module, "route_to_regex", counting_route)
+    monkeypatch.setattr(extract_module, "convert_regex", counting_regex)
+    over = MAX_ROUTE_SOURCE_LENGTH + 1
+    half = MAX_ROUTE_SOURCE_LENGTH // 2 + 1
+    root = _project(
+        make_project,
+        {
+            "site_pkg/urls.py": (
+                "from django.urls import include, path, re_path\nfrom site_pkg import views\n"
+                f'urlpatterns = [path("ok/", views.a), path("{"<" * over}", views.a), '
+                f're_path(r"^{"a" * over}$", views.a), path("{"x" * half}/", include("site_pkg.inner"))]\n'
+            ),
+            "site_pkg/inner.py": (
+                "from django.urls import path\nfrom site_pkg import views\n"
+                f'urlpatterns = [path("{"y" * half}", views.a)]\n'
+            ),
+            "site_pkg/views.py": "def a(request):\n    pass\n",
+        },
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/ok/", False, "site_pkg/views.py#a"),
+        ("ANY", None, True, "site_pkg/views.py#a"),
+    }
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    assert [fact["channel"] for fact in facts if fact["dynamic"]] == [None, None, None]
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    reason = "the path does not form a canonical template (too-long)"
+    assert f"route-coverage: 3 URL patterns are emitted as dynamic: {reason}" in limitations
+    assert converted == ["path", "regex"]
+
+
+def test_route_to_regex_finds_the_same_converters_as_django() -> None:
+    """변환기 자리는 `<`에서 그 뒤 첫 `>`까지다.
+
+    마지막 `>` 뒤의 `<`, 빈 `<>`, 안에 `<`가 든 자리도 Django와 같게 읽는다(찾는 범위를 마지막 `>`까지로 줄여도 같다).
+    """
+    converters = dict(DEFAULT_CONVERTERS)
+    assert route_to_regex("a<b", True, converters) == "^a<b\\Z"
+    assert route_to_regex("<int:pk>/x<", True, converters) == "^(?P<pk>[0-9]+)/x<\\Z"
+    assert route_to_regex("<>a<b>", False, converters) == "^<>a(?P<b>[^/]+)"
+    with pytest.raises(Unconvertible):
+        route_to_regex("<<x>", True, converters)
 
 
 def test_forbidden_regex_text_never_reaches_the_document(make_project: Callable[[dict[str, str]], Path]) -> None:

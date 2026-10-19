@@ -20,7 +20,9 @@ from pythograph.routes.pattern import (
     Literal,
     Param,
     Skeleton,
+    Token,
     Unconvertible,
+    check_source_length,
     regex_param,
     unconstrained_param,
 )
@@ -86,12 +88,14 @@ def rule_alternatives(rule: str, merge_slashes: bool, custom: dict[str, str | No
         토큰열 대안(`any` 변환기를 펼친 결과).
 
     Raises:
-        Unconvertible: Werkzeug가 거부하거나 확정할 수 없는 규칙.
+        Unconvertible: Werkzeug가 거부하거나 확정할 수 없는 규칙, 슬래시를 합친 규칙이
+            `MAX_ROUTE_SOURCE_LENGTH`보다 긴 규칙(템플릿 상한 초과).
     """
     if not rule.startswith("/"):
         raise Unconvertible("a Flask rule does not start with /, which Werkzeug rejects")
     text = re.sub("/{2,}", "/", rule) if merge_slashes else rule
-    alternatives: list[Skeleton] = [()]
+    check_source_length(text)
+    alternatives: list[list[Token]] = [[]]
     position = 0
     while position < len(text):
         match = _PART.match(text, position)
@@ -99,25 +103,32 @@ def rule_alternatives(rule: str, merge_slashes: bool, custom: dict[str, str | No
             raise Unconvertible("a Flask rule is malformed, which Werkzeug rejects")
         alternatives = _extend(alternatives, _part_options(match, custom))
         position = match.end()
-    return alternatives
+    return [tuple(alternative) for alternative in alternatives]
 
 
-def _extend(alternatives: list[Skeleton], options: list[Skeleton]) -> list[Skeleton]:
+def _extend(alternatives: list[list[Token]], options: list[Skeleton]) -> list[list[Token]]:
     """대안에 토큰 선택지를 잇는다.
 
+    선택지가 하나면 대안마다 제자리로 붙인다. 토큰마다 대안을 새 튜플로 복사하면 규칙 길이의 제곱 시간이 들기
+    때문이다. 선택지가 여럿(`any()`)일 때만 새 목록을 만든다(16개 상한이라 몇 번뿐이다).
+
     Args:
-        alternatives: 지금까지의 대안.
+        alternatives: 지금까지의 대안(선택지가 하나면 고쳐서 돌려준다).
         options: 이을 선택지.
 
     Returns:
-        이은 대안.
+        이은 대안(순서는 대안마다 선택지 순).
 
     Raises:
         ExpansionCapped: 16개를 넘을 때.
     """
     if len(alternatives) * len(options) > MAX_EXPANSIONS:
         raise ExpansionCapped("any() converters expand to more than 16 templates")
-    return [first + second for first in alternatives for second in options]
+    if len(options) == 1:
+        for alternative in alternatives:
+            alternative.extend(options[0])
+        return alternatives
+    return [[*first, *second] for first in alternatives for second in options]
 
 
 def _part_options(match: re.Match[str], custom: dict[str, str | None]) -> list[Skeleton]:
@@ -155,9 +166,10 @@ def parse_converter_arguments(text: str) -> ConverterArguments:
     positional: list[object] = []
     keywords: dict[str, object] = {}
     position = 0
-    for item in _ARGUMENT.finditer(source):
-        if item.start() != position:
-            raise Unconvertible("a Flask converter argument cannot be parsed, which Werkzeug rejects")
+    # Werkzeug는 finditer로 훑다가 앞 매치에 바로 이어지지 않는 매치를 만나면 거부한다. 이어지는 매치만 쓰므로 그
+    # 자리에서 match로 찾아도 결과가 같다(못 찾으면 아래 끝 검사가 같은 이유로 거부한다). 이어지지 않는 매치를 찾느라
+    # 남은 문자열을 자리마다 끝까지 훑는 제곱 시간을 피한다.
+    while (item := _ARGUMENT.match(source, position)) is not None:
         value = _pythonize(item.group("stringval") or item.group("value"))
         if item.group("name"):
             keywords[item.group("name")] = value

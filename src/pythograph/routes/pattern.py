@@ -36,6 +36,13 @@ MAX_EXPANSIONS = 16
 #: 프레임을 3~4개 쓰므로, 50단이면 파이썬 재귀 한도 안에서 넉넉히 끝난다. URL 정규식은 보통 몇 단계다.
 MAX_REGEX_NESTING = 50
 
+#: 변환하는 라우트 원문(Flask 규칙은 연속 `/`를 합친 뒤, Django는 include 접두사까지 이은 `path()`·`re_path()`
+#: 문자열)의 최대 길이다. 정규 템플릿 상한(`MAX_TEMPLATE_LENGTH`, 2,048자)의 16배다. 더 긴 원문은 변환하지 않고
+#: 템플릿 상한 초과(`too-long`)와 같은 dynamic으로 낸다. 변환 비용(토큰열·정규식 구문 트리·변환기 자리 찾기)이 원문
+#: 길이를 따라 늘어 4 MiB 원문 하나로 명령이 멈추지 않게 하기 위해서다. 원문이 이보다 길면서 템플릿은 짧은 극단(아주
+#: 긴 파라미터 이름·변환기 인자·파라미터 정규식)도 dynamic이 된다.
+MAX_ROUTE_SOURCE_LENGTH = 16 * MAX_TEMPLATE_LENGTH
+
 #: 정규식 IGNORECASE 플래그 값이다.
 _IGNORECASE = 2
 
@@ -102,6 +109,33 @@ class RegexPieces:
     """
 
     alternatives: tuple[Skeleton, ...]
+
+
+def template_error(problem: str) -> Unconvertible:
+    """정규 템플릿 문법 위반(`template_problem` 사유 코드)을 변환 실패로 만든다.
+
+    Args:
+        problem: 사유 코드(`too-long` 등).
+
+    Returns:
+        limitation 이유 문구를 담은 변환 실패.
+    """
+    return Unconvertible(f"the path does not form a canonical template ({problem})")
+
+
+def check_source_length(text: str) -> None:
+    """라우트 원문이 `MAX_ROUTE_SOURCE_LENGTH`를 넘으면 변환하기 전에 템플릿 상한 초과로 실패한다.
+
+    이유 문구가 변환 뒤의 상한 초과와 같아서, 긴 리터럴 경로는 전과 같은 dynamic 사실과 limitation이 된다.
+
+    Args:
+        text: 라우트 원문.
+
+    Raises:
+        Unconvertible: 원문이 너무 길 때.
+    """
+    if len(text) > MAX_ROUTE_SOURCE_LENGTH:
+        raise template_error("too-long")
 
 
 def unconstrained_param() -> Param:
@@ -268,29 +302,36 @@ def _sequence(items: list[tuple[Any, Any]], groups: dict[int, str]) -> list[Skel
     Raises:
         Unconvertible: 확정할 수 없는 구문.
     """
-    alternatives: list[Skeleton] = [()]
+    alternatives: list[list[Token]] = [[]]
     for item in items:
         options = _item_options(item, groups)
         alternatives = _cross(alternatives, options)
-    return alternatives
+    return [tuple(alternative) for alternative in alternatives]
 
 
-def _cross(left: list[Skeleton], right: list[Skeleton]) -> list[Skeleton]:
-    """두 대안 목록의 모든 이음을 만든다. 상한을 넘으면 실패한다.
+def _cross(left: list[list[Token]], right: list[Skeleton]) -> list[list[Token]]:
+    """앞 대안마다 뒤 선택지를 모두 잇는다. 상한을 넘으면 실패한다.
+
+    선택지가 하나면 앞 대안 목록에 제자리로 붙인다. 문자 하나가 항목 하나인 긴 경로에서 대안을 매번 새 튜플로
+    복사하면 길이의 제곱 시간이 들기 때문이다. 선택지가 여럿이면 새 목록을 만든다(16개 상한이라 몇 번뿐이다).
 
     Args:
-        left: 앞 대안 목록.
-        right: 뒤 대안 목록.
+        left: 앞 대안 목록(선택지가 하나면 고쳐서 돌려준다).
+        right: 뒤 선택지 목록.
 
     Returns:
-        이은 대안 목록.
+        이은 대안 목록(순서는 앞 대안마다 뒤 선택지 순).
 
     Raises:
         ExpansionCapped: 16개를 넘을 때.
     """
     if len(left) * len(right) > MAX_EXPANSIONS:
         raise ExpansionCapped("optional parts expand to more than 16 templates")
-    return [first + second for first, second in product(left, right)]
+    if len(right) == 1:
+        for alternative in left:
+            alternative.extend(right[0])
+        return left
+    return [[*first, *second] for first, second in product(left, right)]
 
 
 def _item_options(item: tuple[Any, Any], groups: dict[int, str]) -> list[Skeleton]:
@@ -778,13 +819,13 @@ def _with_empty_variants(alternatives: list[Skeleton]) -> list[Skeleton]:
     """
     result: list[Skeleton] = []
     for skeleton in alternatives:
-        variants: list[Skeleton] = [()]
+        variants: list[list[Token]] = [[]]
         for token in skeleton:
             options: list[Skeleton] = [(token,)]
             if isinstance(token, Param) and token.may_be_empty:
                 options.append(())
             variants = _cross(variants, options)
-        result.extend(variants)
+        result.extend(tuple(variant) for variant in variants)
     unique = list(dict.fromkeys(result))
     if len(unique) > MAX_EXPANSIONS:
         raise ExpansionCapped("empty-value variants expand to more than 16 templates")
@@ -815,7 +856,7 @@ def _skeleton_shape(skeleton: Skeleton, trailing_policy: str | None) -> RouteSha
     template = "/" + "/".join(rendered)
     problem = template_problem(template)
     if problem is not None:
-        raise Unconvertible(f"the path does not form a canonical template ({problem})")
+        raise template_error(problem)
     ends_with_catch_all = rendered[-1] == "{**}"
     return RouteShape(
         channel=template,
@@ -828,6 +869,9 @@ def _skeleton_shape(skeleton: Skeleton, trailing_policy: str | None) -> RouteSha
 def _merge_adjacent(skeleton: Skeleton) -> Skeleton:
     """이웃한 리터럴을 잇고, 사이에 리터럴이 없는 파라미터는 하나로 합친다.
 
+    이웃한 리터럴은 조각을 모았다가 한 번에 잇는다. 한 글자씩 이어 붙이면 긴 리터럴 경로에서 길이의 제곱 시간이
+    든다. 빈 리터럴은 앞이 리터럴일 때만 이어지고(효과 없음) 그 밖에는 버린다.
+
     Args:
         skeleton: 토큰열.
 
@@ -835,20 +879,38 @@ def _merge_adjacent(skeleton: Skeleton) -> Skeleton:
         정리한 토큰열.
     """
     merged: list[Token] = []
+    run: list[str] = []
     for token in skeleton:
-        previous = merged[-1] if merged else None
-        if isinstance(token, Literal) and isinstance(previous, Literal):
-            merged[-1] = Literal(previous.text + token.text)
-        elif isinstance(token, Param) and isinstance(previous, Param):
-            merged[-1] = Param(
-                kind="path" if previous.crosses_slash or token.crosses_slash else "regex",
-                pattern=None,
-                may_be_empty=previous.may_be_empty and token.may_be_empty,
-                crosses_slash=previous.crosses_slash or token.crosses_slash,
-            )
-        elif not (isinstance(token, Literal) and token.text == ""):
-            merged.append(token)
+        if isinstance(token, Literal):
+            if run or token.text:
+                run.append(token.text)
+            continue
+        if run:
+            merged.append(Literal("".join(run)))
+            run = []
+        _append_param(merged, token)
+    if run:
+        merged.append(Literal("".join(run)))
     return tuple(merged)
+
+
+def _append_param(merged: list[Token], token: Param) -> None:
+    """정리 중인 토큰열에 파라미터를 더한다. 바로 앞이 파라미터면 하나로 합친다.
+
+    Args:
+        merged: 정리 중인 토큰열.
+        token: 파라미터.
+    """
+    previous = merged[-1] if merged else None
+    if isinstance(previous, Param):
+        merged[-1] = Param(
+            kind="path" if previous.crosses_slash or token.crosses_slash else "regex",
+            pattern=None,
+            may_be_empty=previous.may_be_empty and token.may_be_empty,
+            crosses_slash=previous.crosses_slash or token.crosses_slash,
+        )
+    else:
+        merged.append(token)
 
 
 def _split_segments(skeleton: Skeleton) -> list[list[Token]]:
