@@ -170,6 +170,21 @@ class Resolver:
         self._memo[key] = result
         return result
 
+    def known_value(self, scope: Definition, expr: ast.expr) -> Value | None:
+        """이미 푼 식의 값을 돌려준다(메모에 없으면 None이고 새로 풀지 않는다).
+
+        식을 새로 풀면 MRO·값 메모가 채워지는 순서가 바뀐다. 깊은 상속 사슬·순환의 근사는 처음 계산한 순서를 따르므로,
+        판정 순서를 지켜야 하는 호출자(값 흐름의 쓰기 색인)는 이미 푼 값만 미리 쓰고 나머지는 원래 판정할 때 푼다.
+
+        Args:
+            scope: 식을 담은 범위.
+            expr: 식.
+
+        Returns:
+            값, 아직 풀지 않았으면 None.
+        """
+        return self._memo.get((scope.id, id(expr)))
+
     def _compute(self, scope: Definition, expr: ast.expr, depth: int) -> Value:
         """식 종류별로 값을 계산한다.
 

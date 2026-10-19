@@ -20,8 +20,8 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
 
 from pythograph.graph.exposure import ALL_MODULES, AttributeWrite, ProgramFacts
 from pythograph.graph.framework_table import FRAMEWORK_CLASSES
@@ -52,6 +52,9 @@ _ATTRIBUTE_HOOKS = frozenset({"__getattr__", "__getattribute__", "__setattr__", 
 
 #: 흐름을 바꾸지 않는 메서드 장식자다.
 _TRANSPARENT_DECORATORS = frozenset({"staticmethod", "classmethod"})
+
+#: 인스턴스가 아닌 정적 값이다(이 값이 수신자인 속성 쓰기는 어떤 클래스 인스턴스에도 닿지 않는다).
+_NOT_INSTANCES = (ModuleValue, FunctionValue, MethodValue, ExternalValue, FrameworkMethodValue)
 
 
 @dataclass(frozen=True)
@@ -100,8 +103,87 @@ def union(flows: Iterable[Flow]) -> Flow:
     return Flow(frozenset(classes))
 
 
+def _includes_subclasses(value: InstanceValue | ClassValue) -> bool:
+    """값이 그 클래스의 하위 클래스 인스턴스(클래스 객체)도 가리킬 수 있는지 본다(정확하지 않은 인스턴스, 클래스 객체).
+
+    Args:
+        value: 인스턴스·클래스 값.
+
+    Returns:
+        그렇다면 True.
+    """
+    return not value.exact or isinstance(value, ClassValue)
+
+
 class BudgetExceeded(Exception):
     """질의가 단계 예산을 넘었다."""
+
+
+@dataclass
+class _NameWrites:
+    """속성 이름 하나의 쓰기를 수신자의 정적 값으로 나눈 색인이다(위치는 `ProgramFacts.writes[name]`의 순번).
+
+    속성 자리·메서드 가림·모듈 전역 질의가 같은 이름 쓰기를 질의마다 모두 다시 판정하면 클래스·모듈 수에 제곱이다.
+    그래서 이름마다 한 번만 나눠 두고, 질의는 걸리는 위치만 원래 순서로 합쳐 돈다(흐름 계산 순서가 모두 훑을 때와 같다).
+    쓰기 하나는 많아야 두 목록에 든다. 하위 클래스까지 가리키는 정적 수신자도 하위 클래스마다 펼치지 않고 수신자
+    클래스 하나에 담는다(펼치면 같은 수신자 쓰기 수 × 하위 클래스 수로 메모리가 커진다). 질의가 조상 쪽에서 찾는다.
+    색인을 만들 때는 하위 클래스 표를 묻지 않는다. 표는 모든 클래스의 MRO를 계산하므로, 옛 판정처럼 속성 자리·메서드
+    가림 질의가 하위 클래스까지 가리키는 첫 쓰기를 판정할 때 만든다(모듈 전역 질의는 만들지 않았다). 수신자 값도
+    해석기가 이미 푼 것만 쓴다(수집 단계가 이름·속성 수신자를 푼다). 아직 풀지 않은 수신자(호출식 등)를 색인이 먼저
+    풀면 MRO 메모가 옛 판정과 다른 순서로 채워지므로, 그런 쓰기는 질의가 옛 판정처럼 차례로 푼다.
+
+    Attributes:
+        writes: 쓰기(원래 순서).
+        exact: 클래스 id → 정적 수신자가 그 클래스의 인스턴스만 가리키는 쓰기(정확한 인스턴스).
+        widened: 클래스 id → 정적 수신자가 그 클래스와 하위 클래스의 인스턴스·클래스 객체일 수 있는 쓰기.
+        first_widened: `widened`의 첫 쓰기 (순번, 수신자 클래스), 없으면 None.
+        by_module: 모듈 경로 → 그 모듈이 수신자인 쓰기.
+        unresolved: 수신자 흐름으로 판정할 쓰기(람다 뿌리, 아직 풀지 않은 수신자, 모듈·함수·외부 값이 아닌 모르는 값).
+        module_candidates: 타입 모르는 값·외부 호출 결과라 모듈일 수 있는 수신자 쓰기.
+        replayed: 모듈 전역 질의가 옛 판정처럼 그때 수신자 값을 풀어 고르는 쓰기(람다 뿌리, 아직 풀지 않은 수신자).
+    """
+
+    writes: tuple[AttributeWrite, ...]
+    exact: dict[str, list[int]] = field(default_factory=dict)
+    widened: dict[str, list[int]] = field(default_factory=dict)
+    first_widened: tuple[int, Definition] | None = None
+    by_module: dict[str, list[int]] = field(default_factory=dict)
+    unresolved: list[int] = field(default_factory=list)
+    module_candidates: list[int] = field(default_factory=list)
+    replayed: list[int] = field(default_factory=list)
+
+
+def _index_static(index: _NameWrites, position: int, value: InstanceValue | ClassValue) -> None:
+    """정적 인스턴스·클래스 수신자 쓰기를 수신자 클래스의 버킷에 넣는다(하위 클래스 표는 묻지 않는다).
+
+    하위 클래스까지 가리키는 값은 하위 클래스가 없어도 `widened`에 둔다. 질의가 질의 클래스와 그 조상의 버킷을 읽으므로
+    판정은 같고, 하위 클래스가 있는지 물으면 하위 클래스 표를 옛 판정보다 먼저 만들게 된다.
+
+    Args:
+        index: 채울 색인.
+        position: 쓰기 순번.
+        value: 수신자 값.
+    """
+    owner = value.definition
+    if not _includes_subclasses(value):
+        index.exact.setdefault(owner.id, []).append(position)
+        return
+    index.widened.setdefault(owner.id, []).append(position)
+    if index.first_widened is None:
+        index.first_widened = (position, owner)
+
+
+def _exact_writes(index: _NameWrites, classes: frozenset[str]) -> set[int]:
+    """정확한 인스턴스 수신자 쓰기 가운데 그 클래스들의 인스턴스에 닿는 것(수신자 클래스가 질의 클래스)의 순번이다.
+
+    Args:
+        index: 이름의 쓰기 색인.
+        classes: 클래스 id.
+
+    Returns:
+        쓰기 순번 집합.
+    """
+    return {position for class_id in classes for position in index.exact.get(class_id, ())}
 
 
 class FlowAnalyzer:
@@ -127,6 +209,8 @@ class FlowAnalyzer:
         self._pending_flows: list[Flow] | None = None
         self._restricted = False
         self._nonlocals: dict[str, frozenset[str]] = {}
+        self._name_writes: dict[str, _NameWrites] = {}
+        self._instance_classes: dict[tuple[str, bool], frozenset[str]] = {}
 
     # --- 질의 입구 ---
 
@@ -181,10 +265,7 @@ class FlowAnalyzer:
         """
         self._steps = 0
         try:
-            return any(
-                self.write_reaches(write.scope, write.receiver, classes, 0, write.lambda_receiver)
-                for write in self.facts.writes.get(name, [])
-            )
+            return any(True for _ in self._reaching_writes(name, classes, 0))
         except BudgetExceeded:
             self.budget_exceeded += 1
             self._active.clear()
@@ -708,7 +789,9 @@ class FlowAnalyzer:
         return self._module_scopes.get(path, [])
 
     def _module_writes(self, path: str, name: str, depth: int) -> list[Flow]:
-        """그 모듈(또는 타입 모르는 수신자 — 모듈일 수 있다)에 대한 같은 이름 속성 쓰기의 흐름이다.
+        """그 모듈(또는 타입 모르는 수신자 — 모듈일 수 있다)에 대한 같은 이름 속성 쓰기의 흐름이다(원래 순서).
+
+        색인이 미리 풀지 않은 쓰기(람다 뿌리, 아직 풀지 않은 수신자)는 옛 판정처럼 그 순번에서 수신자 값을 풀어 고른다.
 
         Args:
             path: 모듈 경로.
@@ -718,13 +801,28 @@ class FlowAnalyzer:
         Returns:
             흐름 목록.
         """
-        flows: list[Flow] = []
-        for write in self.facts.writes.get(name, []):
-            value = self.resolver.value(write.scope, write.receiver)
-            targets_module = isinstance(value, ModuleValue) and value.path == path
-            if write.lambda_receiver or targets_module or isinstance(value, (UnknownValue, ExternalResult)):
-                flows.append(self._write_flow(write, depth))
-        return flows
+        index = self._writes_named(name)
+        replayed = set(index.replayed)
+        positions = sorted({*index.by_module.get(path, ()), *index.module_candidates, *replayed})
+        return [
+            self._write_flow(index.writes[position], depth)
+            for position in positions
+            if position not in replayed or self._may_be_module(index.writes[position], path)
+        ]
+
+    def _may_be_module(self, write: AttributeWrite, path: str) -> bool:
+        """쓰기 수신자가 그 모듈이거나 모듈일 수 있는지 옛 판정대로 본다(수신자 값을 지금 푼다).
+
+        Args:
+            write: 쓰기.
+            path: 모듈 경로.
+
+        Returns:
+            그렇다면 True.
+        """
+        value = self.resolver.value(write.scope, write.receiver)
+        targets_module = isinstance(value, ModuleValue) and value.path == path
+        return write.lambda_receiver or targets_module or isinstance(value, (UnknownValue, ExternalResult))
 
     # --- 속성 ---
 
@@ -754,16 +852,23 @@ class FlowAnalyzer:
     def instance_classes(self, value: InstanceValue | ClassValue) -> frozenset[str]:
         """값이 가리킬 수 있는 프로젝트 클래스 id다(정확하지 않으면 하위 클래스 포함).
 
+        하위 클래스 표는 처음 만든 뒤 바뀌지 않으므로 (클래스, 하위 클래스 포함 여부)로 메모한다.
+
         Args:
             value: 인스턴스·클래스 값.
 
         Returns:
             클래스 id 집합.
         """
-        classes = {value.definition.id}
-        if not value.exact or isinstance(value, ClassValue):
-            classes.update(item.id for item in self.linearizer.subclasses(value.definition))
-        return frozenset(classes)
+        widened = _includes_subclasses(value)
+        key = (value.definition.id, widened)
+        cached = self._instance_classes.get(key)
+        if cached is None:
+            classes = {value.definition.id}
+            if widened:
+                classes.update(item.id for item in self.linearizer.subclasses(value.definition))
+            cached = self._instance_classes[key] = frozenset(classes)
+        return cached
 
     def attribute_flow(self, classes: frozenset[str], name: str, depth: int) -> Flow:
         """클래스들의 인스턴스 속성 자리 흐름: 클래스 본문 값 + 관련 수신자에 대한 같은 이름 쓰기.
@@ -802,10 +907,133 @@ class FlowAnalyzer:
                 flows.append(self.expr_flow(member.owner.definition, member.expr, depth))
             elif member.kind != "missing":
                 return opened("not-data-attribute")
-        for write in self.facts.writes.get(name, []):
-            if self.write_reaches(write.scope, write.receiver, classes, depth, write.lambda_receiver):
-                flows.append(self._write_flow(write, depth))
+        flows.extend(self._write_flow(write, depth) for write in self._reaching_writes(name, classes, depth))
         return self._without_descriptors(union(flows))
+
+    def _writes_named(self, name: str) -> _NameWrites:
+        """같은 이름 속성 쓰기의 색인이다(이름마다 처음 질의할 때 한 번 만든다).
+
+        Args:
+            name: 속성 이름.
+
+        Returns:
+            색인.
+        """
+        index = self._name_writes.get(name)
+        if index is None:
+            index = _NameWrites(tuple(self.facts.writes.get(name, ())))
+            for position, write in enumerate(index.writes):
+                self._index_write(index, position, write)
+            self._name_writes[name] = index
+        return index
+
+    def _index_write(self, index: _NameWrites, position: int, write: AttributeWrite) -> None:
+        """쓰기 하나를 수신자의 정적 값으로 나눠 색인에 넣는다(`write_reaches`·`_module_writes`와 같은 분기다).
+
+        해석기가 이미 푼 수신자 값만 쓴다. 람다 뿌리와 아직 풀지 않은 수신자는 질의가 옛 판정처럼 그 순번에서 판정한다.
+
+        Args:
+            index: 채울 색인.
+            position: 쓰기 순번.
+            write: 쓰기.
+        """
+        value = None if write.lambda_receiver else self.resolver.known_value(write.scope, write.receiver)
+        if value is None:
+            index.unresolved.append(position)
+            index.replayed.append(position)
+        elif isinstance(value, (InstanceValue, ClassValue)):
+            _index_static(index, position, value)
+        elif isinstance(value, ModuleValue):
+            index.by_module.setdefault(value.path, []).append(position)
+        elif not isinstance(value, _NOT_INSTANCES):
+            index.unresolved.append(position)
+            if isinstance(value, (UnknownValue, ExternalResult)):
+                index.module_candidates.append(position)
+
+    def _reaching_writes(self, name: str, classes: frozenset[str], depth: int) -> Iterator[AttributeWrite]:
+        """그 클래스들의 인스턴스(또는 클래스 객체)에 닿을 수 있는 같은 이름 쓰기를 원래 순서로 낸다.
+
+        정적 수신자 쓰기는 색인에서 바로 고르고, 수신자 흐름으로 판정할 쓰기만 `write_reaches`로 본다. 하나 낼 때마다
+        호출자가 소비하므로 흐름 메모·순환 끊기·단계 예산을 쓰는 순서가 모든 쓰기를 차례로 판정할 때와 같다(처음 열린
+        이유도 같다). 하위 클래스 표가 아직 없으면 하위 클래스까지 가리키는 첫 쓰기 앞의 쓰기를 먼저 판정하고, 그
+        순번에 와서 표를 만든다(옛 판정은 그 쓰기의 `instance_classes`에서 만들었고, 메서드 가림 질의가 그 앞에서 멈추면
+        만들지 않았다).
+
+        Args:
+            name: 속성 이름.
+            classes: 클래스 id.
+            depth: 깊이.
+
+        Yields:
+            닿을 수 있는 쓰기.
+        """
+        index = self._writes_named(name)
+        reached = _exact_writes(index, classes)
+        split = self._table_split(index)
+        early = sorted(position for position in reached.union(index.unresolved) if position < split)
+        yield from self._judged_writes(index, early, reached, classes, depth)
+        reached |= self._widened_writes(index, classes)
+        late = sorted(position for position in reached.union(index.unresolved) if position >= split)
+        yield from self._judged_writes(index, late, reached, classes, depth)
+
+    def _judged_writes(
+        self, index: _NameWrites, positions: list[int], reached: set[int], classes: frozenset[str], depth: int
+    ) -> Iterator[AttributeWrite]:
+        """순번을 차례로 보며 정적으로 닿는 쓰기는 바로, 나머지는 `write_reaches`로 판정해 닿는 쓰기를 낸다.
+
+        Args:
+            index: 이름의 쓰기 색인.
+            positions: 볼 순번(오름차순).
+            reached: 정적으로 닿는 순번.
+            classes: 클래스 id.
+            depth: 깊이.
+
+        Yields:
+            닿을 수 있는 쓰기.
+        """
+        for position in positions:
+            write = index.writes[position]
+            if position in reached or self.write_reaches(
+                write.scope, write.receiver, classes, depth, write.lambda_receiver
+            ):
+                yield write
+
+    def _table_split(self, index: _NameWrites) -> int:
+        """하위 클래스 표를 만들 쓰기 순번이다(표가 이미 있거나 하위 클래스까지 가리키는 쓰기가 없으면 0).
+
+        Args:
+            index: 이름의 쓰기 색인.
+
+        Returns:
+            순번.
+        """
+        if index.first_widened is None or self.linearizer.has_subclass_table():
+            return 0
+        return index.first_widened[0]
+
+    def _widened_writes(self, index: _NameWrites, classes: frozenset[str]) -> set[int]:
+        """하위 클래스까지 가리키는 수신자 쓰기 가운데 그 클래스들의 인스턴스(또는 클래스 객체)에 닿는 것의 순번이다.
+
+        수신자 값의 `instance_classes`가 질의 클래스 c를 담는 쓰기다: 수신자 클래스가 c이거나 c의 프로젝트 상위
+        클래스다(`Linearizer.superclass_ids`는 하위 클래스 표의 역관계라 두 판정이 정확히 같다). 질의 클래스와 그 조상을
+        먼저 모아 버킷마다 한 번만 읽는다. 하위 클래스 표가 없으면 옛 판정이 첫 쓰기의 `instance_classes`에서 했듯이
+        지금 만든다.
+
+        Args:
+            index: 이름의 쓰기 색인.
+            classes: 클래스 id.
+
+        Returns:
+            쓰기 순번 집합.
+        """
+        if index.first_widened is None:
+            return set()
+        # 반환값은 쓰지 않는다: 하위 클래스 표를 옛 판정과 같은 순번에서 만들려고 부른다.
+        self.linearizer.subclasses(index.first_widened[1])
+        owners = set(classes)
+        for class_id in classes:
+            owners.update(self.linearizer.superclass_ids(class_id))
+        return {position for owner in owners for position in index.widened.get(owner, ())}
 
     def _class_body_opaque(self, definition: Definition, name: str) -> str | None:
         """MRO의 프로젝트 클래스 본문이 이름을 멤버 표가 모르는 방식으로 묶는지 본다(두 번 대입, 반복 변수, import 등).
@@ -970,11 +1198,11 @@ class FlowAnalyzer:
             return True
         value: Value = self.resolver.value(scope, receiver)
         if isinstance(value, (InstanceValue, ClassValue)):
-            return bool(self.instance_classes(value) & classes)
-        if isinstance(value, (ModuleValue, FunctionValue, MethodValue, ExternalValue, FrameworkMethodValue)):
+            return not self.instance_classes(value).isdisjoint(classes)
+        if isinstance(value, _NOT_INSTANCES):
             return False
         flow = self.expr_flow(scope, receiver, depth)
-        return flow.open is not None or bool(flow.classes & classes)
+        return flow.open is not None or not flow.classes.isdisjoint(classes)
 
     # --- 호출 결과 ---
 
