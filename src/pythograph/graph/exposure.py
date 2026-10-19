@@ -82,6 +82,11 @@ _CODE_EXECUTION = frozenset({"builtins.exec", "builtins.eval", "builtins.compile
 #: 클래스 인자를 값으로 새게 하지 않는 내장 호출이다(두 번째 인자).
 _TYPE_CHECKS = frozenset({"builtins.isinstance", "builtins.issubclass"})
 
+#: TOML 표 머리 한 줄(`[project]`, `[ tool.poetry ]  # 주석`)이다. 이름은 괄호 사이를 통째로 잡은 뒤 다듬는다.
+#: 괄호 안쪽 공백을 수량자 셋이 나눠 가지면, 닫히지 않은 `[` 뒤에 공백이 이어진 줄에서 줄 길이의 세제곱으로
+#: 역추적했다.
+_TABLE_HEADER = re.compile(r"\s*\[([^\[\]]+)\]\s*(?:#.*)?")
+
 #: 열린 자리 이유: 모든 모듈 이름공간이 계산된 이름으로 노출됐다.
 ALL_MODULES = "<all-modules>"
 
@@ -240,6 +245,8 @@ def detect_library(project: Project) -> str | None:
 def _toml_tables(text: str) -> dict[str, list[str]]:
     """TOML 표 머리와 그 표의 줄을 모은다(표준 라이브러리 `tomllib`가 3.11부터라 줄 단위로 읽는다).
 
+    표 이름은 괄호 안을 다듬고 따옴표·공백을 뺀 것이다(공백뿐이면 빈 이름). 배열 표 `[[…]]`는 머리로 보지 않는다.
+
     Args:
         text: pyproject.toml 내용.
 
@@ -249,9 +256,9 @@ def _toml_tables(text: str) -> dict[str, list[str]]:
     tables: dict[str, list[str]] = {"": []}
     current = ""
     for line in text.splitlines():
-        header = re.fullmatch(r"\s*\[\s*([^\[\]]+?)\s*\]\s*(?:#.*)?", line)
+        header = _TABLE_HEADER.fullmatch(line)
         if header is not None:
-            current = header.group(1).replace('"', "").replace(" ", "")
+            current = header.group(1).strip().replace('"', "").replace(" ", "")
             tables.setdefault(current, [])
         else:
             tables[current].append(line)

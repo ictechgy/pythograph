@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from pythograph.graph.build import build_graph
 from pythograph.graph.exposure import _toml_tables, detect_library, is_importable, is_public
 from pythograph.graph.model import CallGraph
 from pythograph.source.project import Project
+from tests.conftest import REPOSITORY
 
 #: 합성 프로젝트 도우미 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -1072,6 +1075,55 @@ def test_toml_tables_keeps_lines_per_table() -> None:
     tables = _toml_tables('a = 1\n[project] # meta\nname = "x"\n[[tool.x]]\ny = 2\n')
     assert tables[""] == ["a = 1"]
     assert tables["project"] == ['name = "x"', "[[tool.x]]", "y = 2"]
+
+
+def test_toml_table_headers_keep_their_names() -> None:
+    """표 머리 정규식을 선형으로 바꿔도 표 이름과 줄 배정은 같다(수정 전 출력을 그대로 적었다).
+
+    주석 붙은 머리, 괄호 안쪽 공백, 탭으로 둘러싼 머리, 따옴표 이름, 머리가 아닌 줄(`[]`, 배열 표, 뒤에 글자가 붙은
+    머리)을 포함한다.
+    """
+    text = (
+        "a = 1\n[project] # meta\nname = 'x'\n[ tool.poetry ]  # c\n[[tool.x]]\ny = 2\n[]\n[ ]\n"
+        '\t[tool.uv]\t\n[ "project" ]\n[tool.poetry]x\n'
+    )
+    assert _toml_tables(text) == {
+        "": ["a = 1"],
+        "project": ["name = 'x'", "[tool.poetry]x"],
+        "tool.poetry": ["[[tool.x]]", "y = 2", "[]"],
+        "tool.uv": [],
+    }
+
+
+#: 프로젝트 경로를 받아 라이브러리 판정을 출력하는 별도 프로세스 스크립트다.
+_DETECT_LIBRARY = r"""
+import sys
+from pathlib import Path
+
+from pythograph.graph.exposure import detect_library
+from pythograph.source.project import Project
+
+print(detect_library(Project.open(Path(sys.argv[1]))))
+"""
+
+
+def test_toml_table_headers_stay_linear_on_crafted_input(make_project: MakeProject) -> None:
+    """닫히지 않은 `[` 뒤에 긴 공백이 이어진 줄도 선형 시간에 읽고, 그 아래 표 머리를 그대로 본다.
+
+    괄호 안쪽 공백을 수량자 셋이 나눠 가져 수정 전에는 그 줄 길이의 세제곱으로 역추적했다(3 KB 한 줄로 graph가 11초,
+    30 KB면 수 시간). 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일 뿐 성능 측정이 아니다.
+    """
+    root = make_project({"app.py": "", "pyproject.toml": "[" + " " * 30_000 + "\n[project]\nname = 'x'\n"})
+    result = subprocess.run(
+        [sys.executable, "-c", _DETECT_LIBRARY, str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "pyproject.toml declares [project] or [tool.poetry]\n"
 
 
 def test_public_and_importable_names(make_project: MakeProject) -> None:
