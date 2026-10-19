@@ -606,6 +606,9 @@ class _Registrar:
         # 구조(`from app.auth import bp as auth_bp`)를 따라가려고 모은다. 모듈 수준 import는 이름 해석기가 다룬다.
         # 값이 None이면 그 함수에서 import가 아닌 방식(대입·반복 변수 등)으로 다시 묶였다는 뜻이다(모듈 이름도 가린다).
         self.local_imports: dict[tuple[str, str], ImportBinding | None] = {}
+        # 모듈 안 함수 정의의 어휘적 점 경로다. `view_func=이름` 등록마다 구문 트리 전체를 걷지 않도록 처음 쓸 때
+        # 만든다.
+        self._function_qualnames: frozenset[str] | None = None
 
     def run(self, statements: list[ast.stmt], scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """문장 목록을 걷는다.
@@ -907,15 +910,25 @@ class _Registrar:
         """
         if not scope:
             return None
-        index = self.collector.symbols.index(self.path)
-        if index is None:
-            return None
-        for node in ast.walk(index.module.tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-                qualname = index.qualname(node)
-                if qualname == f"{scope}.{name}":
-                    return f"{self.path}#{qualname}"
-        return None
+        qualname = f"{scope}.{name}"
+        return f"{self.path}#{qualname}" if qualname in self._function_names() else None
+
+    def _function_names(self) -> frozenset[str]:
+        """모듈 안 모든 함수 정의의 어휘적 점 경로를 돌려준다(걷개마다 한 번 만든다).
+
+        등록마다 모듈 구문 트리 전체를 걸으면 등록 수 × 노드 수다(앱 팩토리 하나에 등록이 수천 개면 수 초~수십 초).
+
+        Returns:
+            점 경로 집합(모듈을 읽지 못하면 빈 집합).
+        """
+        if self._function_qualnames is None:
+            index = self.collector.symbols.index(self.path)
+            found: set[str] = set()
+            if index is not None:
+                functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+                found = {index.qualname(node) for node in ast.walk(index.module.tree) if isinstance(node, functions)}
+            self._function_qualnames = frozenset(found)
+        return self._function_qualnames
 
     def _class_handlers(
         self, owner_node: ast.expr

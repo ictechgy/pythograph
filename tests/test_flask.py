@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from collections.abc import Callable
@@ -617,3 +618,41 @@ def _lattice_paths(depth: int) -> list[str]:
         paths = [f"{path}/{side}" for path in paths for side in "ab"]
         found += paths
     return found
+
+
+def test_factory_local_view_functions_are_indexed_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """앱 팩토리 안 `add_url_rule(view_func=지역 함수)`는 모듈 함수 목록을 한 번만 만들어 찾는다(결과 id는 같다).
+
+    등록마다 모듈 구문 트리 전체를 걸어 등록 수 × 노드 수였다(한 함수 안 등록 2,000개에 3.7초, 4,000개에 9.5초).
+    같은 이름의 클래스 안 메서드(`Holder.view0`)는 지역 함수가 아니다.
+    """
+    original = ast.walk
+
+    def module_walks(count: int) -> int:
+        lines = ["from flask import Flask", "def create_app():", "    app = Flask(__name__, static_folder=None)"]
+        for index in range(count):
+            lines += [
+                f"    def view{index}():",
+                "        pass",
+                f'    app.add_url_rule("/v{index}", view_func=view{index})',
+            ]
+        lines += ["    class Holder:", "        def view0(self):", "            pass", "    return app"]
+        root = make_project({**REQUIREMENTS, "app.py": "\n".join(lines) + "\n"})
+        walked = 0
+
+        def counting(node: ast.AST) -> object:
+            nonlocal walked
+            walked += isinstance(node, ast.Module)
+            return original(node)
+
+        monkeypatch.setattr(ast, "walk", counting)
+        document = routes_document(root)
+        monkeypatch.setattr(ast, "walk", original)
+        assert fact_rows(document) == {
+            ("GET", f"/v{index}", False, f"app.py#create_app.view{index}") for index in range(count)
+        }
+        return walked
+
+    assert module_walks(300) == module_walks(3)
