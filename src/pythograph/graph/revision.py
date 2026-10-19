@@ -67,33 +67,36 @@ def _git_executable(project: Path) -> str | None:
         project: 프로젝트 realpath.
 
     Returns:
-        git 절대 경로, 찾지 못했거나 현재 디렉터리를 확인하지 못하면 None.
+        git 절대 경로, 찾지 못했거나 현재 디렉터리·프로젝트를 확인하지 못하면 None.
     """
     try:
-        current = Path(os.path.realpath(os.getcwd()))
+        current_info = os.stat(os.getcwd())
+        project_info = os.stat(project)
     except OSError:
-        # 현재 디렉터리가 지워졌다. 걸러야 할 위치를 모르므로 git을 고르지 않는다(revision 없이 계속한다).
+        # 현재 디렉터리가 지워졌거나 프로젝트를 다시 확인하지 못했다. 걸러야 할 위치를 모르므로 git을 고르지 않는다
+        # (revision 없이 계속한다).
         return None
-    root = Path(os.path.realpath(project))
     name = "git.exe" if os.name == "nt" else "git"
     for directory in os.get_exec_path():
         candidate = os.path.join(directory, name)
-        if os.path.isabs(directory) and _is_trusted_git(candidate, root, current):
+        if os.path.isabs(directory) and _is_trusted_git(candidate, project_info, current_info):
             return candidate
     return None
 
 
-def _is_trusted_git(candidate: str, root: Path, current: Path) -> bool:
+def _is_trusted_git(candidate: str, project_info: os.stat_result, current_info: os.stat_result) -> bool:
     """후보가 실행 가능한 일반 파일이고, 실제 위치가 프로젝트 밖이며 현재 디렉터리에 바로 있지 않은지 본다.
 
-    링크를 풀어 실제 위치로 판정한다. 현재 디렉터리는 그 디렉터리 자체만 거른다(Windows가 암묵적으로 찾던
-    위치다). 하위 트리까지 거르면 현재 디렉터리가 `/`(컨테이너·서비스의 기본값)나 홈일 때 시스템·사용자 git까지 버려
-    revision이 사라진다.
+    링크를 풀어 실제 위치로 판정하고, 디렉터리는 경로 문자열이 아니라 파일 신원(장치·inode)으로 비교한다.
+    대소문자·유니코드 정규화를 무시하는 파일 시스템(macOS 기본 APFS 등)에서는 철자만 다른 PATH 항목이
+    같은 디렉터리를 가리켜 문자열 비교를 빠져나가기 때문이다. 현재 디렉터리는 그 디렉터리 자체만 거른다(Windows가
+    암묵적으로 찾던 위치다). 하위 트리까지 거르면 현재 디렉터리가 `/`(컨테이너·서비스의 기본값)나 홈일 때
+    시스템·사용자 git까지 버려 revision이 사라진다.
 
     Args:
         candidate: PATH 항목과 실행 파일 이름을 이은 경로.
-        root: 프로젝트 realpath.
-        current: 현재 디렉터리 realpath.
+        project_info: 프로젝트 디렉터리의 stat.
+        current_info: 현재 디렉터리의 stat.
 
     Returns:
         실행해도 되면 True.
@@ -101,11 +104,35 @@ def _is_trusted_git(candidate: str, root: Path, current: Path) -> bool:
     try:
         if not stat.S_ISREG(os.stat(candidate).st_mode) or not os.access(candidate, os.X_OK):
             return False
+        directory = os.path.dirname(os.path.realpath(candidate))
+        if os.path.samestat(os.stat(directory), current_info):
+            return False
+        return not _lies_within(directory, project_info)
     except (OSError, ValueError):
-        # 후보가 없거나 읽을 수 없다(ValueError는 이름의 NUL). 다음 PATH 항목을 본다.
+        # 후보가 없거나 읽을 수 없다(ValueError는 이름의 NUL). 실제 위치를 확인하지 못한 후보도 쓰지 않는다.
+        # 다음 PATH 항목을 본다.
         return False
-    resolved = Path(os.path.realpath(candidate))
-    return not resolved.is_relative_to(root) and resolved.parent != current
+
+
+def _lies_within(directory: str, project_info: os.stat_result) -> bool:
+    """디렉터리 자신이나 그 조상 중 하나가 프로젝트 디렉터리인지 파일 신원으로 본다.
+
+    Args:
+        directory: 링크를 푼 절대 경로.
+        project_info: 프로젝트 디렉터리의 stat.
+
+    Returns:
+        프로젝트 안이면 True.
+
+    Raises:
+        OSError: 조상 디렉터리를 확인하지 못했다(호출자는 그 후보를 쓰지 않는다).
+    """
+    while not os.path.samestat(os.stat(directory), project_info):
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return False
+        directory = parent
+    return True
 
 
 def _git(executable: str, project: Path, *arguments: str) -> str | None:

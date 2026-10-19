@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -522,6 +523,60 @@ def test_revision_ignores_git_in_current_directory_or_linked_into_project(
     (linked / "git").symlink_to(planted_project / "git")
     monkeypatch.setenv("PATH", os.pathsep.join([str(current), str(linked), trusted]))
     monkeypatch.chdir(current)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (tmp_path / FAKE_GIT_MARKER).exists()
+
+
+def _decomposed(name: str) -> str:
+    """이름을 유니코드 분해형(NFD)으로 바꾼다.
+
+    Args:
+        name: 디렉터리 이름.
+
+    Returns:
+        분해형 이름.
+    """
+    return unicodedata.normalize("NFD", name)
+
+
+def _respelled(directory: Path, spelling: Callable[[str], str]) -> Path:
+    """이름 철자만 바꿨고 같은 디렉터리를 가리키는 경로다. 파일 시스템이 두 철자를 구분하면 테스트를 건너뛴다.
+
+    Args:
+        directory: 원래 디렉터리.
+        spelling: 이름을 바꾸는 함수(대문자, 분해형).
+
+    Returns:
+        철자만 다른 경로.
+    """
+    respelled = directory.with_name(spelling(directory.name))
+    if respelled.name == directory.name or not respelled.is_dir() or not os.path.samefile(respelled, directory):
+        pytest.skip("the filesystem distinguishes these spellings")
+    return respelled
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+@pytest.mark.parametrize(
+    ("planted_in", "spelling"),
+    [("project", str.upper), ("current", str.upper), ("current", _decomposed)],
+    ids=["project-case", "current-case", "current-normalization"],
+)
+def test_revision_ignores_git_in_respelled_directory(
+    planted_project: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    planted_in: str,
+    spelling: Callable[[str], str],
+) -> None:
+    """대소문자·유니코드 정규화를 무시하는 파일 시스템(macOS 기본 APFS 등)에서 철자만 다른 PATH 항목이
+    프로젝트나 현재 디렉터리를 가리켜도 그 git은 실행하지 않는다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    current = tmp_path / ("caf" + chr(0xE9))
+    current.mkdir()
+    _plant_fake_git(current, tmp_path / FAKE_GIT_MARKER)
+    directory = planted_project if planted_in == "project" else current
+    monkeypatch.setenv("PATH", os.pathsep.join([str(_respelled(directory, spelling)), trusted]))
+    monkeypatch.chdir(tmp_path if planted_in == "project" else current)
     assert revision_module.git_revision(planted_project) == head
     assert not (tmp_path / FAKE_GIT_MARKER).exists()
 
