@@ -375,3 +375,133 @@ def test_base_class_writes_reach_subclass_instance_slots(make_project: MakeProje
     }
     graph = build_graph(Project.open(make_project(files)), False)
     assert bound_targets(graph, "app.py#Child.site") == {"repos.py#OtherRepo.save", "repos.py#MemRepo.save"}
+
+
+def test_slot_flow_joins_writes_in_collection_order(make_project: MakeProject) -> None:
+    """속성 자리 흐름은 같은 이름 쓰기를 모은 순서(정의 id 순)대로 합치므로 처음 열린 이유가 앞선 쓰기의 것이다.
+
+    수신자를 몰라 흐름으로 판정하는 `bind`의 쓰기(`app.py`)가 정적 수신자 `self` 쓰기(`models.py`)보다 앞선다. 앞 쓰기의
+    값은 외부 호출 결과(`call-result`)이고 뒤 쓰기는 튜플 풀기라 값을 모른다(`unknown-write`). 정적 항목을 먼저 돌면
+    열린 이유가 바뀐다.
+    """
+    files = {
+        "repos.py": REPOS,
+        "models.py": """
+            from repos import Repo
+
+
+            class Holder:
+                def __init__(self):
+                    self.repo, self.other = Repo(), 1
+
+                def site(self):
+                    return self.repo.save()
+        """,
+        "app.py": """
+            import os
+
+            from models import Holder
+            from repos import Repo
+
+
+            def make_repo():
+                return os.environ.get("REPO")
+
+
+            def bind(target, repo):
+                target.repo = make_repo()
+                return target
+
+
+            def main():
+                holder = Holder()
+                bind(holder, Repo())
+                return holder.site()
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    assert bound_targets(graph, "models.py#Holder.site") == set()
+    assert graph.statistics["boundDispatch"]["open"] == {"call-result": 1}  # type: ignore[index]
+
+
+def test_exact_and_subclass_receivers_of_one_class_stay_apart(make_project: MakeProject) -> None:
+    """같은 클래스를 정확한 인스턴스(`base`)와 하위 클래스 포함 인스턴스(`self`)로 함께 물어도 두 판정이 섞이지 않는다.
+
+    정확한 `Base` 인스턴스 쓰기는 `Child`만 보는 자리에 닿지 않고, 기반 클래스 메서드의 `self` 쓰기는 닿는다. `Base`
+    자리를 정확한 값으로 묻는 `main`은 `Child` 인스턴스 쓰기를 보지 않는다. 클래스 집합 메모 키가 정확 여부를 잃으면
+    먼저 계산한 쪽 집합을 다른 쪽이 받아 대상이 바뀐다.
+    """
+    files = {
+        "repos.py": REPOS,
+        "app.py": """
+            from repos import MemRepo, OtherRepo, Repo
+
+
+            class Base:
+                def reset(self):
+                    self.repo = MemRepo()
+
+                def site(self):
+                    return self.repo.save()
+
+
+            class Child(Base):
+                def own(self):
+                    return self.repo.save()
+
+
+            def main():
+                base = Base()
+                base.repo = Repo()
+                child = Child()
+                child.repo = OtherRepo()
+                child.reset()
+                base.repo.save()
+                child.own()
+                return child.site()
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    every = {"repos.py#Repo.save", "repos.py#OtherRepo.save", "repos.py#MemRepo.save"}
+    assert bound_targets(graph, "app.py#Base.site") == every
+    assert bound_targets(graph, "app.py#Child.own") == {"repos.py#OtherRepo.save", "repos.py#MemRepo.save"}
+    assert bound_targets(graph, "app.py#main") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
+
+
+def test_external_result_receivers_may_be_modules(make_project: MakeProject) -> None:
+    """외부 타입(`types.ModuleType`)으로 주석한 매개변수가 수신자인 쓰기는 모듈일 수 있어 모듈 전역 흐름에 더한다.
+
+    수신자 값이 외부 호출 결과라 어떤 모듈인지 모른다. 이 쓰기를 빼면 `patch(wiring)`이 바꾼 `wiring.repo`를 놓쳐
+    `global_site`의 `bound` 대상이 실제로 부를 수 있는 `MemRepo.save`를 빠뜨린다.
+    """
+    files = {
+        "repos.py": REPOS,
+        "wiring.py": """
+            import os
+
+            from repos import Repo
+
+            repo = Repo() if os.environ.get("REPO") else Repo()
+        """,
+        "app.py": """
+            import types
+
+            import wiring
+            from repos import MemRepo
+
+
+            def patch(target: types.ModuleType):
+                target.repo = MemRepo()
+
+
+            def global_site():
+                return wiring.repo.save()
+
+
+            def main():
+                patch(wiring)
+                return global_site()
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    assert bound_targets(graph, "app.py#global_site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
