@@ -12,7 +12,9 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 언어에서 본 것만 보고하고, 조인은 isthmus가 한다.
 
 분석 대상 프로젝트는 표준 라이브러리 `ast`로만 파싱한다. import하거나 실행하지 않으며, pythograph는 런타임
-의존성이 없고 네트워크를 쓰지 않는다(`graph`·`reach`·`impact`는 `revision`을 읽으려고 프로젝트 루트의 git만 실행한다).
+의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 `graph`·`reach`·`impact`가 `revision`을 읽으려고 프로젝트
+루트에서 실행하는 git 하나다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고 서브모듈 안에서는 돌지
+않는다([보안](#보안)).
 
 ## 상태
 
@@ -234,7 +236,9 @@ pythograph impact (reach와 같은 옵션)
   `reach`·`impact`는 isthmus 입력 상한 16 Mi 문자를 그대로 둔다. 직렬화 방식은 그대로라 상한을 올린 것만으로 16 Mi 문자 이하 스냅샷은 바뀌지 않는다.
 - **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),
   `--max-depth`·`--max-reached` 잘림, `rootsTruncated`. 정점이 아닌 root는 `symbol` 없이 싣고 문서를 쓴 뒤 64로 끝난다.
-  `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD, `graphRevision`은 그래프 내용 SHA-256이다.
+  `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD다. 저장소 git 설정을 따르지 않고는 깨끗한지 확인할
+  수 없는 작업 트리(서브모듈이 있는 트리, [보안](#보안))는 생략하고 스냅샷과 순회 문서에 `revision-unverified:` 한계를
+  단다. `graphRevision`은 그래프 내용 SHA-256이다.
 
 ## 검증
 
@@ -334,6 +338,36 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 않고 열고, 읽기 전에 열린 파일의 신원도 확인합니다.
 다른 운영체제에서는 읽기 전에 경로 성분과 파일 신원을 재검사하지만 원자적인 검사는 아닙니다. 변경 중이 아닌 프로젝트를
 분석하세요. 파일시스템 스냅샷이나 동시 변경에 대한 샌드박스는 아닙니다. 분석 대상 Python 코드는 import·실행하지 않습니다.
+
+## 보안
+
+pythograph가 띄우는 외부 프로그램은 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를 실행하고 프로젝트 루트에
+`.git`이 있을 때만, `revision`을 읽으려고 프로젝트 루트에서 `git config`·`git ls-files`·`git status`·`git rev-parse`를
+실행한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
+압축본·사본과 함께 온 `.git` 디렉터리는 git이 작업 트리를 읽으며 실행할 명령을 정할 수 있다(git(1)의 "SECURITY").
+그래서 이 git 호출은 모두 git 설정이 명령을 실행하지 못하게 한다.
+
+- 호출 바로 앞에서 git이 보는 filter 드라이버를 모은다
+  (`git config -z --includes --get-regexp '^filter\..*\.(clean|smudge|process)$'`. 저장소 설정과 그 include, 사용자 설정,
+  시스템 설정을 모두 본다). 드라이버마다 `clean`·`smudge`·`process`를 빈 명령으로, `required`를 `false`로 덮으므로 git은
+  어느 것도 실행하지 않는다. `.gitattributes`와 `.git/info/attributes` 어느 쪽에서 붙인 드라이버든 같다.
+- `core.fsmonitor`, untracked cache, `log.showSignature`, 선택 잠금(`GIT_OPTIONAL_LOCKS=0`, 인덱스를 다시 쓰지 않는다)을
+  끈다. pythograph는 `git diff`·`git log`를 실행하지 않는다.
+- 서브모듈 안에서는 git을 띄우지 않는다. `git status`는 `--ignore-submodules=all`로 돌고, 인덱스에 서브모듈이 있으면 아예
+  실행하지 않는다.
+- 드라이버를 모으지 못하거나 드라이버 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있으면(git의 `-c`는 첫 `=`에서
+  나누므로 그런 드라이버는 덮을 수 없다) 다른 git 명령을 실행하지 않는다.
+
+달라지는 점:
+
+- git-lfs처럼 filter로 정규화되는 파일은 원문으로 비교한다. 그 파일의 git stat 캐시가 낡으면(복사·압축 해제한 트리, touch한
+  파일) 작업 트리를 바뀐 것으로 보고 `revision`을 싣지 않는다. 확인하지 못한 깨끗한 `HEAD`를 주장하지 않기 위해서다.
+  신뢰하는 checkout이면 먼저 `git status`로 stat 캐시를 새로 고친다.
+- 서브모듈이 있는 작업 트리는 `revision`을 자동으로 싣지 않는다. pythograph는 서브모듈 안의 소스도 분석하는데, 서브모듈마다
+  자기 설정을 따르지 않고는 깨끗한지 알 수 없기 때문이다. 덮을 수 없는 드라이버 이름이 있으면 git을 아예 실행하지 않는다.
+  두 경우 모두 `graph` 스냅샷과 `reach`·`impact` 문서에 `revision-unverified:` 한계를 단다.
+- 나머지 git 설정은 여전히 git이 무엇을 보고할지를 정한다(예: `core.worktree`). 그래서 자동 `revision`은 `.git` 디렉터리만큼만
+  믿을 수 있다. `.git`을 신뢰하지 않는 트리라면 `--revision <id>`를 준다. 그러면 git을 전혀 실행하지 않는다.
 
 ## 개발
 

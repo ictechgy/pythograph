@@ -13,7 +13,8 @@ pythograph impact (reach와 같은 옵션)
 
 - `graph`: pythograph 자체 형식 `pythograph-graph` v1 스냅샷(isthmus 입력이 아니다). 정점(`id`·`kind`·`location`,
   미해석 호출이 있으면 모드별 `unresolvedCalls`와 이유별 `unresolvedReasons`), 간선(`from`·`to`·`kinds`·`evidence`),
-  `statistics`, `direct` 모드 `limitations`, `graphRevision`, `revision`.
+  `statistics`, `direct` 모드 `limitations`(revision을 확인하지 않았으면 끝에 `revision-unverified:`), `graphRevision`,
+  `revision`.
 - `reach`: root가 기대는 정점(`direction: "dependencies"`), `impact`: root에 기대는 정점(`"dependents"`).
 - 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·출력 상한 초과(부분 문서 없음 — `graph` 스냅샷 256 Mi 문자, `reach`·
   `impact` 16 Mi 문자), 64 사용법 오류(표준 출력 비어 있음) 또는 root-not-found(문서를 쓴 뒤 64). 1은 예약이다.
@@ -267,13 +268,28 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   git 실행 파일은 `PATH`의 절대 경로 항목에서만 찾아(빈·상대 항목은 건너뛴다, Windows는 `git.exe`만) 그 절대 경로로 실행하고,
   실제 위치가 프로젝트 안이거나 현재 디렉터리에 바로 있는 것은 쓰지 않는다(디렉터리는 경로 문자열이 아니라 파일 신원으로 비교해
   대소문자·유니코드 정규화만 다른 철자도 같은 디렉터리로 본다). 찾지 못하면 revision을 싣지 않는다.
-  분석 대상 코드는 실행하지 않는다.
+  분석 대상 코드와, 분석 대상 `.git`(과 사용자·시스템) 설정이 정한 명령은 실행하지 않는다([README 보안](../README.ko.md#보안)).
+  - git 호출(`ls-files --stage`·`status`·`rev-parse`)마다 바로 앞에서 `git config -z --includes --get-regexp
+    '^filter\..*\.(clean|smudge|process)$'`로 filter 드라이버 이름(`filter.`과 마지막 `.<키>` 사이 전체, 대소문자 보존)을
+    모은다. 이름마다 `-c filter.<이름>.clean=`·`smudge=`·`process=`·`required=false`로 덮고, 공통으로
+    `log.showSignature=false`를 붙인다. 조회의 종료 1(출력 없음)은 드라이버 없음이고, 그 밖의 실패나 형식이 다른 출력이면 그
+    호출을 하지 않는다. status는 `--ignore-submodules=all`로 돈다. diff·log 계열 호출은 없다.
+  - git-lfs처럼 filter로 정규화되던 파일은 stat 캐시가 낡으면 원문이 기록된 blob과 달라 바뀐 것으로 보이므로 revision을
+    싣지 않는다(fail-safe).
+  - 인덱스에 서브모듈(gitlink, mode 160000)이 있으면 status를 실행하지 않는다. 서브모듈 작업 트리가 깨끗한지는 그 저장소
+    자신의 설정을 따라야만 알 수 있고, 그래프는 서브모듈 디렉터리의 소스도 분석하기 때문이다. revision을 싣지 않고
+    `revision-unverified:` 한계(센 서브모듈 수)를 단다.
+  - 드라이버 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있으면 `-c`로 덮을 수 없어(git은 `-c`를 첫 `=`에서 나눈다) git
+    명령을 더 실행하지 않고 같은 접두사의 한계를 단다(이름 원문은 싣지 않는다). `GIT_CONFIG_COUNT` 환경 변수로 넘기는 대안은
+    옛 git이 조용히 무시해 드라이버가 실행되므로 쓰지 않는다.
+  - git이 없거나 실패했거나 더러운 트리는 지금처럼 한계 없이 revision만 생략한다(isthmus가 `analysis-revision-unknown`으로
+    드러낸다). 나머지 설정(`core.worktree` 등)은 git이 무엇을 보고할지를 정하므로, 신뢰하지 않는 `.git`이면 `--revision`을 준다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
 - `limitations`: 모드의 그래프 한계(`unresolved-calls:`, `overridden-methods:`/`candidate-dispatch:`, `bound-dispatch:`·
   `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
-  문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`).
+  문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`, 끝에 `revision-unverified:`).
 - `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과). 깊은
   모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않도록 그 모듈만 뺀다. 빠진 파일에는 정점이 없고
   `bound`는 `scan-incomplete`로 연다.
