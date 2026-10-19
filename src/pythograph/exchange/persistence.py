@@ -9,14 +9,11 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 
 from pythograph.exchange.document import MAX_FACTS, DocumentHeader, DocumentLimitError, format_timestamp
 from pythograph.persistence.model import PersistenceExtraction, RelationUse
-
-#: 계약이 금지하는 문자(제어 문자, U+2028/2029, 짝 없는 서로게이트)다. dynamic 원문에서 공백으로 바꾼다.
-_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f  \ud800-\udfff]")
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 
 def build_persistence_document(header: DocumentHeader, extraction: PersistenceExtraction) -> dict[str, object]:
@@ -73,8 +70,8 @@ def _fact_json(use: RelationUse) -> dict[str, object]:
     static_ok = (
         not use.dynamic
         and all(use.channel.split("."))
-        and not _FORBIDDEN.search(use.channel)
-        and (use.column is None or (use.column and not _FORBIDDEN.search(use.column)))
+        and not FORBIDDEN_CHARACTERS.search(use.channel)
+        and (use.column is None or (use.column and not FORBIDDEN_CHARACTERS.search(use.column)))
     )
     fact: dict[str, object] = {
         "kind": "relation-use",
@@ -98,7 +95,7 @@ def _dynamic_text(text: str) -> str:
     Returns:
         금지 문자를 공백으로 바꾼 문자열(비면 `<dynamic>`).
     """
-    cleaned = _FORBIDDEN.sub(" ", text).strip()
+    cleaned = FORBIDDEN_CHARACTERS.sub(" ", text).strip()
     return cleaned or "<dynamic>"
 
 

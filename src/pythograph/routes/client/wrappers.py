@@ -24,7 +24,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pythograph.routes.client.compose import HTTP_VERBS
+from pythograph.exchange.methods import HTTP_METHODS
+from pythograph.source.inputs import open_input_file
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 선언 파일 최대 크기(바이트)다.
 MAX_WRAPPERS_BYTES = 4 * 1024 * 1024
@@ -50,9 +52,6 @@ _WRAPPER_FIELDS = frozenset(
 
 #: 계약이 받는 언어다(`python`은 pythograph가 더한다).
 _LANGUAGES = frozenset({"swift", "kotlin", "dart", "js", "python"})
-
-#: 제어 문자다.
-_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f  ]")
 
 #: 파이썬 모듈 경로 owner 모양이다.
 _MODULE_OWNER = re.compile(r"[^#\s]+\.py")
@@ -147,6 +146,9 @@ class MethodToken:
 def load_wrappers(path: Path) -> list[WrapperDecl]:
     """선언 파일을 읽어 파이썬 래퍼를 돌려준다.
 
+    일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 열고(마지막 링크는 따라간다) 상한보다 1바이트만 더 읽어 크기를
+    판정한다. 파일 전체를 읽은 뒤 자르면 큰 파일이나 `/dev/zero`를 가리키는 링크가 상한과 무관하게 메모리를 쓴다.
+
     Args:
         path: 선언 파일 경로.
 
@@ -154,10 +156,11 @@ def load_wrappers(path: Path) -> list[WrapperDecl]:
         `language: "python"` 래퍼 목록.
 
     Raises:
-        OSError: 파일을 읽지 못할 때.
+        OSError: 파일을 읽지 못하거나 일반 파일·파이프가 아닐 때(디렉터리·장치).
         WrapperDeclarationError: 스키마 위반·크기 초과.
     """
-    data = path.read_bytes()[: MAX_WRAPPERS_BYTES + 1]
+    with open_input_file(path) as handle:
+        data = handle.read(MAX_WRAPPERS_BYTES + 1)
     if len(data) > MAX_WRAPPERS_BYTES:
         raise WrapperDeclarationError("the wrappers file is larger than 4 MiB; split or trim it.")
     try:
@@ -274,7 +277,7 @@ def _text(entry: dict[str, object], key: str, where: str) -> str:
         WrapperDeclarationError: 없거나 형식 위반.
     """
     value = entry.get(key)
-    if not isinstance(value, str) or not value or len(value) > 1024 or _CONTROL.search(value):
+    if not isinstance(value, str) or not value or len(value) > 1024 or FORBIDDEN_CHARACTERS.search(value):
         raise WrapperDeclarationError(f"{where}.{key} must be a non-empty string without control characters.")
     return value
 
@@ -316,7 +319,7 @@ def _verb(value: object, where: str) -> str:
     Raises:
         WrapperDeclarationError: 계약 동사가 아닐 때.
     """
-    if not isinstance(value, str) or value not in HTTP_VERBS:
+    if not isinstance(value, str) or value not in HTTP_METHODS:
         raise WrapperDeclarationError(f"{where} must be an upper-case HTTP verb such as GET.")
     return value
 
@@ -409,7 +412,7 @@ def bind_method(
         return None
     value = token(argument.value)
     if value.kind == "literal":
-        return value.text if value.text in HTTP_VERBS else None
+        return value.text if value.text in HTTP_METHODS else None
     if value.kind == "enum":
         return declaration.method_enum.get(value.text)
     return None

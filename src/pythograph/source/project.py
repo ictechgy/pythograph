@@ -2,9 +2,12 @@
 
 불변 조건:
 - 분석 대상 코드는 import하거나 실행하지 않는다. 표준 라이브러리 `ast.parse`로만 읽는다.
-- 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 건너뛴 것은 센다.
+- 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 순회에서는 따라갔다면 읽었을 소스를
+  가릴 수 있는 링크만 세고, 이름 해석·선언 파일 읽기에서 만난 링크는 모두 센다.
 - 파일 크기·순회 항목 수·깊이에 상한을 둔다. 넘거나 읽지 못한 파일은 실패로 기록해 한계로 남긴다.
 - 경로는 모두 프로젝트 상대 POSIX 문자열로 다룬다. 절대 경로를 출력·오류 문구에 싣지 않는다.
+- 경로는 사실의 위치와 심볼 id가 되므로, 교환 형식이 쓸 수 없는 이름(UTF-8이 아님, 계약 금지 문자)의 파일은
+  건너뛰고 센다.
 """
 
 from __future__ import annotations
@@ -17,6 +20,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, exceeds_depth
+from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
@@ -83,21 +89,29 @@ class Project:
 
     Attributes:
         root: 프로젝트 realpath.
-        module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트).
+        module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트). 제자리에서 바꿔도
+            된다(`resolve_module`이 기억한 결과를 버린다).
+        max_depth: 분석하는 구문 트리의 최대 중첩 깊이(넘으면 읽지 못한 소스). 명령마다 재귀가 쓰는 프레임이 달라
+            명령이 고른다(`syntax.MAX_AST_DEPTH`·`syntax.MAX_EXTRACTION_AST_DEPTH`).
+        forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
     """
 
     root: Path
     module_roots: list[str] = field(default_factory=list)
+    max_depth: int = MAX_AST_DEPTH
     _modules: dict[str, SourceModule | ReadFailure] = field(default_factory=dict)
     _files: list[str] | None = None
     skipped_links: int = 0
     scan_capped: bool = False
     unencodable_names: int = 0
+    forbidden_names: int = 0
     scan_errors: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
+    _resolved_modules: dict[str, str | None] = field(default_factory=dict)
+    _resolved_roots: list[str] = field(default_factory=list)
 
     @classmethod
-    def open(cls, root: Path) -> Project:
+    def open(cls, root: Path, max_depth: int = MAX_AST_DEPTH) -> Project:
         """프로젝트를 열고 모듈 루트를 정한다.
 
         모듈 루트는 `manage.py`가 있는 디렉터리들(Django가 `sys.path`에 넣는 곳), 프로젝트 루트,
@@ -105,11 +119,12 @@ class Project:
 
         Args:
             root: 프로젝트 realpath(디렉터리).
+            max_depth: 분석하는 구문 트리의 최대 중첩 깊이(기본은 graph 계열 상한).
 
         Returns:
             프로젝트.
         """
-        project = cls(root=root)
+        project = cls(root=root, max_depth=max_depth)
         manage_directories = sorted(
             {
                 str(PurePosixPath(path).parent)
@@ -171,7 +186,7 @@ class Project:
     def _visit(
         self, entry: os.DirEntry[str], directory: str, depth: int, pending: list[tuple[str, int]], found: list[str]
     ) -> None:
-        """순회 항목 하나를 분류한다.
+        """순회 항목 하나를 분류한다. 링크는 따라가지 않고 소스를 가릴 수 있을 때만 센다(`_link_may_hide_sources`).
 
         Args:
             entry: 디렉터리 항목.
@@ -182,21 +197,37 @@ class Project:
         """
         relative = PurePosixPath(directory, entry.name).as_posix()
         if _is_link(entry.stat(follow_symlinks=False)):
-            self._record_link(relative)
+            if _link_may_hide_sources(entry.name):
+                self._record_link(relative)
             return
         if entry.is_dir(follow_symlinks=False):
-            if entry.name.startswith(".") or entry.name in SKIPPED_DIRECTORIES:
+            if _is_skipped_directory(entry.name):
                 return
             if depth + 1 > MAX_SCAN_DEPTH:
                 self.scan_capped = True
                 return
             pending.append((relative, depth + 1))
         elif entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
-            if _is_encodable(relative):
-                found.append(relative)
-            else:
-                # UTF-8이 아닌 파일 이름은 교환 형식에 쓸 수 없다. 건너뛰고 센다.
-                self.unencodable_names += 1
+            self._collect(relative, found)
+
+    def _collect(self, relative: str, found: list[str]) -> None:
+        """파이썬 파일을 발견 목록에 넣는다. 교환 형식에 실을 수 없는 경로는 건너뛰고 센다.
+
+        경로는 모든 사실의 `location.path`와 심볼 id(`경로#이름`)가 된다. 계약이 금지하는 문자가 든 경로를 실으면
+        소비자가 문서 전체를 거부하므로, 그 파일만 빼고 한계로 남긴다.
+
+        Args:
+            relative: 파일의 프로젝트 상대 경로.
+            found: 발견한 파일 목록(수정한다).
+        """
+        if not _is_encodable(relative):
+            # UTF-8이 아닌 파일 이름은 교환 형식에 쓸 수 없다. 건너뛰고 센다.
+            self.unencodable_names += 1
+        elif not is_contract_safe(relative):
+            # 제어 문자(C0·C1, NEL)·U+2028/2029가 든 경로는 사실의 경로·usr로 실을 수 없다. 건너뛰고 센다.
+            self.forbidden_names += 1
+        else:
+            found.append(relative)
 
     def is_directory(self, relative: str) -> bool:
         """프로젝트 상대 경로가 링크가 아닌 디렉터리인지 돌려준다.
@@ -277,6 +308,10 @@ class Project:
     def _parse(self, relative: str) -> SourceModule | ReadFailure:
         """파일을 읽어 `ast`로 파싱한다. 어떤 실패도 예외로 새지 않게 이유로 바꾼다.
 
+        구문 트리가 `max_depth`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
+        않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구). 3.10은 긴 사슬을
+        파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 본다(`chain_too_long`).
+
         Args:
             relative: 프로젝트 상대 경로.
 
@@ -293,11 +328,15 @@ class Project:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
             return ReadFailure(relative, "file is not valid UTF-8")
+        if chain_too_long(text):
+            return ReadFailure(relative, "source nesting too deep to parse")
         try:
             tree = ast.parse(text, filename=PurePosixPath(relative).name)
         except (SyntaxError, ValueError):
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
+            return ReadFailure(relative, "source nesting too deep to parse")
+        if exceeds_depth(tree, self.max_depth):
             return ReadFailure(relative, "source nesting too deep to parse")
         return SourceModule(
             path=relative,
@@ -400,7 +439,28 @@ class Project:
         return ".".join(parts)
 
     def resolve_module(self, name: str) -> str | None:
-        """점으로 이은 모듈 이름을 프로젝트 안의 파일로 푼다.
+        """점으로 이은 모듈 이름을 프로젝트 안의 파일로 푼다. 한 실행 안에서 이름별 결과(None 포함)를 기억한다.
+
+        이름 해석은 소스에 이름이 나올 때마다 불리고, 찾기 한 번이 모듈 루트 수 × 후보 2개의 성분별 lstat이다. 기억하지
+        않으면 `manage.py`가 여러 개인 저장소에서 같은 외부 이름을 수십만 번 다시 찾는다. 분석은 안정된 트리를 전제하고,
+        경계는 해석이 아니라 읽기(`_read_bytes`·`_open_directory`의 열기 시점 재검사)가 지키므로 기억해도 링크를
+        따라가지 않는다. 처음 찾을 때 만난 링크는 그때 센다(같은 링크는 한 번만 센다). 모듈 루트가 바뀌면 기억을 버린다.
+
+        Args:
+            name: 모듈 이름(`shop.urls`).
+
+        Returns:
+            프로젝트 상대 경로, 프로젝트 안에 없으면 None(외부 모듈).
+        """
+        if self._resolved_roots != self.module_roots:
+            self._resolved_modules.clear()
+            self._resolved_roots = list(self.module_roots)
+        if name not in self._resolved_modules:
+            self._resolved_modules[name] = self._find_module(name)
+        return self._resolved_modules[name]
+
+    def _find_module(self, name: str) -> str | None:
+        """모듈 루트 순서대로 이름의 패키지·모듈 파일을 찾는다(`resolve_module`이 결과를 기억한다).
 
         Args:
             name: 모듈 이름(`shop.urls`).
@@ -437,6 +497,41 @@ def _inside(relative: str) -> bool:
         and not PurePosixPath(relative).is_absolute()
         and not PureWindowsPath(relative).drive
     )
+
+
+def _is_skipped_directory(name: str) -> bool:
+    """순회가 들어가지 않는 디렉터리 이름(점 이름, 가상 환경·캐시·빌드 산출물·의존성)인지 판정한다.
+
+    Args:
+        name: 디렉터리 항목 이름.
+
+    Returns:
+        건너뛰면 True.
+    """
+    return name.startswith(".") or name in SKIPPED_DIRECTORIES
+
+
+def _link_may_hide_sources(name: str) -> bool:
+    """링크를 따라갔다면 순회가 읽었을 소스를 가릴 수 있는지 링크 이름만 보고 판정한다. 대상에는 접근하지 않는다.
+
+    이름이 `.py`인 링크(끊어진 링크 포함)는 파일 소스를, 확장자가 없고 순회가 건너뛰지 않는 이름의 링크는 들어갔을
+    디렉터리를 가릴 수 있다고 본다. `CLAUDE.md`·`README.md`처럼 확장자가 있는 이름은 파일 링크로 보고, `.venv`·
+    `node_modules`처럼 건너뛰는 이름은 디렉터리여도 순회가 들어가지 않으므로 세지 않는다. 소스와 무관한 링크까지 세면
+    링크 하나가 문서 전체 커버리지 한계가 되어 진단을 묻고 닫힌 세계 `bound` 증명을 막는다.
+
+    대상을 stat해 종류를 고르지 않는 이유: 프로젝트 밖 대상의 존재와 종류가 한계 수로 드러나(`probe -> /usr/bin`은
+    1, `-> /nonexistent`는 0) 출력을 보는 사람이 분석 머신의 경로를 알아낼 수 있고, 링크를 따라가지 않는다는 원칙과도
+    어긋난다. 그 대가로 확장자 있는 이름의 디렉터리 링크(`conf.d`)는 세지 않고, 확장자 없는 파일 링크(`LICENSE`)는 센다.
+
+    Args:
+        name: 링크인 디렉터리 항목의 이름.
+
+    Returns:
+        소스를 가릴 수 있으면 True.
+    """
+    if name.endswith(".py"):
+        return True
+    return "." not in name and not _is_skipped_directory(name)
 
 
 def _is_link(info: os.stat_result) -> bool:

@@ -1,13 +1,19 @@
-"""호출 그래프의 경계 사례: 프레임워크 디스패치, 계층 근사, 이름 필터, 지역 이름 규칙, 한계 문구."""
+"""호출 그래프의 경계 사례: 프레임워크 디스패치, 계층 근사, 이름 필터, 지역 이름 규칙, 한계 문구, 클래스 멤버 표."""
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
+from pythograph.graph import index as index_module
 from pythograph.graph.build import build_graph
+from pythograph.graph.index import DefinitionIndex
 from pythograph.graph.model import CallGraph
 from pythograph.source.project import Project
+from pythograph.source.symbols import SymbolTable
 
 #: 합성 프로젝트 도우미 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -302,6 +308,31 @@ def test_scope_rules(make_project: MakeProject) -> None:
     assert reasons == {"local-value": 4}
 
 
+def test_namespace_dictionary_unproves_module_aliases(make_project: MakeProject) -> None:
+    """`globals()`·모듈 수준 `vars()`를 부르는 모듈의 전역 별칭은 direct 간선으로 풀지 않는다.
+
+    client 모듈 상수 증명과 같은 판정(`source.symbols.uses_namespace`)이다. 함수 안 `vars()`는 그 함수의 지역 이름이라
+    별칭을 막지 않는다.
+    """
+    alias = "from . import tools\n\ntarget = tools.helper\n\n\ndef run():\n    return target()\n"
+    graph = graph_for(
+        make_project,
+        {
+            "pkg/__init__.py": "",
+            "pkg/tools.py": "def helper():\n    return 1\n\n\ndef other():\n    return 2\n",
+            "pkg/swapped.py": alias + '\n\ndef swap():\n    globals()["target"] = tools.other\n',
+            "pkg/module_vars.py": alias + "\n\nNAMESPACE = vars()\n",
+            "pkg/function_vars.py": alias + "\n\ndef describe():\n    return vars()\n",
+            "pkg/plain.py": alias,
+        },
+    )
+    all_edges = edges(graph)
+    assert ("pkg/swapped.py#run", "pkg/tools.py#helper", "direct") not in all_edges
+    assert ("pkg/module_vars.py#run", "pkg/tools.py#helper", "direct") not in all_edges
+    assert ("pkg/function_vars.py#run", "pkg/tools.py#helper", "direct") in all_edges
+    assert ("pkg/plain.py#run", "pkg/tools.py#helper", "direct") in all_edges
+
+
 def test_annotations_and_special_calls(make_project: MakeProject) -> None:
     """주석 변형(Optional·Annotated·문자열·잘못된 문자열), `type(self)`, `cls()`, 외부 결과 호출."""
     graph = graph_for(
@@ -478,3 +509,53 @@ def test_module_level_getattr_keeps_name_filter(make_project: MakeProject) -> No
         },
     )
     assert graph.node_map()["a.py#use"].reasons == {}
+
+
+def test_class_members_collects_class_attributes_once(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """클래스 수준 대입은 클래스마다 처음 한 번만 모으고, 부를 때마다 같은 멤버 표를 돌려준다.
+
+    수집 여부를 속성 표가 비었는지로 판정해, 대입 없이 메서드만 있는 클래스는 MRO 조회마다 본문을 다시 훑고 버릴
+    빈 표를 새로 만들었다.
+    """
+    root = make_project(
+        {
+            "app.py": """
+                class Plain:
+                    def run(self):
+                        return 1
+
+
+                class Configured:
+                    LIMIT = 3
+                    name: str = "x"
+                    if LIMIT:
+                        MODE = "a"
+
+                    def run(self):
+                        return self.LIMIT
+            """
+        }
+    )
+    project = Project.open(root)
+    index = DefinitionIndex(project, SymbolTable(project), include_tests=False)
+    plain, configured = index.definitions["app.py#Plain"], index.definitions["app.py#Configured"]
+    assert isinstance(plain.node, ast.ClassDef) and isinstance(configured.node, ast.ClassDef)
+    bodies = {id(plain.node.body): plain.id, id(configured.node.body): configured.id}
+    collected: list[str] = []
+    collect_attributes = index_module._collect_attributes
+
+    def counting(statements: list[ast.stmt], attributes: dict[str, ast.expr]) -> None:
+        if id(statements) in bodies:
+            collected.append(bodies[id(statements)])
+        collect_attributes(statements, attributes)
+
+    monkeypatch.setattr(index_module, "_collect_attributes", counting)
+    first = index.class_members(plain)
+    for _ in range(3):
+        assert index.class_members(plain) is first
+        assert sorted(index.class_members(configured).attributes) == ["LIMIT", "MODE", "name"]
+    assert sorted(first.methods) == ["run"]
+    assert first.attributes == {}
+    assert sorted(collected) == ["app.py#Configured", "app.py#Plain"]

@@ -26,8 +26,10 @@ jobs:
       UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # uv 버전과 빌드 백엔드(build-constraints.txt)는 고정한다. 올리는 절차는 RELEASING.md "빌드 도구 고정"에 있다.
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: '0.12.17'
           enable-cache: true
       - name: Install
         run: uv sync --locked
@@ -44,7 +46,7 @@ jobs:
       - name: CLI contract (built wheel in a clean environment)
         shell: bash
         run: |
-          uv build
+          uv build --build-constraints build-constraints.txt --require-hashes
           uv venv "$RUNNER_TEMP/wheel-venv"
           uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" dist/*.whl
           uv run python scripts/verify_cli_contract.py --executable "$RUNNER_TEMP/wheel-venv/bin/pythograph"

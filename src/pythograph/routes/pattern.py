@@ -14,13 +14,16 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from itertools import product
 from typing import Any
 
 from pythograph.exchange.template import MAX_TEMPLATE_LENGTH, encode_decoded_literal, template_problem
 from pythograph.routes.model import ParamConstraint, RouteShape
+from pythograph.source.text import is_contract_safe
 
 if sys.version_info >= (3, 11):  # pragma: no cover - 실행 중인 파이썬 버전에 따라 한쪽만 탄다.
     import re._parser as _sre_parse
@@ -29,6 +32,39 @@ else:  # pragma: no cover
 
 #: 선택 세그먼트·대안을 펼치는 최대 개수다(계약 상한).
 MAX_EXPANSIONS = 16
+
+#: 변환하는 정규식 구문 트리의 최대 중첩 깊이다(맨 바깥 항목열이 1, 묶음·대안·반복·전후방 탐색의 하위 패턴마다 1).
+#: 변환 함수(`_sequence`·`_item_options`·`_group_options`, `_may_match`·`_min_width`)가 재귀로 내려가며 한 단계에
+#: 프레임을 3~4개 쓰므로, 50단이면 파이썬 재귀 한도 안에서 넉넉히 끝난다. URL 정규식은 보통 몇 단계다.
+MAX_REGEX_NESTING = 50
+
+#: 변환하는 라우트 원문(Flask 규칙은 연속 `/`를 합친 뒤, Django는 include 접두사까지 이은 `path()`·`re_path()`
+#: 문자열)의 최대 길이다. 정규 템플릿 상한(`MAX_TEMPLATE_LENGTH`, 2,048자)의 4배다. 더 긴 원문은 변환하지 않고
+#: 템플릿 상한 초과(`too-long`)와 같은 dynamic으로 낸다. 변환 비용(토큰열·정규식 구문 트리·변환기 자리 찾기·파라미터
+#: 분류)이 원문 길이를 따라 늘어, 긴 원문 하나나 같은 긴 상수를 경로마다 재사용한 짧은 모듈로 명령이 멈추지 않게 하기
+#: 위해서다. 리터럴이 많은 원문은 이보다 짧아도 리터럴 하한(`check_literal_floor`)으로 변환 없이 판정한다. 원문이
+#: 이보다 길면서 템플릿은 짧은 극단(파라미터·변환기 인자·파라미터 정규식이 아주 많거나 긴 경로)도 dynamic이 된다.
+MAX_ROUTE_SOURCE_LENGTH = 4 * MAX_TEMPLATE_LENGTH
+
+#: 리터럴 하한(`regex_literal_floor`)을 셀 때 정규식 원문을 앞에서부터 나누는 조각이다. 리터럴 글자 묶음(문장 부호
+#: 이스케이프 포함)은 한 조각이라 긴 리터럴 경로도 조각 몇 개로 끝난다. 영숫자 이스케이프는 뒤따르는 16진 숫자까지,
+#: 이름 이스케이프는 `\N{…}` 전체를 한 조각으로 읽어(`\x41`·`\012`) 그 글자를 리터럴로 세지 않는다. `{`는 정규식
+#: 파서와 같이 `{m}`·`{m,n}`·`{,n}` 모양일 때만 반복 기호이고, 그 밖의 `{`·`}`는 세지 않는 글자다(`{(`를 반복 기호로
+#: 읽어 여는 괄호를 삼키면 묶음 안 글자를 바깥 리터럴로 잘못 센다).
+_REGEX_PIECE = re.compile(
+    r"(?P<run>(?:[^\\\[\]()|?*+{}^$.]|\\[^0-9A-Za-z])+)"
+    r"|(?P<escape>\\N\{[^}]*\}?|\\[0-9A-Za-z][0-9A-Fa-f]*)"
+    r"|(?P<set>\[\^?\]?(?:[^\]\\]|\\.)*\]?)"
+    r"|(?P<open>\()|(?P<close>\))|(?P<bar>\|)"
+    r"|(?P<repeat>[?*+]|\{(?:[0-9]+(?:,[0-9]*)?|,[0-9]*)\})"
+    r"|(?P<other>.)",
+    re.DOTALL,
+)
+
+#: 리터럴 하한을 세지 않는 구문이다. verbose 플래그(`(?x)`, `(?ix:…)`)는 공백과 `#` 주석을 무시하고, 주석 묶음
+#: `(?#…)`과 범위 없는 플래그 묶음(`(?s)`, 3.10은 중간에도 쓸 수 있다)은 구문 트리에 남지 않아 뒤따르는 반복 기호가
+#: 그 앞 글자에 붙는다(`a(?#c){0}`는 `a{0}`이다).
+_UNCOUNTED_SYNTAX = re.compile(r"\(\?(?:[a-zA-Z]*x|#|[a-zA-Z]+\))")
 
 #: 정규식 IGNORECASE 플래그 값이다.
 _IGNORECASE = 2
@@ -96,6 +132,86 @@ class RegexPieces:
     """
 
     alternatives: tuple[Skeleton, ...]
+
+
+def template_error(problem: str) -> Unconvertible:
+    """정규 템플릿 문법 위반(`template_problem` 사유 코드)을 변환 실패로 만든다.
+
+    Args:
+        problem: 사유 코드(`too-long` 등).
+
+    Returns:
+        limitation 이유 문구를 담은 변환 실패.
+    """
+    return Unconvertible(f"the path does not form a canonical template ({problem})")
+
+
+def check_source_length(text: str) -> None:
+    """라우트 원문이 `MAX_ROUTE_SOURCE_LENGTH`를 넘으면 변환하기 전에 템플릿 상한 초과로 실패한다.
+
+    이유 문구가 변환 뒤의 상한 초과와 같아서, 긴 리터럴 경로는 전과 같은 dynamic 사실과 limitation이 된다.
+
+    Args:
+        text: 라우트 원문.
+
+    Raises:
+        Unconvertible: 원문이 너무 길 때.
+    """
+    if len(text) > MAX_ROUTE_SOURCE_LENGTH:
+        raise template_error("too-long")
+
+
+def check_literal_floor(length: int) -> None:
+    """모든 템플릿에 들어갈 리터럴 글자 수의 하한이 템플릿 상한을 넘으면 변환하기 전에 too-long으로 실패한다.
+
+    리터럴 글자는 정규 템플릿에 한 글자 이상(퍼센트 인코딩하면 더 길게)으로 들어가므로, 하한이 상한을 넘는 경로는
+    변환해도 too-long이다. 원문 상한(`MAX_ROUTE_SOURCE_LENGTH`) 바로 아래의 긴 경로를 많이 두면(같은 긴 상수를 경로마다
+    재사용) 경로마다 변환 비용이 쌓이므로, 변환 없이 같은 판정을 미리 낸다. 변환 도중에 났을 다른 실패(펼침 상한
+    포함)보다 먼저 판정될 수 있어 그런 경로의 이유는 too-long이 되지만, 어느 쪽이든 그 경로는 dynamic이다.
+
+    Args:
+        length: 리터럴 글자 수의 하한.
+
+    Raises:
+        Unconvertible: 하한이 템플릿 상한을 넘을 때.
+    """
+    if length > MAX_TEMPLATE_LENGTH:
+        raise template_error("too-long")
+
+
+def regex_literal_floor(pattern: str) -> int:
+    """정규식이 변환한 대안 하나에 반드시 리터럴로 들어갈 글자 수의 하한을 원문만 보고 선형 시간에 센다.
+
+    묶음 밖에서 반복 기호가 붙지 않은 리터럴 글자(문장 부호 이스케이프 포함)만 센다. 묶음 안(파라미터로 합쳐질 수
+    있다)·문자 집합·이스케이프 범주·앵커는 세지 않고, 맨 바깥 `|`로 나뉜 대안 중 가장 큰 값을 돌려준다(대안 하나라도
+    템플릿 상한을 넘으면 그 경로는 dynamic이다). verbose 플래그·주석 묶음·범위 없는 플래그 묶음이 있으면
+    (`_UNCOUNTED_SYNTAX`) 0이다. 덜 세면 변환으로 넘어갈 뿐이므로, 판정이 애매한 구문은 모두 덜 세는 쪽으로 읽는다.
+
+    Args:
+        pattern: 정규식 원문(Django `path()`는 `route_to_regex` 결과).
+
+    Returns:
+        리터럴 글자 수의 하한.
+    """
+    if _UNCOUNTED_SYNTAX.search(pattern):
+        return 0
+    best = current = depth = last = 0
+    for piece in _REGEX_PIECE.finditer(pattern):
+        kind = piece.lastgroup
+        if kind == "run":
+            last = len(piece.group()) - piece.group().count("\\") if depth == 0 else 0
+            current += last
+            continue
+        if kind == "repeat":
+            current -= min(last, 1)
+        elif kind == "open":
+            depth += 1
+        elif kind == "close":
+            depth = max(depth - 1, 0)
+        elif kind == "bar" and depth == 0:
+            best, current = max(best, current), 0
+        last = 0
+    return max(best, current)
 
 
 def unconstrained_param() -> Param:
@@ -168,7 +284,7 @@ def _parse(pattern: str) -> list[tuple[Any, Any]]:
         (연산, 인자) 목록.
 
     Raises:
-        Unconvertible: 파싱할 수 없거나 대소문자 무시 플래그를 쓸 때.
+        Unconvertible: 파싱할 수 없거나 대소문자 무시 플래그를 쓰거나 `MAX_REGEX_NESTING`보다 깊게 중첩될 때.
     """
     try:
         parsed: Any = _sre_parse.parse(pattern, 0)
@@ -177,7 +293,52 @@ def _parse(pattern: str) -> list[tuple[Any, Any]]:
     if parsed.state.flags & _IGNORECASE:
         raise Unconvertible("a case-insensitive regular expression is not modeled")
     items: list[tuple[Any, Any]] = [(op, av) for op, av in parsed]
+    if _nesting_depth(items) > MAX_REGEX_NESTING:
+        raise Unconvertible("the regular expression nests too deeply")
     return items
+
+
+def _nesting_depth(items: list[tuple[Any, Any]]) -> int:
+    """구문 트리 항목열의 중첩 깊이를 재귀 없이 잰다.
+
+    변환 함수는 구문 트리를 재귀로 내려가므로, 재귀 한도를 넘기 전에 상한을 보려고 미리 잰다.
+
+    Args:
+        items: 맨 바깥 (연산, 인자) 목록.
+
+    Returns:
+        깊이(맨 바깥 항목열이 1).
+    """
+    deepest = 0
+    pending: list[tuple[Any, int]] = [(items, 1)]
+    while pending:
+        sequence, depth = pending.pop()
+        deepest = max(deepest, depth)
+        for _, av in sequence:
+            pending.extend((child, depth + 1) for child in _sub_patterns(av))
+    return deepest
+
+
+def _sub_patterns(av: Any) -> list[Any]:
+    """항목 인자에 든 하위 패턴을 돌려준다(묶음·대안·반복·전후방 탐색·조건 묶음의 인자).
+
+    Args:
+        av: 항목 인자.
+
+    Returns:
+        하위 패턴 목록(없으면 빈 목록).
+    """
+    if isinstance(av, _sre_parse.SubPattern):
+        return [av]
+    if not isinstance(av, (tuple, list)):
+        return []
+    found: list[Any] = []
+    for element in av:
+        if isinstance(element, _sre_parse.SubPattern):
+            found.append(element)
+        elif isinstance(element, list):
+            found.extend(item for item in element if isinstance(item, _sre_parse.SubPattern))
+    return found
 
 
 def _op(op: Any) -> str:
@@ -217,29 +378,36 @@ def _sequence(items: list[tuple[Any, Any]], groups: dict[int, str]) -> list[Skel
     Raises:
         Unconvertible: 확정할 수 없는 구문.
     """
-    alternatives: list[Skeleton] = [()]
+    alternatives: list[list[Token]] = [[]]
     for item in items:
         options = _item_options(item, groups)
         alternatives = _cross(alternatives, options)
-    return alternatives
+    return [tuple(alternative) for alternative in alternatives]
 
 
-def _cross(left: list[Skeleton], right: list[Skeleton]) -> list[Skeleton]:
-    """두 대안 목록의 모든 이음을 만든다. 상한을 넘으면 실패한다.
+def _cross(left: list[list[Token]], right: list[Skeleton]) -> list[list[Token]]:
+    """앞 대안마다 뒤 선택지를 모두 잇는다. 상한을 넘으면 실패한다.
+
+    선택지가 하나면 앞 대안 목록에 제자리로 붙인다. 문자 하나가 항목 하나인 긴 경로에서 대안을 매번 새 튜플로
+    복사하면 길이의 제곱 시간이 들기 때문이다. 선택지가 여럿이면 새 목록을 만든다(16개 상한이라 몇 번뿐이다).
 
     Args:
-        left: 앞 대안 목록.
-        right: 뒤 대안 목록.
+        left: 앞 대안 목록(선택지가 하나면 고쳐서 돌려준다).
+        right: 뒤 선택지 목록.
 
     Returns:
-        이은 대안 목록.
+        이은 대안 목록(순서는 앞 대안마다 뒤 선택지 순).
 
     Raises:
         ExpansionCapped: 16개를 넘을 때.
     """
     if len(left) * len(right) > MAX_EXPANSIONS:
         raise ExpansionCapped("optional parts expand to more than 16 templates")
-    return [first + second for first, second in product(left, right)]
+    if len(right) == 1:
+        for alternative in left:
+            alternative.extend(right[0])
+        return left
+    return [[*first, *second] for first, second in product(left, right)]
 
 
 def _item_options(item: tuple[Any, Any], groups: dict[int, str]) -> list[Skeleton]:
@@ -501,7 +669,7 @@ def _classify(items: list[tuple[Any, Any]], pattern: str | None) -> str | None:
         minimum, maximum, sub = items[0][1]
         inner = list(sub)
         if minimum == 1 and _is_unbounded(maximum) and len(inner) == 1:
-            accepted = frozenset(character for character in _ASCII if _single_accepts(inner[0], character))
+            accepted = _accepted_ascii(inner[0])
             if accepted == _DIGITS:
                 return "int"
             if accepted == _SLUG:
@@ -509,6 +677,44 @@ def _classify(items: list[tuple[Any, Any]], pattern: str | None) -> str | None:
             if accepted == _NOT_SLASH:
                 return None
     return "regex"
+
+
+def _accepted_ascii(item: tuple[Any, Any]) -> frozenset[str]:
+    """한 글자 항목이 받는 ASCII 문자 집합을 구한다. 모양이 같은 항목은 한 번만 계산한다(`_accepted_by_key`).
+
+    파라미터마다 ASCII 128자를 하나씩 맞춰 보면, 같은 변환기 정규식을 쓰는 파라미터가 수백 개인 경로
+    (`<int:p0><int:p1>…`) 하나에 수십 ms가 들고, 그런 상수를 경로마다 재사용하면 경로 수만큼 곱해진다.
+
+    Args:
+        item: 반복 안쪽 항목.
+
+    Returns:
+        받는 ASCII 문자 집합. 한 글자 항목(`LITERAL`·`NOT_LITERAL`·`ANY`·`IN`)이 아니면 빈 집합이다
+        (`_single_accepts`가 그런 항목에 늘 False다).
+    """
+    op, av = item
+    name = _op(op)
+    if name == "IN":
+        return _accepted_by_key((name, tuple((_op(set_op), set_av) for set_op, set_av in av)))
+    if name in ("LITERAL", "NOT_LITERAL", "ANY"):
+        return _accepted_by_key((name, av))
+    return frozenset()
+
+
+@lru_cache(maxsize=1024)
+def _accepted_by_key(key: tuple[str, Any]) -> frozenset[str]:
+    """항목 키로 받는 ASCII 문자 집합을 계산한다.
+
+    키는 연산 이름과 해시 가능한 인자다(`IN`은 집합 항목마다 (이름, 인자) 튜플). `_single_accepts`·`_set_accepts`는
+    연산을 이름으로 비교하므로 키를 항목 자리에 그대로 넘겨도 원래 항목과 같은 판정이다.
+
+    Args:
+        key: (연산 이름, 인자).
+
+    Returns:
+        받는 ASCII 문자 집합.
+    """
+    return frozenset(character for character in _ASCII if _single_accepts(key, character))
 
 
 def _is_unbounded(maximum: Any) -> bool:
@@ -664,36 +870,53 @@ def skeleton_shapes(alternatives: list[Skeleton], *, raw: str | None, trailing_p
         expanded = _with_empty_variants(alternatives)
         shapes = [_skeleton_shape(skeleton, trailing_policy) for skeleton in expanded]
     except Unconvertible as error:
-        return [dynamic_shape(raw, str(error))]
+        return [unconvertible_shape(raw, error)]
     return _merge_trailing_slash(shapes)
 
 
-def dynamic_shape(raw: str | None, reason: str) -> RouteShape:
-    """dynamic 판정을 만든다. 원문은 길이 상한과 제어 문자를 검사해 싣는다.
+def dynamic_shape(raw: str | None, reason: str, *, capped: bool = False) -> RouteShape:
+    """dynamic 판정을 만든다. 원문은 길이 상한과 계약이 금지하는 문자(제어 문자·U+2028/2029·짝 없는 서러게이트)를
+    검사해 싣는다.
 
     Args:
         raw: 원문 표현.
         reason: 이유 종류(limitation 문구용).
+        capped: 펼친 템플릿 수가 상한을 넘어 dynamic이 됐는지(limitation 접두사용).
 
     Returns:
         dynamic 판정.
     """
-    safe = raw if raw is not None and len(raw) <= MAX_TEMPLATE_LENGTH and _is_safe_text(raw) else None
-    return RouteShape(channel=safe, dynamic=True, coverage_reason=reason)
+    safe = raw if raw is not None and len(raw) <= MAX_TEMPLATE_LENGTH and is_contract_safe(raw) else None
+    return RouteShape(channel=safe, dynamic=True, coverage_reason=reason, expansion_capped=capped)
 
 
-def _is_safe_text(text: str) -> bool:
-    """문자열에 계약이 금지하는 제어 문자가 없는지 확인한다.
+def unconvertible_shape(raw: str | None, error: Unconvertible) -> RouteShape:
+    """변환 실패를 dynamic 판정으로 바꾼다. 펼침 상한(`ExpansionCapped`)이면 그 표식을 단다.
 
     Args:
-        text: 검사할 문자열.
+        raw: 원문 표현.
+        error: 변환 실패(메시지가 이유 종류다).
 
     Returns:
-        안전하면 True.
+        dynamic 판정.
     """
-    return bool(text) and not any(
-        ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F or character in "  " for character in text
-    )
+    return dynamic_shape(raw, str(error), capped=isinstance(error, ExpansionCapped))
+
+
+def dynamic_gap_prefix(shape: RouteShape) -> str:
+    """dynamic 판정의 limitation 접두사를 고른다.
+
+    계약(GRAPH-EXCHANGE "정규 경로 템플릿", HTTP-ROUTES.md 한계 표)은 펼침 상한을 넘은 경로에
+    `route-template-expansion-capped:`를, 그 밖의 확정하지 못한 경로에 `route-coverage:`를 쓴다. 이유 문구가 아니라
+    표식으로 고르므로 문구를 고쳐도 분류가 바뀌지 않고, Django·Flask 추출기가 이 함수 하나를 쓴다.
+
+    Args:
+        shape: dynamic 판정.
+
+    Returns:
+        콜론으로 끝나는 접두사.
+    """
+    return "route-template-expansion-capped:" if shape.expansion_capped else "route-coverage:"
 
 
 def _with_empty_variants(alternatives: list[Skeleton]) -> list[Skeleton]:
@@ -710,13 +933,13 @@ def _with_empty_variants(alternatives: list[Skeleton]) -> list[Skeleton]:
     """
     result: list[Skeleton] = []
     for skeleton in alternatives:
-        variants: list[Skeleton] = [()]
+        variants: list[list[Token]] = [[]]
         for token in skeleton:
             options: list[Skeleton] = [(token,)]
             if isinstance(token, Param) and token.may_be_empty:
                 options.append(())
             variants = _cross(variants, options)
-        result.extend(variants)
+        result.extend(tuple(variant) for variant in variants)
     unique = list(dict.fromkeys(result))
     if len(unique) > MAX_EXPANSIONS:
         raise ExpansionCapped("empty-value variants expand to more than 16 templates")
@@ -747,7 +970,7 @@ def _skeleton_shape(skeleton: Skeleton, trailing_policy: str | None) -> RouteSha
     template = "/" + "/".join(rendered)
     problem = template_problem(template)
     if problem is not None:
-        raise Unconvertible(f"the path does not form a canonical template ({problem})")
+        raise template_error(problem)
     ends_with_catch_all = rendered[-1] == "{**}"
     return RouteShape(
         channel=template,
@@ -760,6 +983,9 @@ def _skeleton_shape(skeleton: Skeleton, trailing_policy: str | None) -> RouteSha
 def _merge_adjacent(skeleton: Skeleton) -> Skeleton:
     """이웃한 리터럴을 잇고, 사이에 리터럴이 없는 파라미터는 하나로 합친다.
 
+    이웃한 리터럴은 조각을 모았다가 한 번에 잇는다. 한 글자씩 이어 붙이면 긴 리터럴 경로에서 길이의 제곱 시간이
+    든다. 빈 리터럴은 앞이 리터럴일 때만 이어지고(효과 없음) 그 밖에는 버린다.
+
     Args:
         skeleton: 토큰열.
 
@@ -767,20 +993,38 @@ def _merge_adjacent(skeleton: Skeleton) -> Skeleton:
         정리한 토큰열.
     """
     merged: list[Token] = []
+    run: list[str] = []
     for token in skeleton:
-        previous = merged[-1] if merged else None
-        if isinstance(token, Literal) and isinstance(previous, Literal):
-            merged[-1] = Literal(previous.text + token.text)
-        elif isinstance(token, Param) and isinstance(previous, Param):
-            merged[-1] = Param(
-                kind="path" if previous.crosses_slash or token.crosses_slash else "regex",
-                pattern=None,
-                may_be_empty=previous.may_be_empty and token.may_be_empty,
-                crosses_slash=previous.crosses_slash or token.crosses_slash,
-            )
-        elif not (isinstance(token, Literal) and token.text == ""):
-            merged.append(token)
+        if isinstance(token, Literal):
+            if run or token.text:
+                run.append(token.text)
+            continue
+        if run:
+            merged.append(Literal("".join(run)))
+            run = []
+        _append_param(merged, token)
+    if run:
+        merged.append(Literal("".join(run)))
     return tuple(merged)
+
+
+def _append_param(merged: list[Token], token: Param) -> None:
+    """정리 중인 토큰열에 파라미터를 더한다. 바로 앞이 파라미터면 하나로 합친다.
+
+    Args:
+        merged: 정리 중인 토큰열.
+        token: 파라미터.
+    """
+    previous = merged[-1] if merged else None
+    if isinstance(previous, Param):
+        merged[-1] = Param(
+            kind="path" if previous.crosses_slash or token.crosses_slash else "regex",
+            pattern=None,
+            may_be_empty=previous.may_be_empty and token.may_be_empty,
+            crosses_slash=previous.crosses_slash or token.crosses_slash,
+        )
+    else:
+        merged.append(token)
 
 
 def _split_segments(skeleton: Skeleton) -> list[list[Token]]:

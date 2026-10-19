@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +20,7 @@ from pythograph.graph.build import build_graph
 from pythograph.graph.exposure import _toml_tables, detect_library, is_importable, is_public
 from pythograph.graph.model import CallGraph
 from pythograph.source.project import Project
+from tests.conftest import GENERATED_AT, REPOSITORY, class_lattice
 
 #: 합성 프로젝트 도우미 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -1072,6 +1076,102 @@ def test_toml_tables_keeps_lines_per_table() -> None:
     tables = _toml_tables('a = 1\n[project] # meta\nname = "x"\n[[tool.x]]\ny = 2\n')
     assert tables[""] == ["a = 1"]
     assert tables["project"] == ['name = "x"', "[[tool.x]]", "y = 2"]
+
+
+def test_toml_table_headers_keep_their_names() -> None:
+    """표 머리 정규식을 선형으로 바꿔도 표 이름과 줄 배정은 같다(수정 전 출력을 그대로 적었다).
+
+    주석 붙은 머리, 괄호 안쪽 공백, 탭으로 둘러싼 머리, 따옴표 이름, 머리가 아닌 줄(`[]`, 배열 표, 뒤에 글자가 붙은
+    머리)을 포함한다.
+    """
+    text = (
+        "a = 1\n[project] # meta\nname = 'x'\n[ tool.poetry ]  # c\n[[tool.x]]\ny = 2\n[]\n[ ]\n"
+        '\t[tool.uv]\t\n[ "project" ]\n[tool.poetry]x\n'
+    )
+    assert _toml_tables(text) == {
+        "": ["a = 1"],
+        "project": ["name = 'x'", "[tool.poetry]x"],
+        "tool.poetry": ["[[tool.x]]", "y = 2", "[]"],
+        "tool.uv": [],
+    }
+
+
+#: 프로젝트 경로를 받아 라이브러리 판정을 출력하는 별도 프로세스 스크립트다.
+_DETECT_LIBRARY = r"""
+import sys
+from pathlib import Path
+
+from pythograph.graph.exposure import detect_library
+from pythograph.source.project import Project
+
+print(detect_library(Project.open(Path(sys.argv[1]))))
+"""
+
+
+def test_toml_table_headers_stay_linear_on_crafted_input(make_project: MakeProject) -> None:
+    """닫히지 않은 `[` 뒤에 긴 공백이 이어진 줄도 선형 시간에 읽고, 그 아래 표 머리를 그대로 본다.
+
+    괄호 안쪽 공백을 수량자 셋이 나눠 가져 수정 전에는 그 줄 길이의 세제곱으로 역추적했다(3 KB 한 줄로 graph가 11초,
+    30 KB면 수 시간). 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일 뿐 성능 측정이 아니다.
+    """
+    root = make_project({"app.py": "", "pyproject.toml": "[" + " " * 30_000 + "\n[project]\nname = 'x'\n"})
+    result = subprocess.run(
+        [sys.executable, "-c", _DETECT_LIBRARY, str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "pyproject.toml declares [project] or [tool.poetry]\n"
+
+
+#: 프로젝트 경로를 받아 graph·schema를 차례로 실행하고 (종료 코드, 문서 요약)을 JSON으로 출력하는 별도 프로세스
+#: 스크립트다.
+_GRAPH_AND_SCHEMA = r"""
+import io
+import json
+import sys
+
+from pythograph.cli.main import main
+
+summary = []
+for command in (["graph", "--revision", "x"], ["schema"]):
+    out, err = io.StringIO(), io.StringIO()
+    code = main([command[0], "--project", sys.argv[1], "--generated-at", sys.argv[2], *command[1:]], out, err)
+    document = json.loads(out.getvalue()) if code == 0 else {}
+    summary.append([code, len(document.get("nodes", [])), len(document.get("facts", [])), err.getvalue()])
+print(json.dumps(summary))
+"""
+
+
+def test_class_lattices_finish_in_graph_and_schema(make_project: MakeProject) -> None:
+    """상속 깊이 상한(32)까지 닿는 다이아몬드 격자(순환 격자 포함)에서도 graph·schema가 끝난다.
+
+    graph는 모듈 수준 클래스마다 뷰 클래스 분석을, schema는 클래스마다 SQLAlchemy 매핑 해석을 부른다. 둘 다 경로마다
+    상속 사슬을 다시 펴서 수정 전에는 2^32번 재귀했다(깊이 20인 1 KB 모듈 하나로 각각 17~18초). 별도 프로세스의 제한
+    시간은 멈춤을 실패로 바꾸는 안전장치일 뿐 성능 측정이 아니다.
+    """
+    root = make_project(
+        {
+            "pkg/__init__.py": "",
+            "pkg/shapes.py": class_lattice(31),
+            "pkg/ring.py": class_lattice(31, back_edge=True),
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", _GRAPH_AND_SCHEMA, str(root), GENERATED_AT],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    (graph_code, nodes, _, graph_error), (schema_code, _, facts, schema_error) = json.loads(result.stdout)
+    assert (graph_code, schema_code) == (0, 0), graph_error + schema_error
+    assert nodes > 2 * 2 * 32 and facts == 0
 
 
 def test_public_and_importable_names(make_project: MakeProject) -> None:

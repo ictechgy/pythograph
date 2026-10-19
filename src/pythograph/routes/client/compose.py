@@ -25,9 +25,6 @@ from pythograph.exchange.template import normalize_uri_path, template_problem
 #: 세그먼트 전체를 채운 값 자리의 내부 표식이다(정규화 뒤 `{}`가 된다).
 PLACEHOLDER = "\x00"
 
-#: HTTP 계약 동사다.
-HTTP_VERBS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE"})
-
 #: 절대 URL 앞머리(scheme://)다. 파이썬 클라이언트가 보내는 scheme은 http·https뿐이다.
 _SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*)://")
 

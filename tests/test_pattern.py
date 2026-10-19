@@ -2,20 +2,47 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from pythograph.exchange.template import encode_decoded_literal, normalize_uri_path
+from pythograph.routes import pattern as pattern_module
 from pythograph.routes.pattern import (
+    MAX_REGEX_NESTING,
     ExpansionCapped,
     Literal,
     Param,
     Unconvertible,
     capture_group_texts,
     convert_regex,
+    dynamic_gap_prefix,
     dynamic_shape,
+    regex_literal_floor,
     regex_param,
     skeleton_shapes,
+    unconvertible_shape,
 )
+
+#: 리터럴 하한(`regex_literal_floor`)의 기대값이다. 묶음 밖에서 반복 기호가 붙지 않은 리터럴만 세고, 애매한 구문은
+#: 덜 센다(`\x41b`는 16진 숫자까지 이스케이프로 읽어 0).
+LITERAL_FLOORS = {
+    r"^items/(?P<pk>\d+)/$": 7,
+    r"^a\.b\-c$": 5,
+    r"^ab?c$": 2,
+    r"^a{3}b$": 1,
+    r"^a{,}b$": 1,
+    r"^a{b$": 2,
+    r"^(?:abc)d$": 1,
+    r"^abc|^de$": 3,
+    r"^[ab]c\d$": 1,
+    r"^\x41b$": 0,
+    r"^\x41z$": 1,
+    r"^\N{LATIN SMALL LETTER A}b$": 1,
+    r"(?x)^a b$": 0,
+    r"^a(?#c){0}b$": 0,
+    r"^a{(x+}cc+c)d$": 2,
+}
 
 
 def _templates(regex: str, *, endpoint: bool = True, fullmatch: bool = False) -> list[tuple[str | None, object]]:
@@ -135,6 +162,50 @@ def test_regex_param_kinds() -> None:
         regex_param("(?=x)x")
 
 
+def test_parameter_classification_is_computed_once_per_character_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 문자 집합을 반복하는 파라미터는 ASCII 128자 판정을 한 번만 한다. 판정 결과(종류)는 같다.
+
+    파라미터마다 128자를 다시 맞춰 봐서 `<int:p0>/<int:p1>/…` 8,000자 경로 하나에 약 28ms가 들었고, 같은 상수를
+    경로마다 재사용하면 경로 수만큼 곱해졌다(100개에 약 3초).
+    """
+    checks: list[str] = []
+    single_accepts = pattern_module._single_accepts
+
+    def counting(item: tuple[Any, Any], character: str) -> bool:
+        checks.append(character)
+        return single_accepts(item, character)
+
+    monkeypatch.setattr(pattern_module, "_single_accepts", counting)
+    pattern_module._accepted_by_key.cache_clear()
+    regex = "^" + "".join(f"(?P<p{index}>[0-9]+)/(?P<s{index}>[-a-zA-Z0-9_]+)/" for index in range(100)) + "$"
+    options = convert_regex(regex, endpoint=True, anchored_by_fullmatch=True).alternatives
+    shapes = skeleton_shapes([(Literal("/"), *option) for option in options], raw=regex, trailing_policy="strict")
+    assert [shape.channel for shape in shapes] == ["/" + "{}/" * 200]
+    assert [constraint.kind for constraint in shapes[0].constraints] == ["int", "slug"] * 100
+    # 파라미터마다 `/`를 넘는지 한 번씩(200회) + 문자 집합 두 개의 128자 판정. 전에는 200 × 128회를 더 했다.
+    assert len(checks) == 200 + 2 * 128
+
+
+def test_deeply_nested_regex_is_unconvertible() -> None:
+    """묶음을 상한보다 깊게 중첩한 정규식은 재귀 변환 전에 Unconvertible이다(220단 대안 묶음, 변환기 정규식).
+
+    정규식 구문 트리를 상호 재귀(`_sequence`·`_item_options`·`_group_options`)로 바꾸다 RecursionError가 명령 전체를
+    내부 오류로 끝내던 회귀다. 상한 깊이의 정규식은 그대로 변환한다.
+    """
+    alternation = "^" + "(a|" * 220 + "a" + ")" * 220 + "/$"
+    with pytest.raises(Unconvertible, match="nests too deeply"):
+        convert_regex(alternation, endpoint=True, anchored_by_fullmatch=False)
+    # 캡처 묶음마다 한 단계, `[0-9]+` 반복이 한 단계, 맨 바깥 항목열이 한 단계다.
+    edge = "(" * (MAX_REGEX_NESTING - 2) + "[0-9]+" + ")" * (MAX_REGEX_NESTING - 2)
+    assert regex_param(edge).kind == "int"
+    with pytest.raises(Unconvertible, match="nests too deeply"):
+        regex_param("(" + edge + ")")
+    # 원자 묶음(3.11+)은 하위 패턴을 인자로 바로 싣는다. 깊이를 잰 뒤 모델링하지 않는 구문으로 거부한다
+    # (3.10은 파싱 실패).
+    with pytest.raises(Unconvertible):
+        regex_param("(?>(a))")
+
+
 def test_expansion_cap() -> None:
     """펼친 템플릿이 16개를 넘으면 상한 예외다."""
     with pytest.raises(ExpansionCapped):
@@ -149,6 +220,54 @@ def test_repeated_literals() -> None:
     assert _templates(r"^a{3}/$", fullmatch=True) == [("/aaa/", "strict")]
 
 
+def _longest_template(regex: str) -> int | None:
+    """정규식을 끝점(fullmatch)으로 바꿔 정적 템플릿이 되면 펼친 대안 중 가장 긴 템플릿 길이를 구한다.
+
+    끝 슬래시만 다른 두 대안은 슬래시 없는 쪽 하나(`optional`)로 합쳐지므로 합친 쪽은 한 글자를 더한다.
+
+    Args:
+        regex: 정규식.
+
+    Returns:
+        가장 긴 템플릿 길이, 변환할 수 없거나 dynamic이면 None.
+    """
+    try:
+        options = convert_regex(regex, endpoint=True, anchored_by_fullmatch=True).alternatives
+    except Unconvertible:
+        return None
+    shapes = skeleton_shapes([(Literal("/"), *option) for option in options], raw=regex, trailing_policy="strict")
+    if any(shape.dynamic for shape in shapes):
+        return None
+    return max(len(shape.channel or "") + (shape.trailing_slash == "optional") for shape in shapes)
+
+
+def test_regex_literal_floor_counts_only_certain_literals() -> None:
+    """리터럴 하한은 묶음 밖에서 반복 기호가 붙지 않은 리터럴만 센다. 변환한 가장 긴 템플릿보다 커지지 않는다.
+
+    하한이 템플릿 상한을 넘으면 변환하지 않고 too-long dynamic으로 내므로, 실제보다 크게 세면 정적이어야 할 경로가
+    dynamic이 된다. 그래서 주석 묶음·범위 없는 플래그 묶음(뒤따르는 반복 기호가 그 앞 글자에 붙는다)은 세지 않고,
+    `{`는 `{m,n}` 모양일 때만 반복 기호로 본다. 전에는 `{(`를 반복 기호로 읽어 여는 괄호를 삼켰고, 그래서
+    `a{(x+}cccc…+c)d`의 묶음 안 `c`를 바깥 리터럴로 세었다(실제 템플릿은 `/a%7B{}d`).
+    """
+    assert {regex: regex_literal_floor(regex) for regex in LITERAL_FLOORS} == LITERAL_FLOORS
+    swallowed = r"^a{(x+}" + "c" * 3000 + r"+c)d$"
+    assert regex_literal_floor(swallowed) == 2
+    assert _templates(swallowed, fullmatch=True) == [("/a%7B{}d", "strict")]
+    samples = [
+        *LITERAL_FLOORS,
+        swallowed,
+        r"^/(?#c){0}$",
+        r"^a(?:b|cd)?e/$",
+        r"^x(?P<a>[0-9]+)y(?P<b>z+)$",
+        r"^(?:ab)+c{2}d{0}e/?$",
+        r"^\{1\}\N{LATIN SMALL LETTER A}{2}$",
+    ]
+    for regex in samples:
+        longest = _longest_template(regex)
+        if longest is not None:
+            assert 1 + regex_literal_floor(regex) <= longest, regex
+
+
 def test_capture_group_texts_skip_classes_and_escapes() -> None:
     """캡처 묶음 원문 추출은 문자 집합·이스케이프·비캡처 묶음을 건너뛴다."""
     assert capture_group_texts(r"^(?P<a>[)(]+)/(\()/(?:x)(?P<b>[]a]+)$") == {1: "[)(]+", 2: r"\(", 3: "[]a]+"}
@@ -156,10 +275,32 @@ def test_capture_group_texts_skip_classes_and_escapes() -> None:
 
 
 def test_dynamic_shape_hides_unsafe_raw_text() -> None:
-    """dynamic 원문은 제어 문자나 길이 초과면 싣지 않는다."""
+    """dynamic 원문은 계약이 금지하는 문자(제어 문자·NEL·U+2028/2029·짝 없는 서러게이트)나 길이 초과면 싣지 않는다.
+
+    서러게이트를 실으면 출력 쓰기가 UnicodeEncodeError로 실패해 문서 전체가 사라졌다.
+    """
     assert dynamic_shape("a\nb", "x").channel is None
+    assert dynamic_shape("/a\x85b\u2028", "x").channel is None
+    assert dynamic_shape("/\udc00/<path:rest>", "x").channel is None
     assert dynamic_shape("x" * 3000, "x").channel is None
     assert dynamic_shape("/ok", "x").channel == "/ok"
+
+
+def test_dynamic_gap_prefix_follows_the_capped_marker() -> None:
+    """dynamic 판정의 한계 접두사는 펼침 상한 표식으로 고르고 이유 문구에 기대지 않는다.
+
+    Django가 이유 문구의 "more than 16" 부분 문자열로 접두사를 고르던 때는 문구를 고치면 분류가 조용히 바뀌었고,
+    Flask는 같은 상한을 `route-coverage:`로 냈다.
+    """
+    empty = Param(kind="regex", pattern="[^/]*", may_be_empty=True, crosses_slash=False)
+    capped = skeleton_shapes([(Literal("/"), *(empty, Literal("/")) * 5)], raw="/x", trailing_policy="strict")
+    assert [(shape.dynamic, shape.expansion_capped) for shape in capped] == [(True, True)]
+    assert dynamic_gap_prefix(capped[0]) == "route-template-expansion-capped:"
+    capped_error = unconvertible_shape("/x", ExpansionCapped("too many"))
+    assert dynamic_gap_prefix(capped_error) == "route-template-expansion-capped:"
+    plain = unconvertible_shape("/x", Unconvertible("a segment holds more than 16 parameters"))
+    assert (plain.dynamic, plain.expansion_capped, dynamic_gap_prefix(plain)) == (True, False, "route-coverage:")
+    assert dynamic_gap_prefix(dynamic_shape("/x", "more than 16 templates")) == "route-coverage:"
 
 
 def test_non_canonical_result_is_dynamic() -> None:

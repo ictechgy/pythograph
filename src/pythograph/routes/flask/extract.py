@@ -22,12 +22,20 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 
+from pythograph.exchange.document import MAX_FACTS
+from pythograph.exchange.methods import ROUTE_DECL_METHODS
 from pythograph.routes.classes import analyze_class, attribute_literal
 from pythograph.routes.django.urlconf import converter_regex, node_location
 from pythograph.routes.django.views import emitted_methods
 from pythograph.routes.flask.rules import rule_alternatives
 from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape, ScopeRange
-from pythograph.routes.pattern import Unconvertible, dynamic_shape, skeleton_shapes
+from pythograph.routes.pattern import (
+    Unconvertible,
+    dynamic_gap_prefix,
+    dynamic_shape,
+    skeleton_shapes,
+    unconvertible_shape,
+)
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import is_test_path
 from pythograph.source.symbols import (
@@ -48,6 +56,24 @@ _HTTP_METHOD_FUNCS = ("get", "post", "head", "options", "delete", "put", "trace"
 
 #: 라우트를 따로 등록하는 Flask 확장(모델링하지 않음)이다.
 _ROUTING_EXTENSIONS = ("flask_restful", "flask_restx", "flask_smorest", "connexion", "flask_appbuilder", "flask_admin")
+
+#: 한 번의 추출에서 펼치는 하위 블루프린트 등록(등록 경로마다 하나)의 상한이다. Flask는 같은 블루프린트를 여러 경로로
+#: 등록하는 격자를 허용하고 경로마다 규칙을 다시 등록하므로 깊이 d 격자는 등록이 2^d개다. 등록마다 계약 동사 선언이
+#: 하나 이상이면 사실 상한(MAX_FACTS)이 먼저 걸리도록 그 두 배로 둔다. 규칙이 없거나 계약 밖 동사뿐인 등록도 이 상한에서
+#: 멈춘다.
+MAX_BLUEPRINT_REGISTRATIONS = 2 * MAX_FACTS
+
+#: 순환을 닫는 하위 블루프린트 등록의 limitation 문장 틀이다.
+_REGISTRATION_CYCLE = (
+    "{count} Flask blueprint registrations close a registration cycle that Flask cannot complete, "
+    "so they were not followed"
+)
+
+#: 하위 블루프린트 등록 펼침 상한에 걸렸을 때의 limitation 문장 틀이다(`{limit}`은 상한).
+_REGISTRATIONS_CAPPED = (
+    "Flask blueprint registrations expand to more than {limit} registrations "
+    "(the same blueprints registered along many paths), so the remaining registrations were not followed"
+)
 
 
 @dataclass
@@ -94,6 +120,60 @@ class FlaskOptions:
     include_tests: bool
 
 
+@dataclass
+class _Emission:
+    """규칙을 선언으로 내는 동안의 상태.
+
+    Attributes:
+        extraction: 채울 결과.
+        registered: 앱에 닿은 블루프린트 키.
+        registrations: 지금까지 펼친 하위 블루프린트 등록 수.
+        capped: 등록 펼침 상한에 걸렸는지.
+        counted: 계약 동사 선언을 센 `extraction.decls` 앞부분 길이.
+        facts: 그 앞부분의 계약 동사 선언 수.
+    """
+
+    extraction: Extraction
+    registered: set[tuple[str, str, str]] = field(default_factory=set)
+    registrations: int = 0
+    capped: bool = False
+    counted: int = 0
+    facts: int = 0
+
+    def may_register(self) -> bool:
+        """하위 블루프린트 등록을 하나 더 펼쳐도 되는지 정한다.
+
+        계약 동사 선언이 이미 사실 상한을 넘었으면 어차피 문서를 낼 수 없어(조립에서 사실 상한 오류, 종료 2) 더
+        펼치지 않는다. 계약 밖 동사 선언은 조립 전에 빠지므로 세지 않는다. 펼친 등록이 상한에 닿으면 한계를 한 번
+        남기고 멈춘다.
+
+        Returns:
+            펼쳐도 되면 True.
+        """
+        if self._facts_over_limit():
+            return False
+        if self.registrations >= MAX_BLUEPRINT_REGISTRATIONS:
+            if not self.capped:
+                self.capped = True
+                self.extraction.add_gap(
+                    "route-coverage:", _REGISTRATIONS_CAPPED.format(limit=MAX_BLUEPRINT_REGISTRATIONS)
+                )
+            return False
+        self.registrations += 1
+        return True
+
+    def _facts_over_limit(self) -> bool:
+        """지금까지 낸 계약 동사 선언이 사실 상한을 넘었는지 본다(지난번 뒤에 더한 선언만 센다).
+
+        Returns:
+            넘었으면 True.
+        """
+        decls = self.extraction.decls
+        self.facts += sum(1 for decl in decls[self.counted :] if decl.method in ROUTE_DECL_METHODS)
+        self.counted = len(decls)
+        return self.facts > MAX_FACTS
+
+
 def extract_flask(symbols: SymbolTable, options: FlaskOptions) -> Extraction:
     """Flask 프로젝트의 route-decl을 추출한다.
 
@@ -107,19 +187,19 @@ def extract_flask(symbols: SymbolTable, options: FlaskOptions) -> Extraction:
     extraction = Extraction(dispatch="specificity", framework="flask")
     collector = _Collector(symbols, Evaluator(symbols), options.include_tests)
     collector.collect()
-    registered: set[tuple[str, str, str]] = set()
+    emission = _Emission(extraction)
     for app in collector.apps():
-        _emit_object(app, None, extraction, app, registered, "root")
+        _emit_object(app, None, emission, app, "root")
         _static_gap(app, None, extraction)
     for blueprint in collector.blueprints():
-        if blueprint.key not in registered and blueprint.rules:
+        if blueprint.key not in emission.registered and blueprint.rules:
             extraction.add_gap(
                 "unresolved-route-prefix:",
                 "{count} Flask blueprints are registered in a way that "
                 "is not modeled, so their routes are emitted with a base "
                 "anchor",
             )
-            _emit_object(blueprint, None, extraction, None, registered, "base")
+            _emit_object(blueprint, None, emission, None, "base")
     for gap in collector.gaps:
         extraction.add_gap(*gap)
     return extraction
@@ -143,37 +223,47 @@ def flask_detected(symbols: SymbolTable, include_tests: bool) -> bool:
 def _emit_object(
     obj: _Object,
     prefix: object,
-    extraction: Extraction,
+    emission: _Emission,
     app: _Object | None,
-    registered: set[tuple[str, str, str]],
     anchor: str,
+    path: tuple[tuple[str, str, str], ...] = (),
 ) -> None:
     """객체의 규칙과 등록한 하위 블루프린트를 선언으로 낸다.
+
+    등록 경로(앱부터 이 객체까지)에 이미 있는 객체를 다시 등록하면 순환이다. Flask는 그런 앱을 등록하다 실패하므로
+    (자기 등록은 ValueError, 서로 등록은 끝없는 재귀) 따라가지 않고 한계로 센다. 같은 블루프린트를 다른 경로로 다시
+    등록하는 격자는 Flask가 허용해 그대로 펼치되 `_Emission.may_register`의 상한에서 멈춘다.
 
     Args:
         obj: 앱 또는 블루프린트.
         prefix: 적용할 접두사(None이면 없음, `UNKNOWN`이면 모름).
-        extraction: 채울 결과.
+        emission: 선언을 내는 상태(수정한다).
         app: 규칙을 담는 앱(변환기·슬래시 설정용, 등록되지 않은 블루프린트면 None).
-        registered: 앱에 닿은 블루프린트 키(수정한다).
         anchor: 경로 앵커.
+        path: 이 객체를 등록한 경로의 객체 키(앱부터).
     """
+    extraction = emission.extraction
     if obj.kind == "blueprint" and app is not None:
-        registered.add(obj.key)
+        emission.registered.add(obj.key)
     for rule in obj.rules:
         _emit_rule(rule, prefix, extraction, app, anchor, is_test_path(rule.location.path))
-    for child, option_prefix, location in obj.children:
+    path = (*path, obj.key)
+    for child, option_prefix, _location in obj.children:
         if app is None:
+            return
+        if child.key in path:
+            extraction.add_gap("route-coverage:", _REGISTRATION_CYCLE)
             continue
+        if not emission.may_register():
+            return
         child_prefix = _child_prefix(prefix, option_prefix, child.url_prefix)
         if child_prefix is UNKNOWN:
             extraction.add_gap(
                 "unresolved-route-prefix:",
                 "{count} Flask blueprint registrations use a url_prefix that is not a literal",
             )
-        _emit_object(child, child_prefix, extraction, app, registered, "base" if child_prefix is UNKNOWN else anchor)
+        _emit_object(child, child_prefix, emission, app, "base" if child_prefix is UNKNOWN else anchor, path)
         _static_gap(child, child_prefix, extraction)
-        del location
 
 
 def _child_prefix(parent: object, option: object, own: object) -> object:
@@ -230,7 +320,7 @@ def _emit_rule(
     for shape in shapes:
         if shape.dynamic:
             extraction.add_gap(
-                "route-coverage:", "{count} Flask rules are emitted as dynamic: " + str(shape.coverage_reason)
+                dynamic_gap_prefix(shape), "{count} Flask rules are emitted as dynamic: " + str(shape.coverage_reason)
             )
     if rule.uncertain:
         scope = ScopeRange(templates=templates) if anchor == "root" and len(templates) == len(shapes) else None
@@ -281,7 +371,7 @@ def _rule_shapes(rule: _Rule, prefix: object, app: _Object | None) -> list[Route
     try:
         alternatives = rule_alternatives(full, merge is not False, converters)
     except Unconvertible as error:
-        return [dynamic_shape(full, str(error))]
+        return [unconvertible_shape(full, error)]
     return skeleton_shapes(alternatives, raw=full, trailing_policy=policy)
 
 
@@ -516,6 +606,9 @@ class _Registrar:
         # 구조(`from app.auth import bp as auth_bp`)를 따라가려고 모은다. 모듈 수준 import는 이름 해석기가 다룬다.
         # 값이 None이면 그 함수에서 import가 아닌 방식(대입·반복 변수 등)으로 다시 묶였다는 뜻이다(모듈 이름도 가린다).
         self.local_imports: dict[tuple[str, str], ImportBinding | None] = {}
+        # 모듈 안 함수 정의의 어휘적 점 경로다. `view_func=이름` 등록마다 구문 트리 전체를 걷지 않도록 처음 쓸 때
+        # 만든다.
+        self._function_qualnames: frozenset[str] | None = None
 
     def run(self, statements: list[ast.stmt], scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """문장 목록을 걷는다.
@@ -817,15 +910,25 @@ class _Registrar:
         """
         if not scope:
             return None
-        index = self.collector.symbols.index(self.path)
-        if index is None:
-            return None
-        for node in ast.walk(index.module.tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
-                qualname = index.qualname(node)
-                if qualname == f"{scope}.{name}":
-                    return f"{self.path}#{qualname}"
-        return None
+        qualname = f"{scope}.{name}"
+        return f"{self.path}#{qualname}" if qualname in self._function_names() else None
+
+    def _function_names(self) -> frozenset[str]:
+        """모듈 안 모든 함수 정의의 어휘적 점 경로를 돌려준다(걷개마다 한 번 만든다).
+
+        등록마다 모듈 구문 트리 전체를 걸으면 등록 수 × 노드 수다(앱 팩토리 하나에 등록이 수천 개면 수 초~수십 초).
+
+        Returns:
+            점 경로 집합(모듈을 읽지 못하면 빈 집합).
+        """
+        if self._function_qualnames is None:
+            index = self.collector.symbols.index(self.path)
+            found: set[str] = set()
+            if index is not None:
+                functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+                found = {index.qualname(node) for node in ast.walk(index.module.tree) if isinstance(node, functions)}
+            self._function_qualnames = frozenset(found)
+        return self._function_qualnames
 
     def _class_handlers(
         self, owner_node: ast.expr

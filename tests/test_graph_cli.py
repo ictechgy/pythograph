@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import shutil
 import subprocess
+import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,7 +18,8 @@ from pythograph.cli import graph_commands
 from pythograph.cli.main import main
 from pythograph.graph import revision as revision_module
 from pythograph.graph.roots import RootsError, collect_roots, parse_roots_text
-from tests.conftest import FIXTURES, GENERATED_AT, run_cli
+from pythograph.source.syntax import MAX_AST_DEPTH
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, run_cli, tree_depth
 
 #: 해석 fixture다.
 RESOLUTION = str(FIXTURES / "graph" / "resolution")
@@ -96,6 +101,70 @@ def test_unreadable_project_exits_2(tmp_path: Path) -> None:
     """디렉터리가 아닌 project는 2다."""
     assert run_cli(["graph", "--project", str(tmp_path / "missing")])[0] == 2
     assert run_cli(["reach", "--project", str(tmp_path / "missing"), "a#b"])[0] == 2
+
+
+def test_deep_modules_are_unparsed_and_the_rest_is_analyzed(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """깊은 식이 있는 모듈은 unparsed-files 한계로 남고, 다른 모듈의 정점·간선과 순회는 그대로다.
+
+    파일 하나의 깊은 식 때문에 graph·reach·impact가 내부 오류(종료 2)와 빈 출력으로 끝나던 회귀다.
+    """
+    files = {"pkg/__init__.py": "", "pkg/app.py": "def helper():\n    return 1\n\n\ndef main():\n    return helper()\n"}
+    root = make_project({**files, **{f"pkg/{name}": text for name, text in DEEP_SOURCES.items()}})
+    code, out, err = run_cli(["graph", "--project", str(root), *COMMON])
+    assert code == 0, err
+    document = json.loads(out)
+    assert document["statistics"]["unparsedFiles"] == len(DEEP_SOURCES)
+    assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
+    assert any(line.startswith(f"unparsed-files: {len(DEEP_SOURCES)} ") for line in document["limitations"])
+    ids = {node["id"] for node in document["nodes"]}
+    assert {"pkg/app.py#main", "pkg/app.py#helper"} <= ids
+    assert not any(identifier.startswith(tuple(f"pkg/{name}" for name in DEEP_SOURCES)) for identifier in ids)
+    assert any(edge["from"] == "pkg/app.py#main" and edge["to"] == "pkg/app.py#helper" for edge in document["edges"])
+    for command, root_id, expected in (
+        ("reach", "pkg/app.py#main", "pkg/app.py#helper"),
+        ("impact", "pkg/app.py#helper", "pkg/app.py#main"),
+    ):
+        code, out, err = run_cli([command, "--project", str(root), *COMMON, root_id])
+        assert code == 0, err
+        assert expected in reached_ids(json.loads(out))
+
+
+def test_modules_at_the_nesting_limit_are_analyzed(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상한 깊이의 모듈은 그대로 정점·간선이 된다(방문 중 binding 수집이 겹쳐 프레임을 가장 많이 쓰는 모양)."""
+    chained = "import builder\n\ndata = builder.start()\nVALUE = data" + "[0]" * (MAX_AST_DEPTH - 4) + "\n"
+    function = (
+        "def pick(data):\n    return helper(data)" + "[0]" * (MAX_AST_DEPTH - 6) + "\n\n\n"
+        "def helper(data):\n    return data\n"
+    )
+    assert tree_depth(chained) == tree_depth(function) == MAX_AST_DEPTH
+    root = make_project({"pkg/__init__.py": "", "pkg/chained.py": chained, "pkg/function.py": function})
+    for command in (["graph"], ["reach", "--dispatch", "bound", "pkg/function.py#pick"]):
+        code, out, err = run_cli([command[0], "--project", str(root), *COMMON, *command[1:]])
+        assert code == 0, err
+        document = json.loads(out)
+        if command[0] == "graph":
+            assert document["statistics"]["unparsedFiles"] == 0
+            assert {"pkg/chained.py#<module>", "pkg/function.py#pick"} <= {node["id"] for node in document["nodes"]}
+        else:
+            assert "pkg/function.py#helper" in reached_ids(document)
+
+
+def test_deep_string_annotations_are_unknown_parameters(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """파싱은 되지만 너무 깊은 문자열 주석(600항 `X | None`)은 모르는 매개변수로 보고 명령은 성공한다.
+
+    파싱한 주석을 재귀로 풀다 RecursionError로 graph 전체가 내부 오류(종료 2)로 끝나던 회귀다.
+    """
+    use = (
+        "class Client:\n    def ping(self):\n        return 1\n\n\n"
+        'def typed(item: "Client"):\n    return item.ping()\n\n\n'
+        'def deep(item: "Client' + " | None" * 600 + '"):\n    return item.ping()\n'
+    )
+    root = make_project({"pkg/__init__.py": "", "pkg/use.py": use})
+    code, out, err = run_cli(["graph", "--project", str(root), *COMMON])
+    assert code == 0, err
+    edges = {(edge["from"], edge["to"]) for edge in json.loads(out)["edges"]}
+    assert ("pkg/use.py#typed", "pkg/use.py#Client.ping") in edges
+    assert ("pkg/use.py#deep", "pkg/use.py#Client.ping") not in edges
 
 
 def test_graph_snapshot_shape() -> None:
@@ -221,6 +290,62 @@ def test_roots_input_limits(tmp_path: Path) -> None:
         collect_roots([], "-", io.StringIO("x" * (16 * 1024 * 1024 + 1)))
 
 
+@pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")
+def test_roots_from_reads_only_regular_files(tmp_path: Path) -> None:
+    """`--roots-from` 파일은 일반 파일과 파이프만 읽는다. 일반 파일을 가리키는 링크는 따라간다.
+
+    디렉터리·장치·장치를 가리키는 링크는 내용을 읽지 않고 사용법 오류다. 전에는 장치를 상한까지 읽은 뒤 내용 오류로
+    거부했다.
+    """
+    roots = tmp_path / "roots.json"
+    roots.write_text(json.dumps(["a#b"]), encoding="utf-8")
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(roots)
+    assert collect_roots([], str(linked), io.StringIO()) == ("a#b",)
+    device = tmp_path / "device.json"
+    device.symlink_to(os.devnull)
+    for target in (tmp_path, Path(os.devnull), device):
+        with pytest.raises(RootsError, match="readable regular file"):
+            collect_roots([], str(target), io.StringIO())
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="/dev/fd가 없는 플랫폼")
+def test_roots_from_reads_a_pipe() -> None:
+    """셸 프로세스 치환(`--roots-from <(…)`)이 넘기는 파이프(`/dev/fd/N`)도 읽는다(`-` 표준 입력과 같다).
+
+    일반 파일만 받던 때는 이 형태가 사용법 오류(64)였다.
+    """
+    read_end, write_end = os.pipe()
+    with os.fdopen(write_end, "w", encoding="utf-8") as writer:
+        writer.write(json.dumps(["a#b", "c#d"]))
+    try:
+        assert collect_roots([], f"/dev/fd/{read_end}", io.StringIO()) == ("a#b", "c#d")
+    finally:
+        os.close(read_end)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
+def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -> None:
+    """쓰는 쪽이 없는 FIFO도 열기·읽기에서 멈추지 않는다. 빈 입력으로 읽혀 사용법 오류(64)다.
+
+    전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
+    뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
+    """
+    fifo = tmp_path / "roots.json"
+    os.mkfifo(fifo)
+    command = ["reach", "--project", RESOLUTION, "--roots-from", str(fifo), "app/helpers.py#slugify"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert (result.returncode, result.stdout) == (64, ""), result.stderr
+    assert "--roots-from must be a JSON array" in result.stderr
+
+
 def test_depth_and_reached_limits_truncate() -> None:
     """깊이·도달 상한은 잘림 이유로 알린다."""
     _, shallow, _ = traversal("reach", "--max-depth", "1", "app/core/services.py#nested")
@@ -257,6 +382,22 @@ def test_oversized_output_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
     code, out, err = traversal("reach", "app/core/services.py#inexact_calls")
     assert (code, out) == (2, {})
     assert "isthmus rejects" in err
+
+
+def test_unencodable_snapshot_reports_its_cause(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UTF-8로 쓸 수 없는 스냅샷은 크기 상한 안내로 바꾸지 않고 원인(짝 없는 서러게이트)을 밝혀 2로 끝난다."""
+    original = graph_commands.build_graph_document
+
+    def with_surrogate(*arguments: object) -> dict[str, object]:
+        """정상 스냅샷에 짝 없는 서러게이트를 하나 넣는다."""
+        document = original(*arguments)  # type: ignore[arg-type]
+        document["project"] = "/\udc00"
+        return document
+
+    monkeypatch.setattr(graph_commands, "build_graph_document", with_surrogate)
+    code, out, err = run_cli(["graph", "--project", RESOLUTION, *COMMON])
+    assert (code, out) == (2, "")
+    assert "unpaired surrogate" in err and "exceed" not in err
 
 
 def test_large_snapshot_exceeds_isthmus_cap_but_is_written() -> None:
@@ -352,6 +493,209 @@ def _raise_os_error(*_arguments: object, **_keywords: object) -> object:
         OSError: 항상.
     """
     raise OSError("git missing")
+
+
+#: 심은 가짜 git이 실행되면 프로젝트 옆에 만드는 표식 파일 이름이다.
+FAKE_GIT_MARKER = "fake-git-ran"
+
+
+def _plant_fake_git(directory: Path, marker: Path) -> None:
+    """실행되면 표식 파일을 만들고 실패하는 가짜 `git`을 둔다.
+
+    Args:
+        directory: 가짜 git을 둘 디렉터리.
+        marker: 실행되면 만들 표식 파일.
+    """
+    fake = directory / "git"
+    fake.write_text(f'#!/bin/sh\n: > "{marker}"\nexit 1\n', encoding="utf-8")
+    fake.chmod(0o755)
+
+
+@pytest.fixture
+def planted_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """루트에 가짜 git을 심은 커밋 하나짜리 git 프로젝트다(`.gitignore`가 가려 작업 트리는 깨끗하다).
+
+    Args:
+        make_project: 합성 프로젝트 도우미.
+
+    Returns:
+        프로젝트 경로. 표식 파일은 그 부모 디렉터리의 `FAKE_GIT_MARKER`다.
+    """
+    root = make_project({"app.py": "def f():\n    return 1\n", ".gitignore": "/git\n/git.exe\n"})
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "init")
+    _plant_fake_git(root, root.parent / FAKE_GIT_MARKER)
+    return root
+
+
+def _head(root: Path) -> str:
+    """테스트 저장소의 HEAD 커밋 id다(PATH를 바꾸기 전에 부른다).
+
+    Args:
+        root: 저장소.
+
+    Returns:
+        커밋 id.
+    """
+    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True)
+    return completed.stdout.strip()
+
+
+def _trusted_git_directory() -> str:
+    """테스트 환경의 진짜 git이 있는 디렉터리다(PATH를 바꾸기 전에 부른다).
+
+    Returns:
+        디렉터리 절대 경로.
+    """
+    found = shutil.which("git")
+    assert found is not None, "these tests need git on PATH"
+    return os.path.dirname(os.path.abspath(found))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+@pytest.mark.parametrize("first_entry", ["", ".", "<project>"])
+def test_revision_ignores_git_planted_in_project(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch, first_entry: str
+) -> None:
+    """빈·상대 PATH 항목이나 프로젝트를 가리키는 항목이 앞서도 프로젝트의 git은 실행하지 않는다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    entry = str(planted_project) if first_entry == "<project>" else first_entry
+    monkeypatch.setenv("PATH", os.pathsep.join([entry, trusted]))
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트이고 심볼릭 링크를 쓴다.")
+def test_revision_ignores_git_in_current_directory_or_linked_into_project(
+    planted_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """현재 디렉터리에 바로 있는 git과 프로젝트 안을 가리키는 링크는 절대 경로 PATH 항목에 있어도 건너뛴다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    current, linked = tmp_path / "current", tmp_path / "linked"
+    current.mkdir()
+    linked.mkdir()
+    _plant_fake_git(current, tmp_path / FAKE_GIT_MARKER)
+    (linked / "git").symlink_to(planted_project / "git")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(current), str(linked), trusted]))
+    monkeypatch.chdir(current)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (tmp_path / FAKE_GIT_MARKER).exists()
+
+
+def _decomposed(name: str) -> str:
+    """이름을 유니코드 분해형(NFD)으로 바꾼다.
+
+    Args:
+        name: 디렉터리 이름.
+
+    Returns:
+        분해형 이름.
+    """
+    return unicodedata.normalize("NFD", name)
+
+
+def _respelled(directory: Path, spelling: Callable[[str], str]) -> Path:
+    """이름 철자만 바꿨고 같은 디렉터리를 가리키는 경로다. 파일 시스템이 두 철자를 구분하면 테스트를 건너뛴다.
+
+    Args:
+        directory: 원래 디렉터리.
+        spelling: 이름을 바꾸는 함수(대문자, 분해형).
+
+    Returns:
+        철자만 다른 경로.
+    """
+    respelled = directory.with_name(spelling(directory.name))
+    if respelled.name == directory.name or not respelled.is_dir() or not os.path.samefile(respelled, directory):
+        pytest.skip("the filesystem distinguishes these spellings")
+    return respelled
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+@pytest.mark.parametrize(
+    ("planted_in", "spelling"),
+    [("project", str.upper), ("current", str.upper), ("current", _decomposed)],
+    ids=["project-case", "current-case", "current-normalization"],
+)
+def test_revision_ignores_git_in_respelled_directory(
+    planted_project: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    planted_in: str,
+    spelling: Callable[[str], str],
+) -> None:
+    """대소문자·유니코드 정규화를 무시하는 파일 시스템(macOS 기본 APFS 등)에서 철자만 다른 PATH 항목이
+    프로젝트나 현재 디렉터리를 가리켜도 그 git은 실행하지 않는다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    current = tmp_path / ("caf" + chr(0xE9))
+    current.mkdir()
+    _plant_fake_git(current, tmp_path / FAKE_GIT_MARKER)
+    directory = planted_project if planted_in == "project" else current
+    monkeypatch.setenv("PATH", os.pathsep.join([str(_respelled(directory, spelling)), trusted]))
+    monkeypatch.chdir(tmp_path if planted_in == "project" else current)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (tmp_path / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="실행 권한 비트는 POSIX에만 있다.")
+def test_revision_skips_git_candidates_that_cannot_run(
+    git_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """없는 디렉터리, `git`이라는 디렉터리, 실행 권한 없는 파일은 건너뛰고 다음 PATH 항목의 git을 쓴다."""
+    head, trusted = _head(git_project), _trusted_git_directory()
+    folder, plain = tmp_path / "folder", tmp_path / "plain"
+    (folder / "git").mkdir(parents=True)
+    plain.mkdir()
+    (plain / "git").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(tmp_path / "missing"), str(folder), str(plain), trusted]))
+    assert revision_module.git_revision(git_project) == head
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+def test_revision_is_omitted_without_trusted_git(planted_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """믿을 수 있는 git이 없거나 현재 디렉터리를 확인하지 못하면 아무것도 실행하지 않고 revision을 생략한다."""
+    trusted = _trusted_git_directory()
+    monkeypatch.chdir(planted_project)
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", str(planted_project)]))
+    assert revision_module.git_revision(planted_project) is None
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+    monkeypatch.setenv("PATH", trusted)
+    monkeypatch.setattr(revision_module.os, "getcwd", _raise_file_not_found)
+    assert revision_module.git_revision(planted_project) is None
+
+
+def _raise_file_not_found() -> str:
+    """지워진 현재 디렉터리를 흉내 낸다.
+
+    Raises:
+        FileNotFoundError: 항상.
+    """
+    raise FileNotFoundError("current directory removed")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="가짜 git이 POSIX 셸 스크립트다.")
+def test_revision_searches_default_path_without_path_variable(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PATH가 없으면 subprocess처럼 `os.defpath`에서 찾되, 그 안의 상대 항목도 건너뛴다."""
+    head, trusted = _head(planted_project), _trusted_git_directory()
+    monkeypatch.delenv("PATH")
+    monkeypatch.setattr(os, "defpath", os.pathsep.join([".", trusted]))
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
+    assert not (planted_project.parent / FAKE_GIT_MARKER).exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CreateProcess의 현재 디렉터리 탐색을 본다.")
+def test_revision_ignores_git_exe_in_current_directory_on_windows(
+    planted_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows에서 현재 디렉터리(프로젝트 루트)의 git.exe를 PATH의 git보다 먼저 실행하지 않는다."""
+    head = _head(planted_project)
+    (planted_project / "git.exe").write_bytes(b"not a program")
+    monkeypatch.chdir(planted_project)
+    assert revision_module.git_revision(planted_project) == head
 
 
 def test_parse_command_line_separator() -> None:

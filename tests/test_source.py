@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -11,7 +12,8 @@ from pathlib import Path
 import pytest
 
 from pythograph.source import project as project_module
-from pythograph.source.evaluate import UNKNOWN, Evaluator
+from pythograph.source import syntax
+from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, UNKNOWN, Evaluator, value_size
 from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
 from pythograph.source.symbols import (
     ExternalSymbol,
@@ -22,7 +24,15 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
-from tests.conftest import REPOSITORY
+from pythograph.source.syntax import (
+    MAX_AST_DEPTH,
+    MAX_CHAIN_TOKENS,
+    MAX_EXTRACTION_AST_DEPTH,
+    exceeds_depth,
+    parse_annotation,
+)
+from pythograph.source.text import is_contract_safe
+from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
 
 def _expr(source: str) -> ast.expr:
@@ -63,6 +73,90 @@ def test_evaluator_constants(make_project: Callable[[dict[str, str]], Path]) -> 
     assert evaluator.string_list("pkg/mod.py", _expr("[1]")) is None
 
 
+def _reference_chain(prefix: str, width: int, levels: int, *, as_list: bool) -> str:
+    """앞 단계 이름을 `width`번 참조하는 모듈 상수 사슬 소스를 만든다(`X1 = f"{X0}{X0}…"` 또는 `[X0, X0, …]`).
+
+    Args:
+        prefix: 이름 접두사.
+        width: 단계마다 참조 수.
+        levels: 단계 수(맨 아래 `X0`은 `"a"`).
+        as_list: 목록 사슬인지(아니면 f-string 사슬).
+
+    Returns:
+        모듈 소스.
+    """
+    lines = [f'{prefix}0 = "a"']
+    for level in range(1, levels + 1):
+        previous = f"{prefix}{level - 1}"
+        body = ", ".join([previous] * width) if as_list else "".join("{" + previous + "}" for _ in range(width))
+        lines.append(f"{prefix}{level} = " + (f"[{body}]" if as_list else f'f"{body}"'))
+    return "\n".join(lines) + "\n"
+
+
+def test_evaluator_expands_repeated_references_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 상수를 여러 번 참조하는 f-string·목록 사슬은 단계마다 한 번만 펼친다(평가 횟수가 참조 수의 거듭제곱이 아님).
+
+    설정 모듈의 대문자 이름을 모두 평가하므로 수백 바이트 사슬 하나가 명령을 수십 초·GiB 메모리로 끌고 가던 문제다.
+    """
+    root = make_project(
+        {
+            "chain.py": _reference_chain("S", 4, 6, as_list=False) + _reference_chain("L", 4, 6, as_list=True),
+        }
+    )
+    symbols = SymbolTable(Project.open(root))
+    index = symbols.index("chain.py")
+    assert index is not None
+    resolved: list[str] = []
+    resolve_name = symbols.resolve_name
+
+    def counting(path: str, name: str, hops: int = 0) -> object:
+        resolved.append(name)
+        return resolve_name(path, name, hops)
+
+    monkeypatch.setattr(symbols, "resolve_name", counting)
+    evaluator = Evaluator(symbols)
+    assert evaluator.value("chain.py", index.values["S6"]) == "a" * 4**6
+    expected: object = "a"
+    for _ in range(6):
+        expected = [expected] * 4
+    assert evaluator.value("chain.py", index.values["L6"]) == expected
+    # 단계마다 참조 4개를 한 번씩 푼다(메모 없이 펼치면 4 + 4² + … + 4⁶ = 5,460번).
+    assert len(resolved) == 2 * 6 * 4
+
+
+def test_evaluator_caps_constructed_values(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """f-string·`+`·목록 리터럴로 만든 값이 `MAX_EVALUATED_LENGTH`를 넘으면 UNKNOWN이다.
+
+    상한까지 만든 값과 소스의 문자열 리터럴 하나는 그대로다.
+    """
+    block = "a" * 1024
+    eight = "{BLOCK}" * 8
+    root = make_project(
+        {
+            "big.py": f'BLOCK = "{block}"\nEIGHT = f"{eight}"\n'
+            'LIMIT = f"{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}{EIGHT}"\n'
+            'OVER = f"{LIMIT}{BLOCK}"\nPLUS = LIMIT + "b"\n'
+            "ITEMS = [EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT, EIGHT]\nFEW = [EIGHT, EIGHT]\n"
+            f'LONG = "{"a" * (MAX_EVALUATED_LENGTH + 1)}"\n',
+        }
+    )
+    symbols = SymbolTable(Project.open(root))
+    index = symbols.index("big.py")
+    assert index is not None
+    evaluator = Evaluator(symbols)
+    assert evaluator.value("big.py", index.values["LIMIT"]) == "a" * MAX_EVALUATED_LENGTH
+    assert evaluator.value("big.py", index.values["OVER"]) is UNKNOWN
+    assert evaluator.value("big.py", index.values["PLUS"]) is UNKNOWN
+    # 목록 크기는 원소 수 8 + 문자 8 × 8 KiB라 상한을 넘는다.
+    assert evaluator.value("big.py", index.values["ITEMS"]) is UNKNOWN
+    assert evaluator.value("big.py", index.values["FEW"]) == ["a" * 8192] * 2
+    assert evaluator.value("big.py", index.values["LONG"]) == "a" * (MAX_EVALUATED_LENGTH + 1)
+    assert value_size([["ab", "c"], ["ab", "c"]]) == 2 + 2 * (2 + 3)
+    assert value_size(["a" * 10], limit=5) == 6
+
+
 def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:
     """import·상대 import·하위 모듈·클래스 멤버·외부 이름을 해석한다."""
     root = make_project(
@@ -90,6 +184,41 @@ def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> No
     module = symbols.index(leaf)
     assert module is not None
     assert absolute_module(module.module, None, 5) is None
+
+
+def test_module_resolution_is_remembered_per_module_roots(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 이름을 다시 풀 때는 파일시스템을 다시 보지 않고(외부 이름의 None 포함), 모듈 루트가 바뀌면 다시 푼다.
+
+    이름이 소스에 나올 때마다 모듈 루트 수 × 후보 2개의 성분별 lstat을 되풀이해, `manage.py`가 여러 개인 저장소에서
+    schema·routes·graph가 수 배~수십 배 느려지던 문제다.
+    """
+    root = make_project({"pkg/__init__.py": "", "pkg/mod.py": "", "lib/app.py": ""})
+    project = Project.open(root)
+    checked: list[str] = []
+    checked_stat = project._checked_stat
+
+    def counting(relative: str) -> os.stat_result:
+        checked.append(relative)
+        return checked_stat(relative)
+
+    monkeypatch.setattr(project, "_checked_stat", counting)
+    assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+    assert project.resolve_module("django.db") is None
+    assert project.resolve_module("app") is None
+    first = len(checked)
+    assert first > 0
+    for _ in range(100):
+        assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+        assert project.resolve_module("django.db") is None
+        assert project.resolve_module("app") is None
+    assert len(checked) == first
+    # 호출자가 open 뒤 모듈 루트를 제자리에서 바꾸면 기억한 결과를 버리고 새 루트 순서로 다시 푼다.
+    project.module_roots.insert(0, "lib")
+    assert project.resolve_module("app") == "lib/app.py"
+    assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+    assert len(checked) > first
 
 
 def test_star_import_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:
@@ -168,6 +297,133 @@ def test_read_failures_and_limits(
     assert Project.open(root).scan_capped
 
 
+def test_deeply_nested_modules_are_read_failures(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """구문 트리가 너무 깊은 모듈은 분석하지 않고 읽지 못한 소스(중첩 이유)로 돌린다.
+
+    파싱은 되지만 재귀 방문자가 파이썬 재귀 한도를 넘겨 명령 전체가 내부 오류로 끝나던 모양이다.
+    """
+    root = make_project({"ok.py": "VALUE = 1 + 2\n", **{f"pkg/{name}": text for name, text in DEEP_SOURCES.items()}})
+    project = Project.open(root)
+    for name in DEEP_SOURCES:
+        failure = project.module(f"pkg/{name}")
+        assert isinstance(failure, ReadFailure), name
+        assert failure.reason == "source nesting too deep to parse"
+    assert isinstance(project.module("ok.py"), SourceModule)
+
+
+def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """상한 깊이의 모듈은 그대로 파싱하고, 한 단계 더 깊으면 읽지 못한 소스다."""
+    edge = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 2)) + "\n"
+    over = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 1)) + "\n"
+    assert (tree_depth(edge), tree_depth(over)) == (MAX_AST_DEPTH, MAX_AST_DEPTH + 1)
+    project = Project.open(make_project({"edge.py": edge, "over.py": over}))
+    assert isinstance(project.module("edge.py"), SourceModule)
+    assert isinstance(project.module("over.py"), ReadFailure)
+    tree = ast.parse(edge)
+    assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
+    assert not exceeds_depth(ast.parse(""), 1)
+
+
+def test_extraction_commands_use_a_higher_nesting_limit(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """routes·schema가 여는 프로젝트(`MAX_EXTRACTION_AST_DEPTH`)는 graph 상한보다 깊은 모듈도 그 상한까지 파싱한다.
+
+    graph 상한(128)을 모든 명령에 걸면 routes·schema·client가 문제없이 분석하던 모듈까지 빼고 문서 전체 한계를 달았다.
+    """
+    middle = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH + 50)) + "\n"
+    edge = "VALUE = " + " + ".join(["1"] * (MAX_EXTRACTION_AST_DEPTH - 2)) + "\n"
+    over = "VALUE = " + " + ".join(["1"] * (MAX_EXTRACTION_AST_DEPTH - 1)) + "\n"
+    assert (tree_depth(edge), tree_depth(over)) == (MAX_EXTRACTION_AST_DEPTH, MAX_EXTRACTION_AST_DEPTH + 1)
+    root = make_project({"middle.py": middle, "edge.py": edge, "over.py": over})
+    graph_project = Project.open(root)
+    assert isinstance(graph_project.module("middle.py"), ReadFailure)
+    extraction_project = Project.open(root, MAX_EXTRACTION_AST_DEPTH)
+    assert isinstance(extraction_project.module("middle.py"), SourceModule)
+    assert isinstance(extraction_project.module("edge.py"), SourceModule)
+    failure = extraction_project.module("over.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
+
+
+def test_chain_guard_counts_one_logical_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.10 파서 보호는 논리 줄 하나의 사슬 토큰만 세고, 사슬 문자 총수가 상한 이하면 토큰으로 나누지 않는다."""
+    many_lines = "x = a.b\n" * (MAX_CHAIN_TOKENS + 1)
+    one_line = "x = (\n" + "a.b +\n" * (MAX_CHAIN_TOKENS // 2 + 1) + "a)\n"
+    assert syntax._longest_chain(many_lines) == 1
+    assert syntax._longest_chain(one_line) > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain("x = '...'\n") == 3
+    assert syntax._longest_chain("x = (" + "a." * (MAX_CHAIN_TOKENS + 1)) > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain(many_lines + "y = (\n") == 1
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert not syntax.chain_too_long(one_line)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    assert syntax.chain_too_long(one_line) and not syntax.chain_too_long(many_lines)
+
+
+def test_chain_guard_counts_chains_inside_fstrings(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """f-string 치환 필드 안의 사슬도 그 논리 줄의 사슬 토큰으로 센다(바깥 사슬과 합친다).
+
+    3.10의 tokenize는 f-string 전체를 STRING 토큰 하나로 내서 연산자 토큰만 세면 `f"{a+a+…}"`가 0이었다. 그래서
+    20만 항짜리 f-string 모듈이나 그런 문자열 주석 하나로 `ast.parse`가 세그폴트(종료 139)했다.
+    """
+    half = MAX_CHAIN_TOKENS // 2 + 1
+    assert syntax._longest_chain('x = f"{' + "a+" * (MAX_CHAIN_TOKENS + 1) + 'a}"\n') > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain("x = (" + "a+" * half + 'f"{' + "a+" * half + 'a}")\n') > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain('x = f"{a.b}"\n' * (MAX_CHAIN_TOKENS + 1)) == 1
+    flat = 'f"{[' + "a.b, " * (MAX_CHAIN_TOKENS + 1) + ']}"'
+    root = make_project({"flat.py": f"VALUE = {flat}\n"})
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(Project.open(root).module("flat.py"), SourceModule)
+    assert isinstance(parse_annotation(flat), ast.JoinedStr)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    failure = Project.open(root).module("flat.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
+    assert parse_annotation(flat) is None
+
+
+def test_chain_guard_rejects_before_parsing(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3.10에서는 사슬 토큰이 상한을 넘는 논리 줄이 있으면 파싱하지 않고 중첩 실패로 남긴다(얕은 목록도 포함)."""
+    root = make_project({"flat.py": "VALUE = [" + "a.b, " * (MAX_CHAIN_TOKENS + 1) + "]\n"})
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(Project.open(root).module("flat.py"), SourceModule)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    failure = Project.open(root).module("flat.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
+
+
+def test_parse_annotation_turns_every_failure_into_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """문자열 주석 파싱은 문법 오류·NUL(3.10은 ValueError)·너무 깊은 식·3.10 긴 사슬을 모두 None으로 돌린다."""
+    assert isinstance(parse_annotation("Mapped[str]"), ast.Subscript)
+    assert isinstance(parse_annotation("Client" + " | None" * 10), ast.BinOp)
+    assert parse_annotation("Mapped[str]\x00") is None
+    assert parse_annotation("Mapped[") is None
+    assert parse_annotation(" + ".join(["str"] * 50_000)) is None
+    assert parse_annotation("Client" + " | None" * 600) is None
+    flat = "Literal[" + "a.b, " * (MAX_CHAIN_TOKENS + 1) + "]"
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(parse_annotation(flat), ast.Subscript)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    assert parse_annotation(flat) is None
+
+
+def test_contract_safe_text_rejects_every_forbidden_character() -> None:
+    """교환 형식이 식별자에 금지하는 문자(C0·C1 제어 문자와 NEL, U+2028/2029, 짝 없는 서러게이트)를 모두 거부한다.
+
+    같은 판정이 여러 곳에 따로 있어 서러게이트를 빠뜨린 사본이 있었다. 한 벌로 모은 판정이 모든 종류를 거르는지
+    고정한다.
+    """
+    for character in ("\x00", "\x1b", "\x1f", "\x7f", "\x85", "\x9f", "\u2028", "\u2029", "\ud800", "\udfff"):
+        assert not is_contract_safe(f"app/m{character}.py"), ascii(character)
+    assert not is_contract_safe("")
+    for text in ("app/views.py#index", "caf\u00e9\u00a0x", "emoji\U0001f600", "\ue000\u200b"):
+        assert is_contract_safe(text), ascii(text)
+
+
 def test_test_path_rules() -> None:
     """테스트 소스 경로 규칙."""
     assert is_test_path("tests/urls.py") and is_test_path("app/test_views.py") and is_test_path("a/x_test.py")
@@ -181,6 +437,24 @@ def test_python_module_entry_point() -> None:
         [sys.executable, "-m", "pythograph", "--version"], capture_output=True, text=True, check=False, cwd=REPOSITORY
     )
     assert result.returncode == 0 and result.stdout.strip()
+
+
+def test_names_with_forbidden_characters_are_skipped(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """이름(디렉터리 성분 포함)에 계약 금지 문자가 든 파이썬 파일은 건너뛰고 센다. 소스가 아닌 파일은 세지 않는다.
+
+    파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 그런 파일 하나로 isthmus가 문서 전체를 거부했다.
+    """
+    root = make_project({"ok.py": "", "pkg/__init__.py": ""})
+    names = ["pkg/bel\x07.py", "pkg/nel\x85.py", "pkg/ls\u2028.py", "pkg/ev\x1b[31mil.py", "odd\x07dir/mod.py"]
+    try:
+        for name in [*names, "pkg/notes\x07.txt"]:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text("", encoding="utf-8")
+    except OSError:
+        pytest.skip("the filesystem rejects control characters in file names")
+    project = Project.open(root)
+    assert project.python_files() == ["ok.py", "pkg/__init__.py"]
+    assert (project.forbidden_names, project.unencodable_names) == (len(names), 0)
 
 
 def test_unencodable_file_names_are_skipped(

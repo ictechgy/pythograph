@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import textwrap
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,6 +22,83 @@ FIXTURES = REPOSITORY / "fixtures"
 
 #: 결정적 출력을 위한 고정 시각이다.
 GENERATED_AT = "2026-01-01T00:00:00.000Z"
+
+#: route-decl `method`에 올 수 있는 값이다(GRAPH-EXCHANGE: 계약 동사 여덟 개와 route-decl 전용 `ANY`). 구현 상수를
+#: 가져오지 않고 계약에서 옮겨 적어, 구현이 집합을 넓히거나 거르지 않으면 테스트가 알린다.
+ROUTE_DECL_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "ANY"})
+
+#: 파싱은 되지만 구문 트리가 깊어 재귀 분석기가 파이썬 재귀 한도를 넘기던 모양별 모듈 소스다(파일 이름 → 내용).
+#: 긴 `+` 사슬, 함수 안 메서드·첨자 사슬, 긴 elif 분기다.
+DEEP_SOURCES = {
+    "plus.py": "VALUE = " + " + ".join(["1"] * 500) + "\n",
+    "method.py": "def build(query):\n    return query" + ".filter(1)" * 150 + "\n",
+    "subscript.py": "def pick(data):\n    return data" + "[0]" * 250 + "\n",
+    "elifs.py": "def dispatch(code):\n    if code == 0:\n        return 0\n"
+    + "".join(f"    elif code == {index}:\n        return {index}\n" for index in range(1, 500)),
+}
+
+
+def class_lattice(depth: int, bottom_bases: str = "", bottom_body: str = "pass", back_edge: bool = False) -> str:
+    """다이아몬드 상속 격자 모듈 소스를 만든다.
+
+    바닥은 `L0a`·`L0b`이고, 단계 k의 두 클래스(`Lka`·`Lkb`)는 단계 k-1의 두 클래스를 모두 상속한다. 꼭대기 `Top`은 단계
+    depth의 두 클래스를 상속하므로 바닥은 `Top`에서 상속 깊이 depth + 1에 있다. 경로마다 사슬을 다시 펴면 `Top` 하나에
+    2^(depth+1)번 재귀한다.
+
+    Args:
+        depth: 바닥 위 단계 수.
+        bottom_bases: 바닥 두 클래스의 기반 식(빈 문자열이면 없음).
+        bottom_body: 바닥 `L0a`의 본문(한 줄).
+        back_edge: 바닥 `L0a`가 꼭대기 `Top`도 상속하게 해 정적 상속 순환을 만든다.
+
+    Returns:
+        모듈 소스.
+    """
+    first = ", ".join(base for base in (bottom_bases, "Top" if back_edge else "") if base)
+    lines = [f"class L0a({first}):" if first else "class L0a:", f"    {bottom_body}", ""]
+    lines += [f"class L0b({bottom_bases}):" if bottom_bases else "class L0b:", "    pass", ""]
+    for level in range(1, depth + 1):
+        for side in "ab":
+            lines += [f"class L{level}{side}(L{level - 1}a, L{level - 1}b):", "    pass", ""]
+    lines += [f"class Top(L{depth}a, L{depth}b):", "    pass", ""]
+    return "\n".join(lines)
+
+
+class CountingValues(dict[Any, Any]):
+    """`values()`로 돈 항목 수를 세는 사전. 모듈마다 카탈로그 전체를 다시 도는지 확인하는 테스트가 쓴다."""
+
+    def __init__(self, items: dict[Any, Any]) -> None:
+        """항목을 담고 계수를 0으로 둔다.
+
+        Args:
+            items: 감쌀 사전.
+        """
+        super().__init__(items)
+        self.visits = 0
+
+    def values(self) -> Iterator[Any]:  # type: ignore[override]
+        """돈 항목 수를 더하며 값을 차례로 돌려준다."""
+        for value in super().values():
+            self.visits += 1
+            yield value
+
+
+def tree_depth(source: str) -> int:
+    """구문 트리 최대 깊이를 명시적 스택으로 잰다(모듈 노드가 1, 문맥·연산자 잎 노드 포함).
+
+    Args:
+        source: 모듈 소스.
+
+    Returns:
+        깊이.
+    """
+    deepest = 0
+    pending: list[tuple[ast.AST, int]] = [(ast.parse(source), 1)]
+    while pending:
+        node, depth = pending.pop()
+        deepest = max(deepest, depth)
+        pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    return deepest
 
 
 def run_cli(arguments: list[str]) -> tuple[int, str, str]:
@@ -111,6 +190,25 @@ def facts_for(document: dict[str, object], channel: str) -> list[dict[str, objec
     facts = document["facts"]
     assert isinstance(facts, list)
     return [fact for fact in facts if fact["channel"] == channel]
+
+
+def scoped_limitations(document: dict[str, object]) -> list[tuple[str, dict[str, object]]]:
+    """스코프 있는 limitation을 (문장, `limitationIndex`를 뺀 스코프) 목록으로 요약한다.
+
+    Args:
+        document: 문서.
+
+    Returns:
+        문서의 `limitationScopes` 순서대로 놓은 요약 목록.
+    """
+    limitations = document["limitations"]
+    scopes = document.get("limitationScopes", [])
+    assert isinstance(limitations, list) and isinstance(scopes, list)
+    summary: list[tuple[str, dict[str, object]]] = []
+    for scope in scopes:
+        fields = {key: value for key, value in scope.items() if key != "limitationIndex"}
+        summary.append((limitations[scope["limitationIndex"]], fields))
+    return summary
 
 
 @pytest.fixture

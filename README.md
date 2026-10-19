@@ -132,8 +132,13 @@ Flask 3.1.3, Werkzeug 3.1.9). The full table with source files is in [docs/HTTP-
   regular expressions) is `dynamic` with a `route-coverage:` limitation. Literals are in the decoded path
   space, so non-pchar characters are UTF-8 percent-encoded and `%` becomes `%25`.
 - **method**: uppercase verbs or `ANY`. `HEAD` next to `GET` and automatic `OPTIONS` are not emitted (isthmus
-  matches them with `head-as-get` and `options-any`); an explicitly declared `OPTIONS` is.
-- **paramConstraints**: `int`, `slug`, `uuid`, `path` (for `{**}`), or `regex` with the pattern.
+  matches them with `head-as-get` and `options-any`); an explicitly declared `OPTIONS` is. Verbs outside the
+  exchange method set (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE`), such as `PURGE` in
+  Flask `methods` or Django `http_method_names`, are not emitted and not turned into `ANY`; the registration gets
+  a `route-coverage:` limitation scoped to its templates when they are proven.
+- **paramConstraints**: `int`, `slug`, `uuid`, `path` (for `{**}`), or `regex` with the pattern. The
+  informational `pattern` is left out when the regular expression text contains characters the exchange format
+  forbids (control characters, U+2028/U+2029, or an unpaired surrogate).
 - **trailingSlash**: Django and strict Flask rules are `strict`; `/?` in a regex and Flask
   `strict_slashes=False` are `optional`; omitted after `{**}`.
 - **order** (Django): `{group: "django:<ROOT_URLCONF>", index: <depth-first position>}`.
@@ -194,14 +199,19 @@ recording, and the end-to-end trace is in
   the project's lock/requirement files), and none for requests and urllib. `urllib.parse.urljoin` has no vector yet,
   so only its absolute-URL and `/`-rooted forms are claimed.
 - **URL strings**: f-strings, `+`, `%` formatting, `str.format`, provable module constants (bound exactly once, never
-  rebound, no `global` or module-attribute writes), class attributes and `__init__` fields with one literal value, and
-  proven query-tail locals. An interpolation becomes `{}` only when it fills a whole segment; otherwise the fact is
-  `dynamic` with a masked `channelPrefix` (`channel` is `null`, so no raw URL text leaves the tool). A literal host
-  gives `root` plus `authority`; a dynamic host or an unknown base gives `base`.
+  rebound, no `global` or module-attribute writes, no same-named attribute write on an unknown receiver such as
+  `sys.modules[__name__].API_ROOT = …`, and not in a module that calls `globals()` or module-level `vars()`/`locals()`),
+  class attributes and `__init__` fields with one literal value, and proven query-tail locals. An interpolation
+  becomes `{}` only when it fills a whole segment; otherwise the fact is `dynamic` with a masked `channelPrefix`
+  (`channel` is `null`, so no raw URL text leaves the tool). A literal host gives `root` plus `authority`; a dynamic
+  host or an unknown base gives `base`.
 - **Wrappers** (`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` entries; `owner` is a pythograph class
   id (`api/client.py#Gateway`) for methods and constructors (`name: "__init__"`, dataclasses included) or a module path
   (`api/net.py`) for module functions. `label` is a keyword argument, `index` a positional argument (receiver excluded).
   Unknown fields and malformed entries exit 64; declarations that match nothing report `http-wrapper-unresolved:`.
+  A wrapper's `service` goes on its facts in place of `--service`. When it differs from `--service`, the document-level
+  `service` is omitted (isthmus rejects a fact service that differs from the document's) and `--service` stays on the
+  other facts.
 - **symbol.usr** is the enclosing function, method, class body, or module id — the same ids as `graph`/`reach`/`impact`.
 - **Limitations**: `route-call-coverage:` (unmodeled request APIs such as urllib3, `http.client`, `send`/`build_request`,
   URL literals passed to receivers whose client type is unknown, scan gaps), `ambiguous-base-join:`,
@@ -359,9 +369,54 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+File paths become every fact's `location.path` and symbol id, so a Python file whose project-relative path is not
+valid UTF-8 or contains characters the exchange format forbids (C0/C1 control characters including NEL, U+2028, or
+U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:` for graph, `route-coverage:` or
+`route-call-coverage:` for routes, `unreadable-sources:` for schema) rather than producing a document that isthmus
+rejects as a whole.
+
+Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
+and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
+long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit
+and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in
+graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
+deep to parse". Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely
+long chains instead of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary
+operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list. Chains
+inside f-string replacement fields count toward their line (every chain character of the f-string is counted). String
+annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
+that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
+annotation.
+
+Constant evaluation follows f-strings, `+`, list literals, and module constants for route strings, settings, SQL text,
+and client URLs. A short chain that references the same constant many times (`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)
+would otherwise grow exponentially, so repeated references are expanded once, values built this way are capped at
+64 KiB (characters for strings; elements plus their characters for lists), and client URL expressions at 4,096 parts.
+A larger value is treated as unknown: a dynamic route or route-call fact, an unread setting, or for SQL text a
+`skipped-sql-literals:` limitation. A single string literal is limited only by the 4 MiB file limit. Route strings
+longer than 8 KiB (4 times the 2,048-character template limit; Flask rules after merging slashes, Django `path()` and
+`re_path()` strings joined with their include prefixes), and shorter ones whose literal characters alone (outside Flask
+converters, outside Django `path()` converters, outside `re_path` groups) exceed the template limit, are not converted
+and become dynamic facts like any over-long template.
+
+Class hierarchies (view classes for routes and graph, SQLAlchemy mappings for schema) are followed at most 32 levels
+deep, and each class is analyzed once per depth, so a diamond-shaped hierarchy costs time proportional to its classes
+rather than to its exponentially many paths. A static inheritance cycle, which Python itself cannot build, makes the
+result depend on the path taken; when one view class would need more than 1,024 such re-linearizations, its remaining
+bases are treated as unknown. Flask blueprint registrations that close a cycle (Flask fails to register them) are not
+followed and count as `route-coverage:`. Registering the same blueprints along many paths is expanded per path as
+Flask does, up to 200,000 nested registrations (`route-coverage:` beyond that); the expansion stops early once more
+than 100,000 route-decl facts make the document impossible, ending with the usual fact-limit error (exit code 2).
+
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
-once. On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and source reads open each component
+once. The directory walk counts only links whose name could hide sources it would otherwise read, judged from the
+name alone without touching the target: links named `*.py` (including broken ones) and extensionless links with a
+name the walk would enter. Links such as `CLAUDE.md -> AGENTS.md`, `README.md`, or `.venv` therefore do not become
+limitations, and the count never depends on what exists on the analyzing machine. A directory link with an extension
+(`conf.d`) is not counted and an extensionless file link (`LICENSE`) is. Links met during module resolution or
+manifest reads always count.
+On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and source reads open each component
 without following links, and verify the opened file before reading. Other systems recheck components and file identity
 before reading, but those checks are not atomic. Analyze a stable project tree; this is not a filesystem snapshot or a
 sandbox against concurrent changes to the filesystem. The analyzed Python code is never imported or executed.

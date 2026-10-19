@@ -48,7 +48,9 @@ from pythograph.source.symbols import (
     SymbolTable,
     ValueSymbol,
     absolute_module,
+    uses_namespace,
 )
+from pythograph.source.syntax import parse_annotation
 
 #: 값을 따라가는 최대 깊이다(순환·과도한 재귀 방지).
 MAX_VALUE_DEPTH = 32
@@ -326,15 +328,11 @@ class Resolver:
             constant: 문자열 상수 노드.
 
         Returns:
-            파싱한 식, 문법 오류면 None.
+            파싱한 식, 파싱할 수 없거나 너무 깊으면 None(`parse_annotation`).
         """
         cached = self._annotations.get(id(constant))
         if cached is None:
-            try:
-                parsed: ast.expr | None = ast.parse(str(constant.value), mode="eval").body
-            except (SyntaxError, ValueError, RecursionError, MemoryError):
-                parsed = None
-            cached = (constant, parsed)
+            cached = (constant, parse_annotation(str(constant.value)))
             self._annotations[id(constant)] = cached
         return cached[1]
 
@@ -480,7 +478,7 @@ class Resolver:
                     table.setdefault(definition.path, set()).update(bindings.globals & set(bindings.names))
             for module in self.index.modules:
                 candidates = self.namespace_paths
-                if (candidates is None or module.path in candidates) and _uses_namespace(module):
+                if (candidates is None or module.path in candidates) and uses_namespace(module.module.module.tree):
                     table.setdefault(module.path, set()).add(_NAMESPACE_WRITE)
             self._global_writers = table
         return self._global_writers
@@ -673,53 +671,8 @@ def _definition_value(definition: Definition) -> Value:
 
 
 #: 모듈 이름공간을 사전으로 다루는 모듈의 표식이다(`globals()[k] = v`로 어떤 전역이든 다시 쓸 수 있다).
+#: 판정(`source.symbols.uses_namespace`)은 client 모듈 상수 증명과 함께 쓴다.
 _NAMESPACE_WRITE = "<namespace>"
-
-
-def _uses_namespace(module: Definition) -> bool:
-    """모듈이 `globals()`(또는 모듈 수준 `vars()`·`locals()`)를 부르는지 본다.
-
-    Args:
-        module: 모듈 정의.
-
-    Returns:
-        그렇다면 True.
-    """
-    if any(_namespace_call(node, ("globals",)) for node in ast.walk(module.node)):
-        return True
-    return any(_namespace_call(node, ("vars", "locals")) for node in _module_level_nodes(module))
-
-
-def _namespace_call(node: ast.AST, names: tuple[str, ...]) -> bool:
-    """인자 없는 `globals()`·`vars()`·`locals()` 호출인지 본다.
-
-    Args:
-        node: 노드.
-        names: 함수 이름.
-
-    Returns:
-        그렇다면 True.
-    """
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names and not node.args
-
-
-def _module_level_nodes(module: Definition) -> list[ast.AST]:
-    """함수·클래스·람다 본문 밖(모듈 수준)의 노드다.
-
-    Args:
-        module: 모듈 정의.
-
-    Returns:
-        노드 목록.
-    """
-    result: list[ast.AST] = []
-    pending: list[ast.AST] = list(getattr(module.node, "body", []))
-    while pending:
-        node = pending.pop()
-        result.append(node)
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
-            pending.extend(ast.iter_child_nodes(node))
-    return result
 
 
 def class_bindings(owner: Definition, name: str) -> int:

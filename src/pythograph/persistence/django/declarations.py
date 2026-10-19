@@ -33,9 +33,9 @@ class DjangoDeclarations:
         self.extraction = extraction
 
     def run(self) -> None:
-        """이 모듈에 정의된 구체 모델마다 선언 사실을 낸다."""
-        for model in self.catalog.models.values():
-            if model.path == self.scopes.path and not model.abstract and model.node is not None:
+        """이 모듈에 정의된 구체 모델마다 선언 사실을 낸다(카탈로그의 경로별 색인으로 이 모듈 모델만 본다)."""
+        for model in self.catalog.models_by_path.get(self.scopes.path, ()):
+            if not model.abstract and model.node is not None:
                 self._model(model, model.node)
 
     def _model(self, model: DjangoModel, node: ast.ClassDef) -> None:

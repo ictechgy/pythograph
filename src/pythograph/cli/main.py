@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TextIO
 
 from pythograph import __version__
-from pythograph.cli.common import FORBIDDEN, InputError, UsageError, parse_timestamp, resolve_project
+from pythograph.cli.common import InputError, UsageError, parse_timestamp, resolve_project
 from pythograph.cli.graph_commands import (
     GRAPH_USAGE,
     IMPACT_USAGE,
@@ -33,6 +33,8 @@ from pythograph.routes.client.extract import ClientOptions, extract_client_calls
 from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
+from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 성공 종료 코드다.
 EXIT_OK = 0
@@ -79,7 +81,9 @@ declared HTTP wrappers (--role client).
 Options:
   --role server|client       Declaration side (server) or calling side (client)
   --project <root>           Project root; location paths are relative to it
-  --service <name>           Service identity recorded on the document and every fact
+  --service <name>           Service identity recorded on the document and every fact (client:
+                             a wrapper's own service wins on its facts, and the document omits
+                             the field when that service differs)
   --include-tests            Also scan test sources; their facts carry testSource: true
   --framework <name>         (server) auto (default), django, or flask
   --settings <module>        (server) Django settings module (default: the DJANGO_SETTINGS_MODULE
@@ -304,7 +308,7 @@ def _routes(rest: list[str]) -> str:
     )
     if parsed.role == "client":
         return _client_routes(parsed, root, header)
-    project = Project.open(root)
+    project = Project.open(root, MAX_EXTRACTION_AST_DEPTH)
     options = RouteOptions(parsed.framework, parsed.settings_module, parsed.include_tests, parsed.dispatch)
     try:
         extraction = extract_routes(project, options)
@@ -332,7 +336,9 @@ def _client_routes(parsed: RoutesArguments, root: Path, header: DocumentHeader) 
         InputError: 래퍼 파일을 읽지 못하거나 출력이 상한을 넘을 때.
     """
     wrappers = _wrappers(parsed.wrappers)
-    extraction = extract_client_calls(Project.open(root), ClientOptions(parsed.include_tests, tuple(wrappers)))
+    extraction = extract_client_calls(
+        Project.open(root, MAX_EXTRACTION_AST_DEPTH), ClientOptions(parsed.include_tests, tuple(wrappers))
+    )
     try:
         return encode_document(build_client_document(header, extraction))
     except DocumentLimitError as error:
@@ -349,8 +355,8 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
         파이썬 래퍼 선언.
 
     Raises:
-        UsageError: 선언 오류.
-        InputError: 읽지 못할 때.
+        UsageError: 선언 오류(4 MiB 초과 포함).
+        InputError: 읽지 못하거나 일반 파일·파이프가 아닐 때.
     """
     if argument is None:
         return []
@@ -359,7 +365,9 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
     except WrapperDeclarationError as error:
         raise UsageError(f"invalid --wrappers declaration: {error}") from error
     except OSError as error:
-        raise InputError("--wrappers does not name a readable file; pass an http-wrappers v1 JSON file.") from error
+        raise InputError(
+            "--wrappers does not name a readable regular file or pipe; pass an http-wrappers v1 JSON file."
+        ) from error
 
 
 def _schema(rest: list[str]) -> str:
@@ -386,7 +394,9 @@ def _schema(rest: list[str]) -> str:
     settings_module = _settings_module(values.get("--settings"))
     generated_at = parse_timestamp(values.get("--generated-at"))
     root = resolve_project(project_argument)
-    extraction = extract_persistence(Project.open(root), SchemaOptions("--include-tests" in flags, settings_module))
+    extraction = extract_persistence(
+        Project.open(root, MAX_EXTRACTION_AST_DEPTH), SchemaOptions("--include-tests" in flags, settings_module)
+    )
     header = DocumentHeader(
         tool_version=__version__,
         generated_at=generated_at or datetime.now(timezone.utc),
@@ -509,7 +519,7 @@ def _service(value: str | None) -> str | None:
     Raises:
         UsageError: 길이·문자 위반.
     """
-    if value is not None and (len(value) > MAX_SERVICE_LENGTH or FORBIDDEN.search(value)):
+    if value is not None and (len(value) > MAX_SERVICE_LENGTH or FORBIDDEN_CHARACTERS.search(value)):
         raise UsageError(f"--service must be 1-{MAX_SERVICE_LENGTH} characters without control characters.")
     return value
 

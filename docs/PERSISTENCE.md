@@ -106,7 +106,7 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 |---|---|
 | Declarative 기반: `DeclarativeBase`·`DeclarativeBaseNoMeta` 하위 클래스, `declarative_base()`, `registry().generate_base()`, Flask-SQLAlchemy `db.Model` | SQLAlchemy `orm/decl_api.py`, Flask-SQLAlchemy `extension.py` `_make_declarative_base` |
 | 테이블 이름: 자기 `__table__`(Core 테이블), 자기 `__tablename__`, 매핑되지 않은 믹스인·추상(`__abstract__`) 클래스의 `__tablename__`. 매핑된 부모의 이름은 물려받지 않고, 이름이 없거나 `__tablename__ = None`이면 단일 테이블 상속으로 부모 테이블을 쓴다(`None`이면 자동 이름도 없다). `@declared_attr` 이름은 dynamic | SQLAlchemy 2.0.54 `orm/decl_base.py` `_ClassScanMapperConfig._scan_attributes`·`_setup_table` |
-| 컬럼: `Column`·`mapped_column`의 첫 위치 문자열 또는 `name=`, 없으면 속성 이름. 값 없는 `x: Mapped[T]`도 컬럼(T가 매핑 클래스·컬렉션이면 관계). 믹스인 컬럼은 매핑 클래스마다 복사, 단일 테이블 상속 자식 컬럼은 부모 테이블, 조인 상속 부모 컬럼은 부모 테이블에 남는다 | `orm/decl_base.py`, `orm/_orm_constructors.py` `mapped_column` |
+| 컬럼: `Column`·`mapped_column`의 첫 위치 문자열 또는 `name=`, 없으면 속성 이름. 값 없는 `x: Mapped[T]`도 컬럼(T가 매핑 클래스·컬렉션이면 관계, 파싱할 수 없거나 너무 깊은 문자열 주석이면 컬럼이 아님). 믹스인 컬럼은 매핑 클래스마다 복사, 단일 테이블 상속 자식 컬럼은 부모 테이블, 조인 상속 부모 컬럼은 부모 테이블에 남는다 | `orm/decl_base.py`, `orm/_orm_constructors.py` `mapped_column` |
 | 스키마: `__table_args__`(사전 또는 끝이 사전인 튜플)의 `schema`, 없으면 기반 `MetaData(schema=)`. Core `Table`은 `schema=`, 없으면 MetaData 스키마(Flask-SQLAlchemy `db.Table`은 `SQLAlchemy(metadata=)`) | `sql/schema.py` `Table`·`MetaData`(스크래치에서 실측) |
 | Flask-SQLAlchemy 자동 이름: `camel_to_snake_case(클래스 이름)` = `re.sub(r"((?<=[a-z0-9])[A-Z]\|(?!^)[A-Z](?=[a-z]))", r"_\1", name).lower().lstrip("_")`. 이름이 어디에도 없을 때, 또는 매핑된 부모에만 있을 때 붙인다. 매핑된 부모가 있으면 자기 기본 키 컬럼이 있을 때만 조인 테이블이고 없으면 단일 테이블 상속(부모 테이블) | Flask-SQLAlchemy 3.1.1 `model.py` `camel_to_snake_case`·`should_set_tablename`·`NameMixin.__table_cls__`(3.0.5 동일) |
 | `disable_autonaming=True`거나 `model_class`가 이미 만든 declarative 클래스면 자동 이름이 없다 | `extension.py` `_make_declarative_base` |
@@ -149,6 +149,10 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   `unresolved-sql-arguments:`로 센다(`select(...)` 같은 호출·그 대입은 SQL 텍스트가 아니라 세지 않는다).
 - 그 밖의 문자열 리터럴은 SQL 동사와 관계 키워드가 대문자일 때만 읽는다(가족 strict 규칙). docstring은 읽지 않는다.
   소문자라 읽지 않은 SQL 모양 리터럴은 `skipped-sql-literals:`로 센다.
+- f-string·`+`로 이어 붙인 텍스트가 64 KiB를 넘으면 읽지 않고 식마다 `skipped-sql-literals:`("string expressions longer
+  than 64 KiB were not read as SQL")로 센다. 그 식을 조각으로 쓰는 바깥 텍스트에서는 알 수 없는 조각 `{}`다. 같은 상수를
+  여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 길이를 단계마다 곱으로 늘리기 때문이다. 같은 상수는 한 번만
+  펼치고, 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 
 ## 한계 접두사
 
@@ -165,12 +169,12 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `unresolved-django-lookups:` | 모델에 귀속하지 못한 `OuterRef` |
 | `skipped-sql-fragments:` | 읽지 않은 `extra()` SQL 조각 |
 | `unresolved-sql-arguments:` | 읽지 못한 일반 `execute` 인자 |
-| `skipped-sql-literals:` | 읽지 않은 소문자 SQL 모양 리터럴 |
+| `skipped-sql-literals:` | 읽지 않은 소문자 SQL 모양 리터럴, 64 KiB를 넘게 이어 붙인 문자열 식 |
 | `invalid-relation-names:` | 교환 형식이 싣지 못해 dynamic으로 내린 이름 |
 | `missing-relation-usrs:` | symbol이 없는(모듈 수준) 사실 수 |
 | `unsupported-db-packages:`, `non-relational-stores:` | 해석하지 않는 ORM·저장소를 import한 파일 수 |
 | `skipped-migration-sources:`, `test-sources-excluded:` | 읽지 않은 마이그레이션·테스트 파일 수 |
-| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패·심볼릭 링크·순회 상한 |
+| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 256단 초과 포함)·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·소스를 가릴 수 있는 심볼릭 링크·순회 상한 |
 
 ## 명명 벡터
 

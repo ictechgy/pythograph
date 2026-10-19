@@ -14,17 +14,15 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
+
+from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: group 최대 길이(UTF-16 코드 단위)다.
 MAX_GROUP_LENGTH = 256
 
 #: 안전 정수 상한(JavaScript `Number.MAX_SAFE_INTEGER`)이다.
 MAX_SAFE_INTEGER = 2**53 - 1
-
-#: 소비자가 거부하는 제어 문자다.
-_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029]")
 
 #: JavaScript `String.prototype.trim`이 지우는 공백이다.
 _JS_WHITESPACE = (
@@ -86,13 +84,10 @@ def _is_safe_group(group: object) -> bool:
     """
     if not isinstance(group, str) or not group.strip(_JS_WHITESPACE):
         return False
-    if _CONTROL.search(group) or group.strip(_JS_WHITESPACE) != group:
+    if FORBIDDEN_CHARACTERS.search(group) or group.strip(_JS_WHITESPACE) != group:
         return False
-    try:
-        encoded = group.encode("utf-16-le")
-    except UnicodeEncodeError:
-        return False
-    return len(encoded) // 2 <= MAX_GROUP_LENGTH
+    # 짝 없는 서러게이트는 위에서 걸렀으므로 UTF-16 인코딩은 실패하지 않는다.
+    return len(group.encode("utf-16-le")) // 2 <= MAX_GROUP_LENGTH
 
 
 def _group_problem(document: Mapping[str, object], facts: Sequence[object]) -> str | None:

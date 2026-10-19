@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+import subprocess
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
 import pythograph
 from pythograph.cli import main as cli
-from tests.conftest import FIXTURES, GENERATED_AT, REPOSITORY, routes_document, run_cli
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, routes_document, run_cli
 
 #: Django fixture 경로다.
 DJANGO = str(FIXTURES / "django" / "drf-shop")
@@ -154,6 +156,165 @@ def test_generated_at_defaults_to_now() -> None:
     assert len(document["generatedAt"]) == len(GENERATED_AT) and document["generatedAt"].endswith("Z")
 
 
+def _deep_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """정상 Django·클라이언트 모듈 곁에 구문 트리가 너무 깊은 모듈들을 둔 합성 프로젝트를 만든다.
+
+    Args:
+        make_project: 프로젝트 생성 함수.
+
+    Returns:
+        프로젝트 루트.
+    """
+    return make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n',
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n"
+            ),
+            "shop/calls.py": (
+                "import requests\n\n\ndef fetch(base):\n    return requests.get(base" + "[0]" * 250 + ")\n"
+            ),
+            **{f"shop/{name}": text for name, text in DEEP_SOURCES.items()},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["graph"],
+        ["reach", "shop/views.py#index"],
+        ["impact", "shop/views.py#index"],
+        ["routes", "--role", "server"],
+        ["routes", "--role", "client"],
+        ["schema"],
+    ],
+)
+def test_deep_modules_do_not_abort_commands(make_project: Callable[[dict[str, str]], Path], command: list[str]) -> None:
+    """구문 트리가 너무 깊은 모듈이 있어도 모든 명령이 0이고, 그 모듈은 한계로 남으며 나머지 사실은 그대로다."""
+    root = _deep_project(make_project)
+    code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
+    assert code == 0, err
+    document = json.loads(out)
+    text = json.dumps(document["limitations"])
+    if command[0] in ("graph", "reach", "impact"):
+        assert "unparsed-files: " in text
+    elif command[-1] == "server":
+        assert [fact["channel"] for fact in document["facts"]] == ["/ok/"]
+    else:
+        assert "could not be analyzed: source nesting too deep to parse" in text
+        assert document["facts"]
+
+
+def test_moderately_deep_modules_stay_analyzed_outside_graph(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """graph 상한(128)과 routes·schema 상한(256) 사이 깊이의 모듈은 graph만 빼고 routes·client·schema는 분석한다.
+
+    graph 상한을 모든 명령에 걸었을 때는 urls.py·models.py의 무관한 깊은 식 하나로 server·schema 사실이, views.py의
+    130분기 elif 함수 하나로 client 사실이 사라지고 스코프 없는 한계가 붙었다. 상한이 없던 코드도 이 깊이에서는 세
+    명령 모두 정상이었다(내부 오류는 graph 계열만 났다).
+    """
+    unrelated = "\nUNRELATED = " + " + ".join(["1"] * 200) + "\n"
+    dispatch = "\n\ndef dispatch(code):\n    if code == 0:\n        return 0\n" + "".join(
+        f"    elif code == {index}:\n        return {index}\n" for index in range(1, 130)
+    )
+    root = make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n' + unrelated,
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+                + unrelated
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+                + dispatch
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n" + unrelated
+            ),
+        }
+    )
+    documents = {
+        command[-1]: json.loads(run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])[1])
+        for command in (["graph"], ["routes", "--role", "server"], ["routes", "--role", "client"], ["schema"])
+    }
+    assert documents["graph"]["statistics"]["unparsedFiles"] == 4
+    for name in ("server", "client", "schema"):
+        assert not any("too deep" in text for text in documents[name]["limitations"]), name
+    assert [fact["channel"] for fact in documents["server"]["facts"]] == ["/ok/"]
+    assert [fact["location"]["path"] for fact in documents["client"]["facts"]] == ["shop/views.py"]
+    assert "shop/models.py#Item" in {fact["symbol"]["usr"] for fact in documents["schema"]["facts"]}
+
+
+#: 3.10 파서가 C 스택을 넘기는 20만 단위 사슬 모듈이다. f-string 치환 필드 안의 사슬은 3.10 tokenize에 STRING 토큰
+#: 하나로만 보인다.
+LONG_CHAINS = {
+    "plus": "VALUE = " + "+".join(["1"] * 200_000) + "\n",
+    "fstring-plus": 'VALUE = f"{' + "+".join(["a"] * 200_000) + '}"\n',
+    "fstring-subscript": 'VALUE = f"{a' + "[0]" * 200_000 + '}"\n',
+    "fstring-format-spec": 'WIDTH = 3\nVALUE = f"{a' + ".b" * 200_000 + '!r:>{WIDTH}}"\n',
+}
+
+
+def _run_process(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """CLI를 별도 프로세스로 실행한다(파서가 프로세스를 죽여도 테스트가 살아 있게).
+
+    Args:
+        arguments: 명령 인자.
+
+    Returns:
+        실행 결과.
+    """
+    return subprocess.run(
+        [sys.executable, "-m", "pythograph", *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+    )
+
+
+@pytest.mark.parametrize("shape", sorted(LONG_CHAINS))
+def test_long_chains_do_not_crash_the_parser(make_project: Callable[[dict[str, str]], Path], shape: str) -> None:
+    """파서가 C 스택을 넘길 만큼 긴 사슬도 프로세스를 죽이지 않고 파싱 실패 한계가 된다.
+
+    3.10의 `ast.parse`는 20만 항 `+` 사슬에서 세그폴트해 종료 코드가 계약에 없는 139였다. f-string 안의 사슬은 사슬
+    검사가 세지 않아 그대로 세그폴트했다. 별도 프로세스로 실행한다.
+    """
+    root = make_project({"pkg/__init__.py": "", "pkg/table.py": LONG_CHAINS[shape]})
+    result = _run_process(["graph", "--project", str(root), "--revision", "x"])
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["statistics"]["unparsedFiles"] == 1
+
+
+def test_long_chain_in_a_string_annotation_does_not_crash(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """매개변수의 문자열 주석이 f-string 사슬이어도 graph·client·schema가 끝나고 그 주석만 모르는 주석이 된다.
+
+    모듈은 파싱되고 주석을 풀 때 `parse_annotation`이 파싱하는데, 3.10에서 사슬 검사가 f-string을 세지 않아 세 명령이
+    세그폴트(종료 139)했다.
+    """
+    annotation = "f'{" + "+".join(["a"] * 200_000) + "}'"
+    source = f'import requests\n\n\ndef fetch(session: "{annotation}"):\n    return session.get("/b")\n'
+    root = make_project({"pkg/__init__.py": "", "pkg/client.py": source})
+    for command in (["graph", "--revision", "x"], ["routes", "--role", "client"], ["schema"]):
+        result = _run_process([command[0], "--project", str(root), *command[1:]])
+        assert result.returncode == 0, (command, result.returncode, result.stderr)
+        document = json.loads(result.stdout)
+        if command[0] == "graph":
+            assert document["statistics"]["unparsedFiles"] == 0
+
+
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:
     """심볼릭 링크는 따라가지 않고 한계로 센다."""
     root = make_project({"app.py": "from flask import Flask\napp = Flask(__name__)\n"})
@@ -162,6 +323,111 @@ def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path
     (root / "link").symlink_to(outside)
     limitations = routes_document(root)["limitations"]
     assert any("symbolic links" in text for text in limitations)  # type: ignore[union-attr]
+
+
+#: isthmus가 식별자에서 거부하는 문자다(parse.ts `controlCharacterPattern`과 짝 없는 서러게이트, 제품 코드와 따로 둔다).
+CONTRACT_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
+
+#: 이름에 계약 금지 문자가 든 모듈 경로다(디렉터리 성분 포함). git은 이런 이름을 허용한다.
+FORBIDDEN_NAMES = (
+    "shop/ev\x1b[31mil.py",
+    "shop/bel\x07.py",
+    "shop/nel\x85.py",
+    "shop/ls\u2028.py",
+    "odd\x07dir/mod.py",
+)
+
+#: 금지 이름 모듈의 내용이다. 정상 뷰를 부르고 HTTP·ORM 호출을 담아, 이름이 사실·정점에 실리면 드러난다.
+FORBIDDEN_NAME_SOURCE = (
+    "import requests\nfrom shop.models import Item\nfrom shop.views import index\n\n\n"
+    "def caller(request):\n    Item.objects.filter(name='x')\n"
+    "    requests.get('https://example.com/items')\n    return index(request)\n"
+)
+
+
+def _forbidden_name_project(make_project: Callable[[dict[str, str]], Path]) -> Path:
+    """정상 Django·클라이언트·모델 모듈 곁에 이름에 계약 금지 문자가 든 모듈을 둔 합성 프로젝트를 만든다.
+
+    Args:
+        make_project: 프로젝트 생성 함수.
+
+    Returns:
+        프로젝트 루트(파일시스템이 그런 이름을 거부하면 테스트를 건너뛴다).
+    """
+    root = make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n',
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n"
+            ),
+        }
+    )
+    try:
+        for name in FORBIDDEN_NAMES:
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(FORBIDDEN_NAME_SOURCE, encoding="utf-8")
+    except OSError:
+        pytest.skip("the filesystem rejects control characters in file names")
+    return root
+
+
+def _strings(value: object) -> Iterator[str]:
+    """JSON 값 안의 모든 문자열(키 포함)을 돌려준다.
+
+    Args:
+        value: JSON 값.
+
+    Yields:
+        문자열.
+    """
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+@pytest.mark.parametrize(
+    ("command", "prefix"),
+    [
+        (["graph"], "scan-incomplete:"),
+        (["reach", "shop/views.py#index"], "scan-incomplete:"),
+        (["impact", "shop/views.py#index"], "scan-incomplete:"),
+        (["routes", "--role", "server"], "route-coverage:"),
+        (["routes", "--role", "client"], "route-call-coverage:"),
+        (["schema"], "unreadable-sources:"),
+    ],
+)
+def test_file_names_with_forbidden_characters_never_reach_the_document(
+    make_project: Callable[[dict[str, str]], Path], command: list[str], prefix: str
+) -> None:
+    """이름에 계약 금지 문자가 든 모듈은 분석하지 않고 한계로 센다. 출력의 어떤 id·경로에도 그 문자가 없다.
+
+    그런 이름이 `symbol.usr`·`location.path`·정점 id에 그대로 실려 isthmus가 문서 전체를 거부하던 회귀다.
+    """
+    root = _forbidden_name_project(make_project)
+    code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
+    assert code == 0, err
+    document = json.loads(out)
+    limitations = document.pop("limitations")
+    expected = f"{prefix} {len(FORBIDDEN_NAMES)} Python files have names with characters the exchange format forbids"
+    assert any(text.startswith(expected) for text in limitations), limitations
+    assert [ascii(text) for text in _strings(document) if CONTRACT_FORBIDDEN.search(text)] == []
+    if command == ["graph"]:
+        assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
 
 
 class _BrokenStream:

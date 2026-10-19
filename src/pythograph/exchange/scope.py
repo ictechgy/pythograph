@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
 
+from pythograph.exchange.methods import HTTP_METHODS
 from pythograph.exchange.template import is_canonical_template
 
 #: 스코프 항목에 올 수 있는 키다.
@@ -22,9 +23,6 @@ _SCOPE_KEYS = frozenset({"limitationIndex", "templates", "templatePrefixes", "te
 
 #: 경로 필드 이름이다. 하나 이상 있어야 한다.
 _PATH_FIELDS = ("templates", "templatePrefixes", "templateSuffixes")
-
-#: 스코프 `methods`에 쓸 수 있는 HTTP 동사다(`ANY` 제외).
-HTTP_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE")
 
 #: 경로 비교에서 0개 이상의 세그먼트를 뜻하는 내부 표식이다.
 _ANY_SEGMENTS = "\x00*"
@@ -89,6 +87,7 @@ def _methods_problem(value: object) -> str | None:
     """
     if not isinstance(value, list) or not value:
         return "methods must be a non-empty array"
+    # 스코프 `methods`에는 `ANY`가 올 수 없다(계약 동사만).
     if any(not isinstance(method, str) or method not in HTTP_METHODS for method in value):
         return "methods holds a value that is not an HTTP method"
     if len(set(value)) != len(value):

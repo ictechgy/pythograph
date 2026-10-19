@@ -73,13 +73,19 @@ pythograph가 Django(+Django REST framework)·Flask 프로젝트에서 isthmus h
 - **정규식**: `^`로 시작하지 않는 `search`, 끝이 열린 endpoint, 전후방 탐색, 역참조, `\b` 같은 앵커, 대소문자 무시
   플래그는 dynamic이다. 선택 리터럴(`x?`), 대안(`a|b`), 유한 문자 집합(`[12]`)은 템플릿 여러 개로 펼치고 16개를
   넘으면 dynamic과 `route-template-expansion-capped:`다. 끝 `/?`는 `trailingSlash: "optional"` 하나로 합친다.
+  구문 트리 중첩(묶음·대안·반복의 하위 패턴)이 50단을 넘는 정규식은 재귀 변환이 파이썬 재귀 한도를 넘지 않도록
+  변환하지 않고 dynamic과 `route-coverage:`("the regular expression nests too deeply")로 낸다.
 - **paramConstraints**: `X+` 모양에서 X가 받는 ASCII 문자 집합이 숫자면 `int`, `[-A-Za-z0-9_]`면 `slug`,
   `/`를 뺀 전부면 제약 없음(싣지 않음), 알려진 UUID 정규식이면 `uuid`, `{**}`는 `path`(정보용), 그 밖은 `regex`와
   원문 `pattern`이다. ASCII 밖 문자는 요청에서 퍼센트 인코딩되어 소비자가 평가하지 않으므로 판별에서 뺀다.
+  원문에 교환 형식이 금지하는 문자(제어 문자·U+2028/U+2029·짝 없는 서러게이트)가 있으면 `pattern`만 뺀다(소비자가
+  문서 전체를 거부하지 않도록). dynamic 사실의 원문 channel도 같은 문자가 있으면 null이다.
 - **trailingSlash**: 정적 템플릿은 `strict`(정확 매칭, `APPEND_SLASH`는 넘겨주기일 뿐이라 다른 형태는 핸들러에
   닿지 않는다), 끝 `/?`는 `optional`, `{**}`로 끝나면 생략(unknown)이다.
 - **method**: 함수 뷰 `ANY` 또는 장식자가 좁힌 동사, 클래스 뷰는 받는 핸들러 동사다. HEAD는 GET이 있으면
   내지 않고(소비자 `head-as-get`), 클래스 뷰의 자동 OPTIONS도 내지 않는다(`options-any`). 명시한 OPTIONS는 낸다.
+  계약 동사 집합(`GET`·`HEAD`·`POST`·`PUT`·`PATCH`·`DELETE`·`OPTIONS`·`TRACE`) 밖 동사(`http_method_names`·viewset
+  매핑·장식자 인자의 `purge` 등)는 decl로 내지 않고 한계로 센다(아래 [한계와 스코프](#한계와-스코프)).
 - **order**: `dispatch: "registration-order"` 문서의 사실마다 `{group: "django:<ROOT_URLCONF>", index: <깊이 우선
   순번>}`이다. 한 패턴에서 나온 사실(method·펼친 템플릿)은 같은 순번이다. 앞 패턴이 뒤 패턴을 가려도 둘 다
   선언으로 낸다(가림 판정은 소비자의 `route-decl-shadowed` 몫이다).
@@ -125,12 +131,14 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 - 문서는 `dispatch: "specificity"`다. isthmus 구체성(리터럴 > 부분 세그먼트 > 제약 있는 `{}` > `{}` > `{**}`)은
   Werkzeug 가중치와 완전히 같지는 않지만, isthmus는 method를 먼저 거르고 경로 후보가 없을 때만 error를 내므로
   차이는 거짓 match 쪽이지 거짓 error가 아니다.
-- channel·paramConstraints는 Django와 같은 토큰열 규칙이다. `any(a, b)`는 템플릿 여러 개로 펼친다.
+- channel·paramConstraints는 Django와 같은 토큰열 규칙이다. `any(a, b)`는 템플릿 여러 개로 펼치고, `any()` 곱이나
+  빈 값 변형이 16개를 넘으면 Django와 같이 dynamic과 `route-template-expansion-capped:`다.
   `string(length=2)` 같은 길이 제약은 `regex`(`[^/]{2}`)다.
 - trailingSlash: 규칙 옵션 → `url_map.strict_slashes` 대입 → 기본 True 순서로 정한 값이 True면 `strict`, False면
   `optional`, 리터럴이 아니면 생략이다. `{**}`로 끝나면 생략한다.
 - method: 선언한 동사에서 GET이 있으면 HEAD를 빼고, 자동 OPTIONS는 목록에 없으므로 내지 않는다. 명시한
-  OPTIONS는 낸다(뷰가 직접 처리한다).
+  OPTIONS는 낸다(뷰가 직접 처리한다). 계약 동사 집합 밖 동사(`methods=["GET", "PURGE"]`의 `PURGE` 등)는 Django와
+  같이 decl로 내지 않고 한계로 센다.
 - `Flask(...)`·`Blueprint(...)`는 모듈 수준과 함수(앱 팩토리) 안 대입에서 찾고, 이름은 반복 변수(리터럴 목록을
   도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
   as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
@@ -152,12 +160,18 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | `INSTALLED_APPS`를 읽지 못함 | `framework-provided-routes:`(스코프 없음) |
 | Flask 정적 파일 | `framework-provided-routes:` + `templatePrefixes: [static_url_path]`, `methods: ["GET", "HEAD"]` |
 | 라우트를 따로 등록하는 Flask 확장(flask_restful·flask_restx·flask_smorest·connexion·flask_appbuilder·flask_admin) import | `route-coverage:`(스코프 없음) |
+| Flask 블루프린트 등록 순환(자기 자신이나 등록 경로의 조상을 다시 등록. Flask는 그런 앱을 등록하다 실패한다) | 순환을 닫는 등록을 따라가지 않고 `route-coverage:`(스코프 없음). 순환에 닿기 전 등록의 사실은 그대로다 |
+| 같은 블루프린트를 여러 경로로 등록한 격자(Flask는 경로마다 규칙을 다시 등록한다) | 경로마다 펼친다. 펼친 하위 등록이 200,000개(사실 상한의 두 배)를 넘으면 나머지를 따라가지 않고 `route-coverage:`(스코프 없음). 펼치는 도중 계약 동사 사실이 100,000개를 넘으면 바로 멈추고 사실 상한 오류(종료 2)로 끝난다 |
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
+| 뷰 클래스 상속 사슬이 32단을 넘음, 또는 정적 상속 순환이 촘촘해 같은 클래스를 경로마다 1,024번 넘게 다시 펴야 함(파이썬으로는 만들 수 없는 계층) | 넘는 기반을 모르는 기반으로 본다(method를 확정하지 못한 뷰와 같다). 다이아몬드 상속은 (클래스, 깊이)마다 한 번 펴므로 경로 수와 무관하다 |
+| 계약 동사 집합 밖 method(`PURGE`·`PROPFIND` 등: Flask `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action` 인자) | 그 method의 decl을 내지 않고 등록마다 `route-coverage:`. 템플릿을 확정한 root 앵커 등록이면 그 `templates` 스코프(스코프 `methods`에는 계약 동사만 쓸 수 있어 싣지 않는다), dynamic·base 앵커면 스코프 없음 |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |
+| 경로 원문(Flask 규칙은 연속 `/`를 합친 뒤, Django는 include 접두사까지 이은 `path()`·`re_path()` 문자열)이 8 KiB(템플릿 상한 2,048자의 4배)를 넘거나, 리터럴 글자(Flask 변환기 밖 글자, Django `path()` 변환기 자리 밖 글자와 `re_path` 묶음 밖에서 반복 기호가 붙지 않은 리터럴)만으로 템플릿 상한을 넘음 | 변환하지 않고 템플릿 상한 초과와 같은 dynamic 사실 + `route-coverage:`("… (too-long)"). 변환 비용이 원문 길이를 따라 늘고, 같은 긴 상수를 경로마다 재사용하면 경로 수만큼 곱해지기 때문이다. 원문은 8 KiB보다 긴데 템플릿은 짧았을 극단(아주 긴 파라미터 이름·변환기 인자·파라미터 정규식)도 dynamic이다. 리터럴만으로 상한을 넘는 경로는 펼침 상한보다 먼저 판정되어 `route-template-expansion-capped:` 대신 이 한계가 될 수 있다 |
+| f-string·`+`·목록 리터럴·모듈 상수로 만든 경로 문자열·설정값이 64 KiB를 넘음(같은 상수를 여러 번 참조하는 사슬 `B = f"{A}{A}…"`) | 모르는 값으로 본다. 경로는 리터럴이 아닌 경로처럼 dynamic 사실 + `route-coverage:`("… is not a literal"), 설정값은 읽지 못한 설정과 같다. 같은 상수는 한 번만 펼친다 |
 | i18n 접두사 | 그 아래 사실 `pathAnchor: "base"` |
 | 맨 앞 include 문자열이 리터럴이 아님(앞 조각이 빈 문자열·`re_path`의 `^`·언어 접두사뿐) | 그 조각을 떼고 하위 사실 `pathAnchor: "base"` + `unresolved-route-prefix:`. 앞에 리터럴 경로가 있으면 dynamic |
 | 프로젝트 밖 핸들러(usr 없음) | `missing-route-usrs:`(체인 전용) |
-| 파싱 실패(문법 오류·실행 중인 파이썬보다 새 문법·UTF-8 아님·4 MiB 초과), 심볼릭 링크, 순회 상한(200,000 항목, 깊이 64) | `route-coverage:` |
+| 파싱 실패(문법 오류·실행 중인 파이썬보다 새 문법·UTF-8 아님·4 MiB 초과·구문 트리 중첩 256단 초과), 교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029), 소스를 가릴 수 있는 심볼릭 링크, 순회 상한(200,000 항목, 깊이 64) | `route-coverage:` |
 | 버전 선언을 확인하지 못함 | `route-framework-version-unknown:` |
 
 스코프는 그 한계가 가릴 수 있는 모든 요청의 상한일 때만 싣는다. 스코프는 문서 조립 전에 계약 검사
@@ -177,6 +191,9 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   빼면 거짓 error가 되므로, "있을 수 있음"을 템플릿 스코프 한계로 나타낸다.
 - **HEAD·자동 OPTIONS는 내지 않는다.** tsograph(Next.js)와 같은 결정이다. 소비자의 `head-as-get`·`options-any`가
   처리한다.
+- **계약 밖 동사는 `ANY`로 바꾸지 않는다.** isthmus는 route-decl `method`가 계약 동사나 `ANY`가 아니면 문서 전체를
+  입력 오류로 거부한다(GRAPH-EXCHANGE http 사실 절). `ANY`로 내면 그 핸들러가 받지 않는 GET·POST 호출까지 거짓
+  match가 되므로, 그 동사의 decl은 빼고 등록의 템플릿에 닿는 요청을 가릴 수 있다는 `route-coverage:`로 남긴다.
 - **WSGI 마운트 접두사(`SCRIPT_NAME`)는 모델링하지 않는다.** 배포 설정이라 저장소에서 알 수 없다. 설정 파일의
   `FORCE_SCRIPT_NAME`만 base 앵커로 반영한다.
 - **파이썬 3.10 이상.** Django 5.x가 3.10 이상을 요구하고, 분석 대상의 3.10 문법(`match` 문)을 파싱하려면 실행

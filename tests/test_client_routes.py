@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import os
+import subprocess
+import sys
+import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from pythograph.graph.index import Definition
+from pythograph.routes.client import parts as parts_module
 from pythograph.routes.client.compose import (
     JOIN_AIOHTTP,
     JOIN_NONE,
@@ -22,8 +29,10 @@ from pythograph.routes.client.compose import (
     split_url,
 )
 from pythograph.routes.client.formats import Field, format_pieces, percent_pieces
+from pythograph.routes.client.parts import MAX_URL_PARTS
+from pythograph.routes.client.wrappers import MAX_WRAPPERS_BYTES, WrapperDeclarationError, load_wrappers
 from pythograph.routes.versions import spec_minimum
-from tests.conftest import GENERATED_AT, run_cli
+from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -118,6 +127,54 @@ def test_interpolation_forms_and_constants(make_project: MakeProject) -> None:
     assert "fmt" not in summary
 
 
+def test_url_parts_expand_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 상수를 여러 번 참조하는 URL 상수 사슬은 (범위, 식, 깊이)마다 한 번만 펼친다.
+
+    메모가 없으면 수백 바이트 모듈 하나가 조각 튜플을 참조 수의 거듭제곱만큼 다시 만들어 시간·메모리를 썼다.
+    """
+    chain = "".join(f'U{level} = f"' + ("{" + f"U{level - 1}" + "}") * 3 + '"\n' for level in range(1, 7))
+    root = make_project(
+        {
+            "client.py": 'import requests\n\nU0 = "/a"\n' + chain + "\n\ndef fetch():\n"
+            '    return requests.get("https://api.example.com" + U6)\n',
+        }
+    )
+    calls: list[int] = []
+    joined = parts_module.PartBuilder._joined
+
+    def counting(self: parts_module.PartBuilder, scope: Definition, expr: ast.JoinedStr, depth: int) -> object:
+        calls.append(depth)
+        return joined(self, scope, expr, depth)
+
+    monkeypatch.setattr(parts_module.PartBuilder, "_joined", counting)
+    assert rows(client_document(root))["fetch"] == ("GET", "/a" * 3**6, "root", "api.example.com")
+    # 단계 여섯 개를 한 번씩 펼친다(메모 없이 펼치면 1 + 3 + … + 3⁵ = 364번).
+    assert len(calls) == 6
+
+
+def test_url_parts_over_the_cap_are_values(make_project: MakeProject) -> None:
+    """f-string·`+`·서식으로 모은 URL 조각이 `MAX_URL_PARTS`개나 리터럴 64 KiB를 넘으면 값 조각 하나로 본다."""
+    root = make_project(
+        {
+            "client.py": 'import requests\n\nE = ""\nMANY = f"/items' + "{E}" * MAX_URL_PARTS + '"\n'
+            'FEW = f"/items' + "{E}" * (MAX_URL_PARTS - 2) + '"\n' + f'PAD = "{"b" * 40_000}"\n\n\n'
+            "def many():\n"
+            '    return requests.get("https://api.example.com" + MANY)\n\n\n'
+            "def few():\n"
+            '    return requests.get("https://api.example.com" + FEW)\n\n\n'
+            "def wide():\n"
+            '    return requests.get(f"https://api.example.com/items?q={PAD}{PAD}")\n\n\n'
+            "def within():\n"
+            '    return requests.get(f"https://api.example.com/items?q={PAD}")\n',
+        }
+    )
+    summary = rows(client_document(root))
+    assert summary["many"][1][0] == "dynamic"
+    assert summary["few"][1] == "/items"
+    assert summary["wide"][1][0] == "dynamic"
+    assert summary["within"][1] == "/items"
+
+
 def test_unproven_constants_are_values(make_project: MakeProject) -> None:
     """다시 묶이거나 global·모듈 속성 대입이 있는 이름은 상수가 아니다."""
     root = make_project(
@@ -172,6 +229,111 @@ def test_unproven_constants_are_values(make_project: MakeProject) -> None:
     for name in ("twice", "global_", "patched", "cond", "loop"):
         assert summary[name] == ("GET", "/x", "base", None), name
     assert summary["safe"] == ("GET", "/x", "root", "h.example.com")
+
+
+def test_namespace_and_untyped_writes_unprove_constants(make_project: MakeProject) -> None:
+    """리뷰 회귀: 이름공간 쓰기와 수신자를 모르는 속성 대입이 닿을 수 있는 이름은 상수가 아니다.
+
+    graph의 안정 전역 판정과 같다: 모듈 어디서든 `globals()`, 모듈 수준 `vars()`·`locals()`를 부르는 모듈의 이름과,
+    프로젝트 어디서든 수신자 타입을 모르는 같은 이름의 속성 대입(`sys.modules[__name__].X = …`)이 있는 이름이다.
+    런타임에 바뀌는 base URL이 정적 `authority`로 나갔다. 함수 안 `vars()`·`locals()`는 그 함수의 지역 이름이라
+    막지 않는다.
+    """
+    root = make_project(
+        {
+            "app/__init__.py": "",
+            "app/staging.py": """
+                API_ROOT = "https://api.example.com"
+
+                def use_staging():
+                    globals()["API_ROOT"] = "https://staging.example.com"
+            """,
+            "app/module_vars.py": """
+                VARS_ROOT = "https://vars.example.com"
+                vars()["VARS_ROOT"] = "https://changed.example.com"
+            """,
+            "app/module_locals.py": """
+                LOCALS_ROOT = "https://locals.example.com"
+                locals().update(LOCALS_ROOT="https://changed.example.com")
+            """,
+            "app/function_vars.py": """
+                FUNCTION_ROOT = "https://function.example.com"
+
+                def describe(value):
+                    return vars(), locals(), value
+            """,
+            "app/sysmod.py": """
+                import sys
+
+                OTHER_ROOT = "https://other.example.com"
+
+                def use_other():
+                    sys.modules[__name__].OTHER_ROOT = "https://other-staging.example.com"
+            """,
+            "app/untyped.py": """
+                PARAM_ROOT = "https://param.example.com"
+                STABLE_ROOT = "https://stable.example.com"
+
+                def reset(target):
+                    target.PARAM_ROOT = "https://reset.example.com"
+            """,
+            "app/calls.py": """
+                import requests
+
+                from app.function_vars import FUNCTION_ROOT
+                from app.module_locals import LOCALS_ROOT
+                from app.module_vars import VARS_ROOT
+                from app.staging import API_ROOT
+                from app.sysmod import OTHER_ROOT
+                from app.untyped import PARAM_ROOT, STABLE_ROOT
+
+                def users():
+                    return requests.get(API_ROOT + "/users")
+
+                def vars_():
+                    return requests.get(VARS_ROOT + "/vars")
+
+                def locals_():
+                    return requests.get(LOCALS_ROOT + "/locals")
+
+                def orders():
+                    return requests.get(OTHER_ROOT + "/orders")
+
+                def param():
+                    return requests.get(PARAM_ROOT + "/param")
+
+                def function():
+                    return requests.get(FUNCTION_ROOT + "/function")
+
+                def stable():
+                    return requests.get(STABLE_ROOT + "/stable")
+            """,
+            "app/shadowing.py": """
+                import requests
+
+                from app.untyped import STABLE_ROOT
+
+                def rebind():
+                    globals()["STABLE_ROOT"] = "https://shadow.example.com"
+
+                def shadowed():
+                    return requests.get(STABLE_ROOT + "/shadowed")
+            """,
+        }
+    )
+    document = client_document(root)
+    summary = rows(document)
+    for name, path in (
+        ("users", "/users"),
+        ("vars_", "/vars"),
+        ("locals_", "/locals"),
+        ("orders", "/orders"),
+        ("param", "/param"),
+        ("shadowed", "/shadowed"),
+    ):
+        assert summary[name] == ("GET", path, "base", None), name
+    assert summary["function"] == ("GET", "/function", "root", "function.example.com")
+    assert summary["stable"] == ("GET", "/stable", "root", "stable.example.com")
 
 
 def test_absolute_url_forms(make_project: MakeProject) -> None:
@@ -654,6 +816,62 @@ def test_wrapper_bindings(make_project: MakeProject, tmp_path: Path) -> None:
     assert "calls join a path to a base URL" in limitation_text(document)
 
 
+#: 래퍼 호출 하나(`charge`)와 래퍼를 거치지 않는 요청 하나(`profile`)를 가진 클라이언트다.
+BILLING_CODE = """
+    import requests
+
+    def call_billing(path):
+        return requests.get("https://billing.example.com" + path)
+
+    def charge():
+        return call_billing("/charges")
+
+    def profile():
+        return requests.get("https://shop.example.com/profile")
+"""
+
+
+@pytest.mark.parametrize(
+    ("wrapper_service", "document_service", "fact_services"),
+    [
+        ("billing", None, {"charge": "billing", "profile": "shop-web"}),
+        ("shop-web", "shop-web", {"charge": "shop-web", "profile": "shop-web"}),
+        (None, "shop-web", {"charge": "shop-web", "profile": "shop-web"}),
+    ],
+)
+def test_wrapper_service_and_document_service(
+    make_project: MakeProject,
+    tmp_path: Path,
+    wrapper_service: str | None,
+    document_service: str | None,
+    fact_services: dict[str, str],
+) -> None:
+    """리뷰 회귀: 래퍼 service가 `--service`와 다르면 문서 수준 service를 생략하고 사실마다 유효 service를 싣는다.
+
+    계약(GRAPH-EXCHANGE)은 사실 값과 문서 값이 둘 다 있는데 다르면 입력 오류다. 문서 값을 그대로 실어 isthmus가 문서
+    전체를 거부했다. 래퍼 service가 같거나 없으면 문서 값을 그대로 둔다.
+    """
+    root = make_project({"app/net.py": BILLING_CODE})
+    entry: dict[str, object] = {
+        "language": "python",
+        "kind": "function",
+        "owner": "app/net.py",
+        "name": "call_billing",
+        "defaultMethod": "GET",
+        "pathArg": {"index": 0, "label": "path"},
+        "pathAnchor": "root",
+    }
+    if wrapper_service is not None:
+        entry["service"] = wrapper_service
+    wrappers = _wrappers(tmp_path, [entry])
+    document = client_document(root, "--wrappers", str(wrappers), "--service", "shop-web")
+    assert document.get("service") == document_service
+    services = {fact["symbol"]["usr"].split("#", 1)[1]: fact["service"] for fact in document["facts"]}
+    assert services == fact_services
+    if "service" in document:
+        assert all(fact["service"] == document["service"] for fact in document["facts"])
+
+
 def test_wrapper_unresolved_declarations(make_project: MakeProject, tmp_path: Path) -> None:
     """대상이 없거나 호출이 0건인 파이썬 래퍼는 http-wrapper-unresolved이고 다른 언어 항목은 적용하지 않는다."""
     root = make_project({"gw/net.py": WRAPPER_CODE, "gw/models.py": "class Endpoint:\n    pass\n"})
@@ -727,6 +945,15 @@ def test_invalid_wrapper_files_exit_64(make_project: MakeProject, tmp_path: Path
         {"kind": "function", "owner": "a.py", "name": "f", "pathArg": {"index": 0}, "methodEnum": []},
         {"kind": "function", "owner": "a.py", "name": "", "pathArg": {"index": 0}, "defaultMethod": "GET"},
         {"kind": "method", "owner": "a.py", "name": "f", "pathArg": {"index": 0}, "defaultMethod": "GET"},
+        # service는 사실마다 실리므로 짝 없는 서러게이트도 제어 문자처럼 거부한다(출력 쓰기가 실패했다).
+        {
+            "kind": "function",
+            "owner": "a.py",
+            "name": "f",
+            "pathArg": {"index": 0},
+            "defaultMethod": "GET",
+            "service": "\ud800",
+        },
     ],
 )
 def test_invalid_wrapper_entries_exit_64(make_project: MakeProject, tmp_path: Path, entry: dict[str, object]) -> None:
@@ -744,6 +971,101 @@ def test_unreadable_wrapper_file_exits_2(make_project: MakeProject, tmp_path: Pa
     missing = tmp_path / "missing.json"
     code, out, _ = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(missing)])
     assert code == 2 and out == ""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")
+@pytest.mark.parametrize("kind", ["directory", "device", "device-link"])
+def test_wrapper_file_must_be_a_regular_file(make_project: MakeProject, tmp_path: Path, kind: str) -> None:
+    """디렉터리·장치·장치를 가리키는 링크는 내용을 읽지 않고 입력 오류(2)다. 일반 파일을 가리키는 링크는 따라간다.
+
+    전에는 장치 내용까지 끝까지 읽어, 저장소의 선언 파일을 `/dev/zero` 링크로 바꾸면 메모리를 끝없이 썼다(`/dev/null`은
+    빈 내용이라 선언 오류 64였다).
+    """
+    root = make_project({"a.py": "X = 1\n"})
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(_wrappers(tmp_path, []))
+    assert run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(linked)])[0] == 0
+    target = {"directory": tmp_path, "device": Path(os.devnull), "device-link": tmp_path / "device.json"}[kind]
+    if kind == "device-link":
+        target.symlink_to(os.devnull)
+    code, out, err = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(target)])
+    assert (code, out) == (2, "")
+    assert "--wrappers does not name a readable regular file" in err
+
+
+def test_oversized_wrapper_file_reads_only_the_byte_budget(make_project: MakeProject, tmp_path: Path) -> None:
+    """4 MiB를 넘는 선언 파일은 상한+1바이트만 읽고 선언 오류(64)다. 전에는 파일 전체를 메모리에 올린 뒤 잘랐다."""
+    path = tmp_path / "wrappers.json"
+    with path.open("wb") as handle:
+        handle.truncate(16 * MAX_WRAPPERS_BYTES)  # 내용은 0바이트로 채운 희소 파일이다.
+    tracemalloc.start()
+    try:
+        with pytest.raises(WrapperDeclarationError, match="larger than 4 MiB"):
+            load_wrappers(path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 2 * MAX_WRAPPERS_BYTES
+    root = make_project({"a.py": "X = 1\n"})
+    code, out, err = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(path)])
+    assert (code, out) == (64, "")
+    assert "larger than 4 MiB" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
+def test_wrapper_fifo_without_a_writer_ends_without_waiting(make_project: MakeProject, tmp_path: Path) -> None:
+    """쓰는 쪽이 없는 FIFO도 열기·읽기에서 멈추지 않는다. 빈 입력으로 읽혀 선언 오류(64)다.
+
+    전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
+    뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
+    """
+    root = make_project({"a.py": "X = 1\n"})
+    fifo = tmp_path / "wrappers.json"
+    os.mkfifo(fifo)
+    command = ["routes", "--role", "client", "--project", str(root), "--wrappers", str(fifo)]
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", *command],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPOSITORY,
+        timeout=60,
+    )
+    assert (result.returncode, result.stdout) == (64, ""), result.stderr
+    assert "not valid UTF-8 JSON" in result.stderr
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="/dev/fd가 없는 플랫폼")
+def test_wrapper_pipe_is_read_like_a_regular_file(make_project: MakeProject, tmp_path: Path) -> None:
+    """파이프(셸 프로세스 치환 `--wrappers <(cat w.json)`이 넘기는 `/dev/fd/N`)도 일반 파일과 같게 읽는다.
+
+    일반 파일만 받던 때는 이 형태가 입력 오류(2)였고, `--wrappers`에는 `--roots-from -` 같은 표준 입력 대안이 없어
+    파이프라인에서 쓸 수 없었다.
+    """
+    root = make_project({"gw/net.py": WRAPPER_CODE})
+    entry = {
+        "language": "python",
+        "kind": "function",
+        "owner": "gw/net.py",
+        "name": "send",
+        "methodArg": {"index": 0, "label": "method"},
+        "pathArg": {"index": 1, "label": "path"},
+        "pathAnchor": "root",
+        "service": "gateway",
+    }
+    path = _wrappers(tmp_path, [entry])
+    command = ["routes", "--role", "client", "--project", str(root), "--generated-at", GENERATED_AT]
+    from_file = run_cli([*command, "--wrappers", str(path)])
+    read_end, write_end = os.pipe()
+    with os.fdopen(write_end, "wb") as writer:
+        writer.write(path.read_bytes())
+    try:
+        from_pipe = run_cli([*command, "--wrappers", f"/dev/fd/{read_end}"])
+    finally:
+        os.close(read_end)
+    assert from_pipe == from_file
+    assert from_pipe[0] == 0
+    assert {fact["service"] for fact in json.loads(from_pipe[1])["facts"]} == {"gateway"}
 
 
 def test_compose_helpers() -> None:
@@ -896,3 +1218,19 @@ def test_urljoin_absolute_keeps_dot_segments(make_project: MakeProject) -> None:
         }
     )
     assert rows(client_document(root))["call"] == ("GET", "/a/../b", "root", "h.example.com")
+
+
+def test_deep_string_annotations_are_unknown_receivers(make_project: MakeProject) -> None:
+    """파싱은 되지만 너무 깊은 문자열 주석(600항 `X | None`)의 매개변수는 클라이언트 타입을 모르는 수신자다.
+
+    파싱한 주석을 재귀로 풀다 RecursionError로 `routes --role client` 전체가 내부 오류(종료 2)로 끝나던 회귀다.
+    """
+    calls = (
+        "import requests\n\n\n"
+        'def typed(session: "requests.Session"):\n    return session.get("https://example.com/typed")\n\n\n'
+        'def deep(session: "requests.Session' + " | None" * 600 + '"):\n'
+        '    return session.get("https://example.com/deep")\n'
+    )
+    summary = rows(client_document(make_project({"app/__init__.py": "", "app/calls.py": calls})))
+    assert summary["typed"][:2] == ("GET", "/typed")
+    assert "deep" not in summary

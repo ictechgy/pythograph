@@ -4,6 +4,9 @@ route-decl 문서(`exchange.document`)와 같은 조립 규칙을 쓴다: 키 �
 출력 16 Mi 문자 상한, 같은 공백은 한 문장으로 센다. 호출 측 문서라 `roles: ["client"]`이고 `dispatch`를 싣지 않는다.
 사실이 0건이어도 target은 `http`다(계약의 http 예외: "스캔했으나 호출 없음"과 "스캔 안 함"을 구분한다).
 
+`--service`는 래퍼 service가 없는 사실의 기본값이다. 래퍼 service가 그 값과 다른 사실이 있으면 문서 수준 `service`는
+싣지 않는다(계약: 문서 값과 사실 값이 다르면 입력 오류).
+
 dynamic 사실의 `channel`은 null이다. 원문 식은 userinfo·query·토큰을 담을 수 있어 싣지 않고, 증명한 리터럴 접두사만
 마스킹한 `channelPrefix`로 싣는다(계약의 보안 절).
 """
@@ -53,8 +56,9 @@ def build_client_document(header: DocumentHeader, extraction: ClientExtraction) 
         "project": header.project,
         "facts": facts,
     }
-    if header.service is not None:
-        document["service"] = header.service
+    service = _document_service(header.service, facts)
+    if service is not None:
+        document["service"] = service
     limitations, scopes = build_limitations(extraction.gaps)
     document["limitations"] = limitations
     if scopes:
@@ -62,12 +66,32 @@ def build_client_document(header: DocumentHeader, extraction: ClientExtraction) 
     return document
 
 
+def _document_service(service: str | None, facts: list[dict[str, object]]) -> str | None:
+    """문서 수준 `service`를 정한다.
+
+    계약(GRAPH-EXCHANGE)에서 사실의 유효 service는 사실 값, 없으면 문서 값이고, 둘 다 있는데 다르면 입력 오류다. 여러
+    서비스를 부르는 클라이언트 문서는 문서 값을 생략하고 사실마다 싣는다. 래퍼 선언의 service(HTTP-WRAPPERS: 그 래퍼의
+    모든 route-call)가 `--service`와 다른 사실이 하나라도 있으면 문서 값을 싣지 않는다. 래퍼 service가 없는 사실에는
+    `--service`가 이미 실려 있어 사실마다의 유효 service는 그대로다.
+
+    Args:
+        service: `--service` 값(없으면 None).
+        facts: 조립한 사실.
+
+    Returns:
+        문서에 실을 service, 싣지 않으면 None.
+    """
+    if service is None or any(fact.get("service", service) != service for fact in facts):
+        return None
+    return service
+
+
 def _fact_json(call: RouteCall, document_service: str | None) -> dict[str, object]:
     """호출 하나를 route-call 사실 JSON으로 바꾼다.
 
     Args:
         call: 호출.
-        document_service: 문서 service(사실 service가 없으면 이 값을 싣는다).
+        document_service: `--service` 값(래퍼 service가 없는 사실에 싣는 기본값).
 
     Returns:
         사실 dict.

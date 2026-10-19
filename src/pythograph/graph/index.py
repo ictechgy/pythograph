@@ -80,6 +80,8 @@ class DefinitionIndex:
         self.definitions: dict[str, Definition] = {}
         self.by_node: dict[ast.AST, Definition] = {}
         self.members: dict[str, ClassMembers] = {}
+        # 클래스 수준 대입을 이미 모은 클래스 id다(`class_members`가 클래스마다 한 번만 모은다).
+        self._attributes_collected: set[str] = set()
         self.modules: list[Definition] = []
         self.unparsed = 0
         for path in project.python_files():
@@ -155,17 +157,24 @@ class DefinitionIndex:
         members.decorators.setdefault(node.name, set()).update(_decorator_names(node))
 
     def class_members(self, definition: Definition) -> ClassMembers:
-        """클래스 멤버 표를 돌려준다(클래스 수준 대입 포함).
+        """클래스 멤버 표를 돌려준다(클래스 수준 대입 포함). 대입은 클래스마다 처음 부를 때 한 번만 모은다.
+
+        MRO 조회가 프로젝트 항목마다 부르므로 호출이 아주 많다. 수집 여부를 속성 표가 비었는지로 보면 대입 없이
+        메서드만 있는 클래스는 부를 때마다 본문을 다시 훑으므로 모은 클래스를 따로 기록한다.
 
         Args:
             definition: 클래스 정의.
 
         Returns:
-            멤버 표.
+            멤버 표(같은 클래스면 같은 객체).
         """
-        members = self.members.setdefault(definition.id, ClassMembers())
-        if not members.attributes and isinstance(definition.node, ast.ClassDef):
-            _collect_attributes(definition.node.body, members.attributes)
+        members = self.members.get(definition.id)
+        if members is None:
+            members = self.members[definition.id] = ClassMembers()
+        if definition.id not in self._attributes_collected:
+            self._attributes_collected.add(definition.id)
+            if isinstance(definition.node, ast.ClassDef):
+                _collect_attributes(definition.node.body, members.attributes)
         return members
 
     def classes(self) -> list[Definition]:

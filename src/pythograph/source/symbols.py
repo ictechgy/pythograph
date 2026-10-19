@@ -494,6 +494,37 @@ def star_exports(index: ModuleIndex) -> frozenset[str] | None:
     return exports
 
 
+def uses_namespace(tree: ast.Module) -> bool:
+    """모듈이 이름공간을 사전으로 다루는지 본다: 어느 범위든 `globals()`, 모듈 수준 `vars()`·`locals()`(인자 없는 호출).
+
+    그런 모듈은 `globals()["X"] = …`처럼 어떤 모듈 이름이든 실행 중에 다시 쓸 수 있어 묶음 수로 값을 증명하지 못한다.
+    함수·클래스·람다 본문의 `vars()`·`locals()`는 그 범위의 이름공간이라 보지 않는다. graph 해석기의 안정 전역 판정과
+    client 모듈 상수 증명이 같은 규칙을 쓰도록 이 계층에 둔다.
+
+    Args:
+        tree: 모듈 구문 트리.
+
+    Returns:
+        그렇다면 True.
+    """
+    if any(_namespace_call(node, ("globals",)) for node in ast.walk(tree)):
+        return True
+    return any(_namespace_call(node, ("vars", "locals")) for node in _module_level_nodes(tree))
+
+
+def _namespace_call(node: ast.AST, names: tuple[str, ...]) -> bool:
+    """인자 없는 `globals()`·`vars()`·`locals()` 호출인지 본다.
+
+    Args:
+        node: 노드.
+        names: 함수 이름.
+
+    Returns:
+        그렇다면 True.
+    """
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names and not node.args
+
+
 def _module_level_nodes(tree: ast.Module) -> list[ast.AST]:
     """함수·클래스·람다 본문을 빼고 모듈 수준 노드를 모은다.
 

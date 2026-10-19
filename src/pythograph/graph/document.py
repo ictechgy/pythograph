@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
-from pythograph.exchange.document import DocumentLimitError, format_timestamp
+from pythograph.exchange.document import DocumentLimitError, check_encodable, format_timestamp
 from pythograph.graph.model import CallGraph, GraphNode, NodeLocation
 from pythograph.graph.traversal import ReachedSymbol, TraversalResult
 
@@ -40,10 +40,12 @@ def encode_snapshot(document: dict[str, object]) -> str:
 
     Raises:
         DocumentLimitError: 스냅샷 상한을 넘을 때(부분 문서를 내지 않는다).
+        DocumentEncodingError: UTF-8로 쓸 수 없는 문자가 있을 때.
     """
     text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if len(text) > MAX_SNAPSHOT_LENGTH:
         raise DocumentLimitError(f"the graph snapshot would exceed {MAX_SNAPSHOT_LENGTH} characters")
+    check_encodable(text)
     return text
 
 

@@ -211,6 +211,7 @@ class DjangoCatalog:
         self.apps = DjangoApps(symbols, settings)
         self.backends: tuple[DjangoBackend, ...] = settings.backends
         self.models: dict[str, DjangoModel] = {}
+        self.models_by_path: dict[str, list[DjangoModel]] = {}
         self.by_label: dict[tuple[str, str], str] = {}
         self.reverse: dict[str, dict[str, ReverseRelation]] = {}
         self.accessors: dict[str, dict[str, ReverseRelation]] = {}
@@ -224,6 +225,17 @@ class DjangoCatalog:
         for key in list(self._raw):
             self._resolve(key, 0)
         self._link_reverse()
+        self._index_by_path()
+
+    def _index_by_path(self) -> None:
+        """선언 모듈 경로마다 그 모듈의 프로젝트 모델을 카탈로그 순서대로 모은다(외부 모델은 경로가 없다).
+
+        모듈마다 전체 모델을 돌며 경로로 거르면 모듈 수 × 모델 수가 들어 생성자 끝에서 한 번 만든다. 생성자가
+        끝난 뒤에는 모델을 더하지 않으므로 색인이 낡지 않는다.
+        """
+        for model in self.models.values():
+            if model.path is not None:
+                self.models_by_path.setdefault(model.path, []).append(model)
 
     # ------------------------------------------------------------------ 이름 계산
 

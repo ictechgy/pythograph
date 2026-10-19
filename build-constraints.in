@@ -1,0 +1,3 @@
+# build-constraints.txt(uv build의 빌드 백엔드를 정확한 버전·해시로 고정)의 입력이다. pyproject.toml의
+# [build-system] requires와 같게 두고, 바꾸면 RELEASING.md "빌드 도구 고정"의 명령으로 build-constraints.txt를 다시 만든다.
+hatchling>=1.25

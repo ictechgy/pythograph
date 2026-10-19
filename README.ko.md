@@ -92,8 +92,11 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
   고정되지 않은 정규식)는 `dynamic`과 `route-coverage:`다. 리터럴은 디코드된 경로 공간이라 pchar가 아닌 문자는
   UTF-8로 퍼센트 인코딩하고 `%`는 `%25`가 된다.
 - **method**: 대문자 동사 또는 `ANY`. GET 옆의 HEAD와 자동 OPTIONS는 내지 않는다(isthmus `head-as-get`·
-  `options-any`가 맞춘다). 명시한 OPTIONS는 낸다.
-- **paramConstraints**: `int`·`slug`·`uuid`·`path`(`{**}`)·`regex`(원문 포함).
+  `options-any`가 맞춘다). 명시한 OPTIONS는 낸다. 교환 형식의 동사 집합(`GET`·`HEAD`·`POST`·`PUT`·`PATCH`·
+  `DELETE`·`OPTIONS`·`TRACE`) 밖 동사(Flask `methods`나 Django `http_method_names`의 `PURGE` 등)는 내지 않고
+  `ANY`로도 바꾸지 않으며, 그 등록은 템플릿을 증명하면 그 템플릿 스코프의 `route-coverage:` 한계가 된다.
+- **paramConstraints**: `int`·`slug`·`uuid`·`path`(`{**}`)·`regex`(원문 포함). 정보 필드인 `pattern`은 정규식
+  원문에 교환 형식이 금지하는 문자(제어 문자·U+2028/U+2029·짝 없는 서러게이트)가 있으면 뺀다.
 - **trailingSlash**: Django와 strict Flask 규칙은 `strict`, 정규식의 `/?`와 Flask `strict_slashes=False`는
   `optional`, `{**}` 뒤는 생략.
 - **order**(Django): `{group: "django:<ROOT_URLCONF>", index: <깊이 우선 순번>}`.
@@ -147,13 +150,15 @@ bridge-facts v1 문서(`platform: "python"`, `target: "http"`, `roles: ["client"
   절대 URL은 3.12 이상을 프로젝트 잠금·요구 파일로 증명해야 주장한다), requests·urllib은 base가 없다. `urllib.parse.urljoin`은
   아직 벡터가 없어 절대 URL과 `/`로 시작하는 경로만 주장한다.
 - **URL 문자열**: f-string, `+`, `%` 서식, `str.format`, 증명한 모듈 상수(한 번만 묶이고 다시 묶이지 않으며 `global`·모듈 속성
-  대입 없음), 값이 하나인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수. 보간은 세그먼트 전체를 채울 때만 `{}`이고
-  아니면 `dynamic`과 마스킹한 `channelPrefix`다(`channel`은 null이라 URL 원문이 도구 밖으로 나가지 않는다). host가 리터럴이면
-  `root`와 `authority`, host가 값이거나 base를 모르면 `base`다.
+  대입, `sys.modules[__name__].API_ROOT = …`처럼 수신자를 모르는 같은 이름의 속성 대입이 없고, `globals()`·모듈 수준
+  `vars()`·`locals()`를 부르지 않는 모듈), 값이 하나인 클래스 속성·`__init__` 필드, 증명한 query 꼬리 지역 변수. 보간은
+  세그먼트 전체를 채울 때만 `{}`이고 아니면 `dynamic`과 마스킹한 `channelPrefix`다(`channel`은 null이라 URL 원문이 도구
+  밖으로 나가지 않는다). host가 리터럴이면 `root`와 `authority`, host가 값이거나 base를 모르면 `base`다.
 - **래퍼**(`--wrappers`, isthmus `http-wrappers` v1): `"language": "python"` 항목. `owner`는 메서드·생성자(`name: "__init__"`,
   데이터 클래스 포함)면 pythograph 클래스 id(`api/client.py#Gateway`), 모듈 함수면 모듈 경로(`api/net.py`)다. `label`은 키워드
   인자, `index`는 위치 인자(수신자 제외)다. 모르는 필드·잘못된 항목은 64로 끝나고, 아무것도 맞지 않는 선언은
-  `http-wrapper-unresolved:`로 낸다.
+  `http-wrapper-unresolved:`로 낸다. 래퍼 `service`는 `--service` 대신 그 래퍼 사실에 싣는다. `--service`와 다르면 문서 수준
+  `service`는 싣지 않고(isthmus는 문서 값과 다른 사실 service를 거부한다) `--service`는 나머지 사실에만 싣는다.
 - **symbol.usr**는 감싸는 함수·메서드·클래스 본문·모듈 id로 `graph`·`reach`·`impact`와 같다.
 - **한계**: `route-call-coverage:`(urllib3·`http.client`·`send`·`build_request` 같은 모델링하지 않은 요청 API, 클라이언트 타입을
   모르는 수신자에 넘긴 URL 리터럴, 스캔 공백), `ambiguous-base-join:`, `http-wrapper-undeclared:`(매개변수를 요청 URL로
@@ -288,9 +293,45 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 앞서 완전히 순회한 디렉터리의 파일은 보존합니다. 읽지 못한 디렉터리 항목 수는 routes·schema·graph 한계에 남기고,
 보이지 않는 모듈에 의존하는 닫힌 세계 `bound` 증명도 막습니다. 이런 한계와 함께 성공한 명령은 여전히 불완전한 분석입니다.
 
+파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 프로젝트 상대 경로가 UTF-8이 아니거나 교환 형식이 금지하는
+문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)를 담은 파이썬 파일은 분석하지 않습니다. isthmus가 문서 전체를 거부하는
+출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
+한계로 셉니다.
+
+구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
+연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를
+넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼
+graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 한계에 "source nesting too deep to parse"
+이유로 남습니다. 공개 패키지에서 100단을 넘는 모듈은 드뭅니다. Python 3.10의 파서는 아주 긴 사슬에서 오류 대신
+프로세스가 죽으므로, 3.10에서는 한 논리 줄의 사슬 토큰(이항 연산자·`.`·`(`·`[`)이 50,000개를 넘는 파일을 파싱하지 않고
+같은 한계로 남깁니다(그 줄이 얕은 목록이어도 그렇습니다). f-string 치환 필드 안의 사슬도 그 줄에 더해 셉니다(f-string의
+사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
+참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
+
+상수 평가는 라우트 문자열·설정값·SQL 텍스트·클라이언트 URL에서 f-string·`+`·목록 리터럴·모듈 상수를 따라갑니다. 같은
+상수를 여러 번 참조하는 짧은 사슬(`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)은 그대로 펼치면 단계마다 곱으로 커지므로, 같은 참조는
+한 번만 펼치고 이렇게 만든 값은 64 KiB(문자열은 문자 수, 목록은 원소 수와 그 문자 수), 클라이언트 URL 식은 조각 4,096개까지만
+만듭니다. 더 큰 값은 모르는 값으로 봅니다. dynamic 라우트·route-call 사실, 읽지 못한 설정값이 되고, SQL 텍스트는
+`skipped-sql-literals:` 한계가 됩니다. 문자열 리터럴 하나는 파일 크기 상한(4 MiB)만 받습니다. 8 KiB(템플릿 상한
+2,048자의 4배)보다 긴 경로 문자열(연속 `/`를 합친 Flask 규칙, include 접두사까지 이은 Django `path()`·`re_path()`
+문자열)과, 그보다 짧아도 리터럴 글자(Flask 변환기 밖, Django `path()` 변환기 자리 밖, `re_path` 묶음 밖)만으로 템플릿
+상한을 넘는 경로는 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 냅니다.
+
+클래스 계층(routes·graph의 뷰 클래스, schema의 SQLAlchemy 매핑)은 32단까지만 따라가고 클래스마다 깊이별로 한 번만 펼치므로,
+다이아몬드 모양 계층도 지수로 많은 경로 수가 아니라 클래스 수에 비례하는 시간이 듭니다. 파이썬으로는 만들 수 없는
+정적 상속 순환이 있으면 지나온 경로에 따라 결과가 달라지는데, 뷰 클래스 하나를 그렇게 다시 펴는 일이 1,024번을 넘으면
+남은 기반을 모르는 기반으로 봅니다. 순환을 닫는 Flask 블루프린트 등록(Flask는 등록하다 실패합니다)은 따라가지 않고
+`route-coverage:`로 셉니다. 같은 블루프린트를 여러 경로로 등록하면 Flask처럼 경로마다 펼치되 하위 등록 200,000개까지만
+펼치고(넘으면 `route-coverage:`), 펼치는 도중 route-decl 사실이 100,000개를 넘어 문서를 낼 수 없게 되면 바로 멈추고
+평소의 사실 상한 오류(종료 코드 2)로 끝납니다.
+
 모듈·패키지 이름 해석과 의존성 선언 파일을 포함해 프로젝트 상대 경로의 모든 성분에서 심볼릭 링크를 검사합니다.
-프로젝트 내부를 가리키는 링크도 거부하며, 발견한 같은 링크 경로는 한 번만 셉니다. 디렉터리 핸들 상대 `O_NOFOLLOW`를
-지원하는 운영체제에서는 순회와 소스 읽기 때 각 성분을 링크를 따라가지 않고 열고, 읽기 전에 열린 파일의 신원도 확인합니다.
+프로젝트 내부를 가리키는 링크도 거부하며, 발견한 같은 링크 경로는 한 번만 셉니다. 디렉터리 순회는 따라갔다면 읽었을
+소스를 가릴 수 있는 이름의 링크(끊어진 것을 포함한 `*.py` 이름, 확장자가 없고 순회가 건너뛰지 않는 이름)만 링크 대상에
+접근하지 않고 이름으로 골라 세므로, `CLAUDE.md -> AGENTS.md`·`README.md`·`.venv` 같은 링크는 한계가 되지 않고 분석
+머신에 무엇이 있는지에 따라 수가 달라지지도 않습니다. 확장자가 있는 디렉터리 링크(`conf.d`)는 세지 않고 확장자 없는
+파일 링크(`LICENSE`)는 셉니다. 모듈 해석과 선언 파일 읽기에서 만난 링크는 항상 셉니다. 디렉터리 핸들 상대 `O_NOFOLLOW`를 지원하는 운영체제에서는 순회와 소스 읽기 때 각 성분을 링크를 따라가지
+않고 열고, 읽기 전에 열린 파일의 신원도 확인합니다.
 다른 운영체제에서는 읽기 전에 경로 성분과 파일 신원을 재검사하지만 원자적인 검사는 아닙니다. 변경 중이 아닌 프로젝트를
 분석하세요. 파일시스템 스냅샷이나 동시 변경에 대한 샌드박스는 아닙니다. 분석 대상 Python 코드는 import·실행하지 않습니다.
 

@@ -26,6 +26,7 @@ from pythograph.persistence.scope import ModuleScopes
 from pythograph.persistence.sqltext import SqlText, expression_text
 from pythograph.routes.model import Location
 from pythograph.source.symbols import ExternalSymbol, Symbol, SymbolTable
+from pythograph.source.syntax import parse_annotation
 
 #: 값 출처를 따라가는 최대 깊이다.
 MAX_CLASSIFY_DEPTH = 24
@@ -325,10 +326,7 @@ class DjangoQueries:
             모델 키 또는 None.
         """
         if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-            try:
-                annotation = ast.parse(annotation.value, mode="eval").body
-            except SyntaxError:
-                return None
+            annotation = parse_annotation(annotation.value)
         if isinstance(annotation, (ast.Name, ast.Attribute)):
             return self.catalog.model_for_symbol(self.symbols.resolve_expr(self.scopes.path, annotation))
         return None

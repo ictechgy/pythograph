@@ -11,6 +11,10 @@
 
 끝 지역 변수가 query 꼬리임을 증명하면(`compose.suffix`: 초기식의 비어 있지 않은 값이 모두 `?`로 시작하고 나머지
 가지는 빈 문자열) query 꼬리 조각이다.
+
+같은 상수를 여러 번 참조하는 사슬(`B = f"{A}{A}…"`)은 짧은 소스로도 조각 수가 단계마다 곱으로 늘어난다. 그래서
+f-string·`+`·서식으로 모은 조각이 `MAX_URL_PARTS`개나 리터럴 `MAX_EVALUATED_LENGTH`자를 넘으면 값 조각 하나로 보고,
+같은 (범위, 식, 깊이)의 작은 결과는 메모해 다시 펼치지 않는다.
 """
 
 from __future__ import annotations
@@ -24,10 +28,15 @@ from pythograph.graph.values import ClassValue, InstanceValue, ModuleValue
 from pythograph.routes.client.compose import Literal, Part, QueryTail, Value
 from pythograph.routes.client.constants import ModuleConstants
 from pythograph.routes.client.formats import Field, Piece, format_pieces, percent_pieces
+from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, MAX_MEMO_LENGTH
 from pythograph.source.symbols import ValueSymbol
 
 #: 조각을 따라가는 최대 깊이다(순환·과도한 재귀 방지).
 MAX_PART_DEPTH = 16
+
+#: f-string·`+`·서식으로 모은 URL 조각의 최대 개수다. 넘으면(리터럴 문자 수가 `MAX_EVALUATED_LENGTH`를 넘어도) 식
+#: 전체를 값 조각 하나로 본다. 실제 URL 식은 조각 수십 개 안이다.
+MAX_URL_PARTS = 4096
 
 #: 값을 알 수 없는 대입(누적 대입·풀기·반복 변수)의 자리 표식이다. 문자열이 아니라 값 조각으로 읽힌다.
 UNKNOWN_EXPR = ast.Constant(value=Ellipsis)
@@ -55,7 +64,8 @@ class AttributeWrites:
     """프로젝트 전체의 바깥 속성 대입 색인(수신자가 `self`·`cls`가 아닌 대입과 리터럴 `setattr`).
 
     Attributes:
-        untyped: 수신자 타입을 모르는 대입의 속성 이름. 어느 클래스의 속성이든 바꿀 수 있어 값을 모른다.
+        untyped: 수신자 타입을 모르는 대입의 속성 이름. 어느 클래스의 속성이든, 모듈 상수든
+            (`sys.modules[__name__].X = …`) 바꿀 수 있어 값을 모른다.
         typed: (프로젝트 클래스 id, 속성 이름) — 그 클래스(또는 하위 클래스) 객체에 쓴 대입.
         module: (모듈 경로, 이름) — 모듈 속성 대입(`constants.API_ROOT = …`). 그 이름은 상수가 아니다.
     """
@@ -171,12 +181,19 @@ class PartBuilder:
         """
         self.resolver = resolver
         self.writes = writes
-        self.constants = ModuleConstants(resolver.symbols, writes.module)
+        self.constants = ModuleConstants(resolver.symbols, writes.module, writes.untyped)
         self._with_items: dict[str, dict[str, list[ast.expr]]] = {}
         self._attribute_cache: dict[tuple[str, str, bool], str | None] = {}
+        # (범위 id, 식 id, 깊이) → (식, 조각). 키의 id는 값에 함께 담은 노드가 살아 있는 동안 다시 쓰이지 않는다.
+        self._parts: dict[tuple[str, int, int], tuple[ast.expr, tuple[Part, ...]]] = {}
 
     def parts(self, scope: Definition, expr: ast.expr, depth: int = 0) -> tuple[Part, ...]:
         """식을 조각으로 바꾼다.
+
+        (범위, 식, 깊이)마다 작은 결과(`parts_size`가 `MAX_MEMO_LENGTH` 이하)를 메모한다. 깊이를 키에 넣어 깊이
+        상한에서 잘린 결과를 메모 없는 결과와 같게 둔다. 클래스 속성 순환 가드(`class_attribute`의 자리 표시)를 거친
+        결과도 같다: 가드에 걸린 값 조각은 그 속성 계산까지 올라가 속성 값을 None으로 만들므로 자리 표시와 최종 값이
+        같다.
 
         Args:
             scope: 식을 담은 범위.
@@ -188,12 +205,32 @@ class PartBuilder:
         """
         if depth > MAX_PART_DEPTH:
             return (Value(),)
+        key = (scope.id, id(expr), depth)
+        cached = self._parts.get(key)
+        if cached is not None and cached[0] is expr:
+            return cached[1]
+        result = self._expression_parts(scope, expr, depth)
+        if parts_size(result) <= MAX_MEMO_LENGTH:
+            self._parts[key] = (expr, result)
+        return result
+
+    def _expression_parts(self, scope: Definition, expr: ast.expr, depth: int) -> tuple[Part, ...]:
+        """`parts`의 계산이다(메모 없이 식 하나를 바꾼다).
+
+        Args:
+            scope: 식을 담은 범위.
+            expr: 식.
+            depth: 재귀 깊이.
+
+        Returns:
+            조각 튜플.
+        """
         if isinstance(expr, ast.Constant):
             return (Literal(expr.value),) if isinstance(expr.value, str) else (Value(),)
         if isinstance(expr, ast.JoinedStr):
             return self._joined(scope, expr, depth)
         if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Add):
-            return self.parts(scope, expr.left, depth + 1) + self.parts(scope, expr.right, depth + 1)
+            return _bounded(self.parts(scope, expr.left, depth + 1) + self.parts(scope, expr.right, depth + 1))
         if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Mod):
             return self._percent(scope, expr, depth)
         if isinstance(expr, ast.Call):
@@ -223,6 +260,9 @@ class PartBuilder:
     def _joined(self, scope: Definition, expr: ast.JoinedStr, depth: int) -> tuple[Part, ...]:
         """f-string을 조각으로 바꾼다. 형식 지정자·`!r`·`!a` 변환이 붙은 보간은 값이다.
 
+        모은 조각이 상한(`MAX_URL_PARTS`, 리터럴 `MAX_EVALUATED_LENGTH`자)을 넘는 순간 나머지를 보지 않고 값 조각
+        하나를 돌려준다.
+
         Args:
             scope: 범위.
             expr: f-string.
@@ -231,15 +271,17 @@ class PartBuilder:
         Returns:
             조각 튜플.
         """
-        result: list[Part] = []
+        result = _PartsAccumulator()
         for value in expr.values:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                result.append(Literal(value.value))
+                added: tuple[Part, ...] = (Literal(value.value),)
             elif isinstance(value, ast.FormattedValue) and value.format_spec is None and value.conversion in (-1, 115):
-                result.extend(self.parts(scope, value.value, depth + 1))
+                added = self.parts(scope, value.value, depth + 1)
             else:
-                result.append(Value())
-        return tuple(result)
+                added = (Value(),)
+            if not result.add(added):
+                return (Value(),)
+        return result.parts()
 
     def _name(self, scope: Definition, name: str, depth: int) -> tuple[Part, ...]:
         """이름을 조각으로 바꾼다.
@@ -455,18 +497,20 @@ class PartBuilder:
             depth: 재귀 깊이.
 
         Returns:
-            조각 튜플.
+            조각 튜플(모은 조각이 상한을 넘으면 값 조각 하나).
         """
-        result: list[Part] = []
+        result = _PartsAccumulator()
         for piece in pieces:
             if isinstance(piece, str):
-                result.append(Literal(piece))
-                continue
-            argument = _field_argument(piece, positional, named)
-            if argument is None:
+                added: tuple[Part, ...] = (Literal(piece),)
+            else:
+                argument = _field_argument(piece, positional, named)
+                if argument is None:
+                    return (Value(),)
+                added = self.parts(scope, argument, depth + 1) if piece.plain else self._opaque(scope, argument)
+            if not result.add(added):
                 return (Value(),)
-            result.extend(self.parts(scope, argument, depth + 1) if piece.plain else self._opaque(scope, argument))
-        return tuple(result)
+        return result.parts()
 
     def _opaque(self, scope: Definition, argument: ast.expr) -> tuple[Part, ...]:
         """모양이 바뀔 수 있는 값 자리를 값 조각으로 만든다(매개변수면 이름을 남긴다).
@@ -526,6 +570,73 @@ class PartBuilder:
                 return None
             values.add("".join(part.text for part in parts if isinstance(part, Literal)))
         return values.pop() if len(values) == 1 else None
+
+
+def parts_size(parts: tuple[Part, ...]) -> int:
+    """조각 크기(조각 수 + 리터럴 문자 수)를 잰다. 메모 여부를 정할 때 쓴다.
+
+    Args:
+        parts: 조각.
+
+    Returns:
+        크기.
+    """
+    return len(parts) + _literal_length(parts)
+
+
+def _literal_length(parts: tuple[Part, ...]) -> int:
+    """리터럴 조각의 문자 수 합을 잰다.
+
+    Args:
+        parts: 조각.
+
+    Returns:
+        문자 수.
+    """
+    return sum(len(part.text) for part in parts if isinstance(part, Literal))
+
+
+def _bounded(parts: tuple[Part, ...]) -> tuple[Part, ...]:
+    """모은 조각이 상한(`MAX_URL_PARTS`, 리터럴 `MAX_EVALUATED_LENGTH`자) 안이면 그대로, 넘으면 값 조각 하나다.
+
+    Args:
+        parts: 조각.
+
+    Returns:
+        조각 튜플.
+    """
+    within = len(parts) <= MAX_URL_PARTS and _literal_length(parts) <= MAX_EVALUATED_LENGTH
+    return parts if within else (Value(),)
+
+
+class _PartsAccumulator:
+    """조각을 모으며 개수와 리터럴 문자 수가 상한을 넘는지 센다."""
+
+    def __init__(self) -> None:
+        """빈 누적기를 만든다."""
+        self._parts: list[Part] = []
+        self._length = 0
+
+    def add(self, parts: tuple[Part, ...]) -> bool:
+        """조각을 더한다.
+
+        Args:
+            parts: 더할 조각.
+
+        Returns:
+            상한 안이면 True, 넘으면 False(그 뒤에는 더 쓰지 않는다).
+        """
+        self._parts.extend(parts)
+        self._length += _literal_length(parts)
+        return len(self._parts) <= MAX_URL_PARTS and self._length <= MAX_EVALUATED_LENGTH
+
+    def parts(self) -> tuple[Part, ...]:
+        """모은 조각을 돌려준다.
+
+        Returns:
+            조각 튜플.
+        """
+        return tuple(self._parts)
 
 
 def _joined_literal(parts: tuple[Part, ...]) -> str | None:

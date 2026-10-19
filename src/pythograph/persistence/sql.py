@@ -5,11 +5,13 @@ tsograph `src/schema/sql-relations.ts`(dartograph `sql_relations.dart`·kartogra
 결과가 생산자 언어에 따라 달라지므로 알고리즘·게이트·미해석 계수 규칙을 가족과 같게 유지한다. 가족 공유
 벡터는 `tests/test_sql_relations.py`가 그대로 확인한다. 오프셋은 파이썬 문자열 인덱스(코드 포인트)다.
 위치는 SQL 리터럴 자체를 가리키므로 오프셋 단위 차이는 사실에 드러나지 않는다.
+
+포트 원본은 키워드마다 같은 문장의 앞뒤 토큰과 짝 괄호까지 다시 훑는다. 판정은 그대로 두되 그 답(문장 구간마다
+판정 단어의 위치, 괄호 짝)을 처음 쓸 때 한 번 색인해, 세미콜론 없는 긴 문장에서도 토큰 수에 선형으로 읽는다.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 #: 단일 기호 토큰으로 남기는 문자다. `;`는 문장 경계, 나머지는 피연산자 판정용이다.
@@ -63,6 +65,10 @@ _GRANT_PRIVILEGES = frozenset(
         "connect", "temporary", "temp", "maintain", "all",
     }
 )  # fmt: skip
+
+#: `_RelationScan._preceded_by`가 찾는 단어 집합이다. 문장 구간마다 각 집합 단어의 첫 위치를 미리 기록하므로,
+#: 다른 집합으로 그 판정을 부르려면 여기에 더한다.
+_PRECEDING_WORDS = (_INTO_VERBS, _GRANT_PRIVILEGES, _CREATE_ON_KINDS)
 
 #: 관계 이름 위치에 올 수 없는 SQL 절 키워드다. `table`은 `UPDATE table SET` 때문에 제외하고 산문 관사
 #: `the`·`an`은 포함한다(`a`는 흔한 별칭이라 제외).
@@ -267,20 +273,56 @@ def sql_relations(text: str, strict: bool = False) -> SqlRelationsResult:
 
 
 @dataclass
+class _Segment:
+    """`;` 토큰으로 나뉜 토큰 구간 하나에서 키워드 판정이 찾는 단어의 위치.
+
+    대문자 게이트를 통과한 비인용 토큰만 기록한다(포트 원본 `_preceded_by`·`_segment_after_has`의 토큰 조건과 같다).
+
+    Attributes:
+        first: `_PRECEDING_WORDS`의 단어 집합마다 그 단어가 구간에서 처음 나온 토큰 위치.
+        last_set: `set`이 구간에서 마지막으로 나온 토큰 위치(없으면 -1).
+    """
+
+    first: dict[frozenset[str], int] = field(default_factory=dict)
+    last_set: int = -1
+
+    def record(self, word: str, index: int) -> None:
+        """구간의 토큰 하나를 기록한다.
+
+        Args:
+            word: 소문자 단어.
+            index: 토큰 위치(앞에서부터 차례로 부른다).
+        """
+        for words in _PRECEDING_WORDS:
+            if word in words:
+                self.first.setdefault(words, index)
+        if word == "set":
+            self.last_set = index
+
+
+@dataclass
 class _RelationScan:
-    """`sql_relations` 한 번의 스캔 상태. 포트 원본의 필드·메서드와 한 줄씩 대응한다."""
+    """`sql_relations` 한 번의 스캔 상태. 포트 원본의 필드·메서드와 한 줄씩 대응한다.
+
+    원본이 키워드마다 문장 앞뒤와 짝 괄호를 다시 훑던 세 판정(`_preceded_by`·`_segment_after_has_set`·
+    `_skip_parens`)만 처음 쓸 때 한 번 만든 색인(`segment_of`·`segments`·`paren_ends`)으로 답한다. 답은 원본과 같다.
+    그 판정을 부르지 않는 흔한 문장(`SELECT … FROM t WHERE …`)은 색인을 만들지 않는다.
+    """
 
     tokens: list[SqlToken]
     strict: bool
     consumed: list[bool] = field(default_factory=list)
     statement_head: list[bool] = field(default_factory=list)
     statement_verb: list[str | None] = field(default_factory=list)
+    segment_of: list[int] = field(default_factory=list)
+    segments: list[_Segment] = field(default_factory=list)
+    paren_ends: list[int | None] = field(default_factory=list)
     seen: set[tuple[int, str]] = field(default_factory=set)
     out: list[SqlRelation] = field(default_factory=list)
     unresolved: int = 0
 
     def __post_init__(self) -> None:
-        """토큰별 상태 배열을 만들고 문장 머리를 표시한다."""
+        """토큰별 상태 배열을 만들고 문장 머리를 표시한다. 문장 구간·괄호 짝 색인은 처음 쓸 때 만든다."""
         self.consumed = [False] * len(self.tokens)
         self.statement_head = [False] * len(self.tokens)
         self.statement_verb = [None] * len(self.tokens)
@@ -334,53 +376,90 @@ class _RelationScan:
             self.statement_verb[index] = verb
             index += 1
 
-    def _segment_before(self, end: int) -> list[SqlToken]:
-        """`end` 앞쪽으로 같은 문장 안의 토큰들을 가까운 것부터 돌려준다.
+    def _index_segments(self) -> None:
+        """토큰마다 속한 문장 구간을 정하고 구간마다 판정 단어의 위치를 기록한다.
+
+        구간은 본문이 `;`인 토큰(인용 식별자 `";"`·`[;]` 포함)에서 끊긴다. 포트 원본이 키워드마다 앞뒤로 훑을 때
+        멈추던 자리와 같다(문장 머리 표시 `_mark_statements`는 비인용 `;`만 보므로 다르다). `;` 토큰은 앞 구간에
+        넣는다. 그 자리에서 앞쪽은 앞 구간이고, 뒤쪽은 바로 끝나서 아무것도 없기 때문이다.
+        """
+        current = _Segment()
+        number = 0
+        self.segments.append(current)
+        for index, token in enumerate(self.tokens):
+            self.segment_of.append(number)
+            if token.text == ";":
+                current = _Segment()
+                self.segments.append(current)
+                number = len(self.segments) - 1
+            elif not token.quoted and self._upper_ok(token):
+                current.record(token.text.lower(), index)
+
+    def _match_parens(self) -> None:
+        """비인용 `(` 토큰마다 짝이 맞는 `)` 다음 위치를 한 번에 구한다(닫히지 않으면 None).
+
+        `(`부터 깊이를 세며 앞으로 훑는 원본 `_skip_parens`와 답이 같다. 스택에서 짝 없는 `)`는 앞선 `(`가 모두 닫힌
+        뒤에만 나오므로 어느 `(`의 짝도 아니다.
+        """
+        self.paren_ends = [None] * len(self.tokens)
+        opened: list[int] = []
+        for index, token in enumerate(self.tokens):
+            if token.quoted:
+                continue
+            if token.text == "(":
+                opened.append(index)
+            elif token.text == ")" and opened:
+                self.paren_ends[opened.pop()] = index + 1
+
+    def _skip_parens(self, start: int) -> int | None:
+        """`(` 토큰부터 짝이 맞는 `)` 다음 위치를 돌려준다.
 
         Args:
-            end: 기준 위치(포함하지 않는다).
+            start: 비인용 `(` 위치(토큰이 있으므로 색인을 만들면 `paren_ends`가 비지 않는다).
 
         Returns:
-            역순 토큰 목록.
+            `)` 다음 위치. 닫히지 않으면 None.
         """
-        result: list[SqlToken] = []
-        for index in range(end - 1, -1, -1):
-            if self.tokens[index].text == ";":
-                break
-            result.append(self.tokens[index])
-        return result
+        if not self.paren_ends:
+            self._match_parens()
+        return self.paren_ends[start]
 
-    def _segment_after_has(self, start: int, word: str) -> bool:
-        """`start`부터 같은 문장 안에 대문자 게이트를 통과한 단어 `word`가 있는지 본다.
+    def _segment(self, index: int) -> _Segment:
+        """토큰이 속한 문장 구간을 돌려준다(색인은 처음 부를 때 만든다. 만들면 구간이 하나 이상이다).
+
+        Args:
+            index: 토큰 위치.
+
+        Returns:
+            문장 구간.
+        """
+        if not self.segments:
+            self._index_segments()
+        return self.segments[self.segment_of[index]]
+
+    def _segment_after_has_set(self, start: int) -> bool:
+        """`start`부터 같은 문장 구간 안에 대문자 게이트를 통과한 비인용 `set`이 있는지 본다.
 
         Args:
             start: 시작 위치.
-            word: 소문자 단어.
 
         Returns:
             있으면 True.
         """
-        for token in self.tokens[start:]:
-            if token.text == ";":
-                return False
-            if not token.quoted and token.text.lower() == word and self._upper_ok(token):
-                return True
-        return False
+        return start < len(self.tokens) and self._segment(start).last_set >= start
 
-    def _preceded_by(self, index: int, test: Callable[[str], bool]) -> bool:
-        """같은 문장 안의 앞선 비인용 토큰 중 조건을 만족하는 것이 있는지 본다.
+    def _preceded_by(self, index: int, words: frozenset[str]) -> bool:
+        """같은 문장 구간 안의 앞선 토큰 중 대문자 게이트를 통과한 비인용 `words` 단어가 있는지 본다.
 
         Args:
             index: 기준 위치.
-            test: 소문자 단어 판정 함수.
+            words: `_PRECEDING_WORDS`의 단어 집합.
 
         Returns:
             있으면 True.
         """
-        return any(
-            not token.quoted and self._upper_ok(token) and test(token.text.lower())
-            for token in self._segment_before(index)
-        )
+        first = self._segment(index).first.get(words)
+        return first is not None and first < index
 
     def _fires(self, index: int, word: str, grant_statement: bool) -> bool:
         """키워드 토큰이 현재 문맥에서 관계 자리를 여는지 판정한다.
@@ -395,12 +474,12 @@ class _RelationScan:
         """
         if word == "update":
             # 산문 "update the .."·upsert의 `DO UPDATE SET`을 막는다.
-            return self.statement_head[index] and self._segment_after_has(index + 1, "set")
+            return self.statement_head[index] and self._segment_after_has_set(index + 1)
         if word == "truncate":
             return self.statement_head[index]
         if word == "into":
             # "merged the branch into main" 같은 산문을 막는다.
-            return self._preceded_by(index, lambda lower: lower in _INTO_VERBS)
+            return self._preceded_by(index, _INTO_VERBS)
         if word == "table":
             return self._table_keyword_context(index)
         if word == "on":
@@ -418,10 +497,8 @@ class _RelationScan:
         Returns:
             관계 자리를 열면 True.
         """
-        grant_on = grant_statement and self._preceded_by(index, lambda lower: lower in _GRANT_PRIVILEGES)
-        create_on = self.statement_verb[index] == "create" and self._preceded_by(
-            index, lambda lower: lower in _CREATE_ON_KINDS
-        )
+        grant_on = grant_statement and self._preceded_by(index, _GRANT_PRIVILEGES)
+        create_on = self.statement_verb[index] == "create" and self._preceded_by(index, _CREATE_ON_KINDS)
         return grant_on or create_on
 
     def _table_keyword_context(self, index: int) -> bool:
@@ -521,7 +598,7 @@ class _RelationScan:
         while index < len(self.tokens):
             token = self.tokens[index]
             if not token.quoted and token.text == "(":
-                after = _skip_parens(self.tokens, index)
+                after = self._skip_parens(index)
                 if after is None:
                     self.unresolved += 1  # 닫히지 않은 괄호.
                     return
@@ -573,7 +650,7 @@ class _RelationScan:
             피연산자 끝 위치. 목록이 끝났으면 None.
         """
         if self._is_symbol(index, "("):
-            after = _skip_parens(self.tokens, index)
+            after = self._skip_parens(index)
             if after is None:
                 self.unresolved += 1  # 닫히지 않은 괄호.
             return after
@@ -591,7 +668,7 @@ class _RelationScan:
             self.unresolved += 1
             for consumed in range(index, after_name):
                 self.consumed[consumed] = True
-            return _skip_parens(self.tokens, after_name)
+            return self._skip_parens(after_name)
         if buffer is None:
             self._emit(name, keyword)
         else:
@@ -666,30 +743,6 @@ def _is_name_modifier(word: str, after_truncate: bool) -> bool:
     """
     lower = word.lower()
     return lower in ("only", "if", "not", "exists") or (after_truncate and lower == "table")
-
-
-def _skip_parens(tokens: list[SqlToken], start: int) -> int | None:
-    """`(` 토큰부터 짝이 맞는 `)` 다음 위치를 돌려준다.
-
-    Args:
-        tokens: 어휘 목록.
-        start: `(` 위치.
-
-    Returns:
-        `)` 다음 위치. 닫히지 않으면 None.
-    """
-    depth = 0
-    for index in range(start, len(tokens)):
-        token = tokens[index]
-        if token.quoted:
-            continue
-        if token.text == "(":
-            depth += 1
-        elif token.text == ")":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-    return None
 
 
 def _read_qualified_name(tokens: list[SqlToken], start: int) -> tuple[str, int] | None:

@@ -12,26 +12,36 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import islice
 from pathlib import PurePosixPath
 
-from pythograph.source.project import Project
+from pythograph.source.project import MAX_SCANNED_ENTRIES, Project
 
 #: 읽을 선언 파일의 최대 크기다.
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 
-#: 잠금 파일의 패키지 블록에서 (이름, 버전)을 읽는 정규식이다.
-_LOCK_PACKAGE = re.compile(r'name\s*=\s*"(?P<name>[^"]+)"\s*\n\s*version\s*=\s*"(?P<version>[^"]+)"')
+# 아래 정규식은 선언 파일(최대 2 MiB, 저장소가 정한 내용)을 훑으므로 일치하지 않는 입력에서도 선형이어야 한다. 같은
+# 공백을 나눠 가질 수 있는 수량자를 붙여 두거나 줄을 넘는 무한 문자 클래스를 시작 위치마다 끝까지 훑게 두면, 긴 공백·빈
+# 줄·닫히지 않은 괄호 하나로 입력 길이의 제곱만큼 역추적한다. 그래서 공백은 한 가지 방법으로만 나뉘게 쓰고 괄호 안은
+# 다음 괄호까지만 훑는다. PEP 508·TOML에 맞는 선언은 전과 같은 결과를 낸다.
 
-#: 요구 문자열(`django>=5.2,<6`)을 찾는 정규식이다.
+#: 잠금 파일의 패키지 블록에서 (이름, 버전)을 읽는 정규식이다. 두 줄 사이 공백은 첫 줄바꿈의 앞과 뒤로만 나눈다(빈 줄을
+#: 사이에 둔 블록도 전처럼 읽는다).
+_LOCK_PACKAGE = re.compile(r'name\s*=\s*"(?P<name>[^"]+)"[^\S\n]*\n\s*version\s*=\s*"(?P<version>[^"]+)"')
+
+#: 요구 문자열(`django>=5.2,<6`)을 찾는 정규식이다. extras 뒤 공백은 extras 묶음 안에 두고, extras는 대괄호 없는 이름
+#: 목록만 받는다(PEP 508). 그래야 `[a[a…`처럼 열린 괄호가 이어져도 시작 위치마다 다음 괄호까지만 훑는다.
 _REQUIREMENT = re.compile(
-    r"(?im)(?:^|[\"'\s,\[])(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*"
+    r"(?im)(?:^|[\"'\s,\[])(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\[\]]*\]\s*)?"
     r"(?P<spec>(?:(?:===|==|~=|!=|<=|>=|<|>)\s*[0-9][0-9A-Za-z.*+!-]*\s*,?\s*)+)"
 )
 
-#: poetry 표기(`django = "^5.2"`)를 찾는 정규식이다.
+#: poetry 표기(`django = "^5.2"`)를 찾는 정규식이다. 줄 머리 공백은 줄바꿈을 넘지 않고(빈 줄 다음 이름은 그 줄의 `^`에서
+#: 찾는다), 쉼표 앞뒤 공백은 한 가지로만 맞추고, 인라인 표는 다음 중괄호까지만 훑는다(`version` 앞 값에 `{`가 든 표는
+#: 읽지 않는다).
 _POETRY = re.compile(
-    r"(?im)^\s*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*=\s*(?:\{[^}]*version\s*=\s*)?"
-    r'"(?P<spec>(?:[\^~]?[0-9][0-9A-Za-z.*]*|(?:(?:===|==|~=|!=|<=|>=|<|>)\s*[0-9][0-9A-Za-z.*]*\s*,?\s*)+))"'
+    r"(?im)^[^\S\n]*(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*=\s*(?:\{[^{}]*version\s*=\s*)?"
+    r'"(?P<spec>(?:[\^~]?[0-9][0-9A-Za-z.*]*|(?:(?:===|==|~=|!=|<=|>=|<|>)\s*[0-9][0-9A-Za-z.*]*\s*(?:,\s*)?)+))"'
 )
 
 
@@ -96,24 +106,36 @@ def _requirement_files(project: Project, root: str) -> list[str]:
         경로 목록.
     """
     found: list[str] = []
-    try:
-        with project.scan_directory(root) as iterator:
-            names = sorted(entry.name for entry in iterator)
-    except OSError:
-        return found
-    for name in names:
+    for name in _directory_names(project, root):
         relative = PurePosixPath(root, name).as_posix() if root else name
         if name.startswith("requirements") and name.endswith(".txt"):
             found.append(relative)
         elif name == "requirements" and project.is_directory(relative):
-            try:
-                with project.scan_directory(relative) as iterator:
-                    found.extend(
-                        sorted(f"{relative}/{child.name}" for child in iterator if child.name.endswith(".txt"))
-                    )
-            except OSError:
-                continue
+            found.extend(
+                f"{relative}/{child}" for child in _directory_names(project, relative) if child.endswith(".txt")
+            )
     return found
+
+
+def _directory_names(project: Project, relative: str) -> list[str]:
+    """디렉터리 항목 이름을 정렬해 돌려준다. 열거는 소스 순회와 같은 항목 상한보다 하나 더 꺼내면 멈춘다.
+
+    상한을 넘으면 파일시스템 열거 순서에 따른 일부를 고르지 않고 아무것도 돌려주지 않는다. 그런 디렉터리는 소스
+    순회에서도 항목 상한을 넘겨 한계(`Project.scan_capped`)로 남으므로, 요구 파일을 읽지 않은 공백이 조용히 숨지 않는다.
+
+    Args:
+        project: 프로젝트.
+        relative: 프로젝트 상대 디렉터리.
+
+    Returns:
+        항목 이름(정렬), 읽지 못하거나 상한을 넘으면 빈 목록.
+    """
+    try:
+        with project.scan_directory(relative) as iterator:
+            names = [entry.name for entry in islice(iterator, MAX_SCANNED_ENTRIES + 1)]
+    except OSError:
+        return []
+    return sorted(names) if len(names) <= MAX_SCANNED_ENTRIES else []
 
 
 def _manifest_majors(path: str, text: str) -> list[tuple[str, int | None]]:

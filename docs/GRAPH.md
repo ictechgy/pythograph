@@ -202,7 +202,7 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 | `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `object.__setattr__`·`x.__setattr__`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
 | `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(색인은 첫 정의만 본다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
 | `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
-| `scan-incomplete` | 파싱하지 못한 파일·심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
+| `scan-incomplete` | 파싱하지 못한 파일·교환 형식이 쓸 수 없는 이름(UTF-8 아님·제어 문자·U+2028/2029)의 파일·소스를 가릴 수 있는 심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
 | `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |
 | `call-result`·`class-attribute`·`not-instance`·`dynamic-expression` 등 | 흐름이 프로젝트 인스턴스로 끝나지 않는다(외부 호출 결과·클래스 객체 속성·함수 값·첨자) |
 
@@ -260,8 +260,13 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   `truncationReasons`의 `root-not-found`, `root-not-found:` 한계를 싣는다. 나머지 root로 순회한 문서를 쓰고 64로 끝난다(표준 오류에는
   수만 쓴다). 제어 문자·빈 id, 10,000개 초과, 읽지 못하는 `--roots-from`은 문서 없는 64다.
 - `--roots-from <file|->`: JSON 문자열 배열 또는 bridge-facts 문서(사실의 `symbol.usr`), `-`는 표준 입력, 16 MiB까지.
+  파일은 일반 파일과 파이프(셸 프로세스 치환 `<(…)`)만 읽는다(마지막 심볼릭 링크는 따라간다). 디렉터리·장치는 내용을 읽지 않고
+  64다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력(64)으로 읽는다.
 - `revision`: `--revision`, 없으면 프로젝트 루트 git의 HEAD — 작업 트리가 깨끗할 때만(추적하지 않는 파일도 더럽다). git은 프로젝트
   루트에 `.git`이 있을 때만 `GIT_OPTIONAL_LOCKS=0`·`core.fsmonitor=false`로 60초 제한을 두고 실행한다(isthmus capture와 같은 설정).
+  git 실행 파일은 `PATH`의 절대 경로 항목에서만 찾아(빈·상대 항목은 건너뛴다, Windows는 `git.exe`만) 그 절대 경로로 실행하고,
+  실제 위치가 프로젝트 안이거나 현재 디렉터리에 바로 있는 것은 쓰지 않는다(디렉터리는 경로 문자열이 아니라 파일 신원으로 비교해
+  대소문자·유니코드 정규화만 다른 철자도 같은 디렉터리로 본다). 찾지 못하면 revision을 싣지 않는다.
   분석 대상 코드는 실행하지 않는다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
@@ -269,6 +274,9 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
   문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`).
+- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과). 깊은
+  모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않도록 그 모듈만 뺀다. 빠진 파일에는 정점이 없고
+  `bound`는 `scan-incomplete`로 연다.
 - 같은 입력이면 같은 바이트다(`--generated-at`으로 시각 고정).
 
 ## 검증

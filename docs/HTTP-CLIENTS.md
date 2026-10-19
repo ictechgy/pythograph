@@ -14,16 +14,17 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 ```
 
 - 문서: bridge-facts v1, `platform: "python"`, `target: "http"`, `roles: ["client"]`, `sourceSets.tests`(`excluded` 기본,
-  `--include-tests`면 `included`와 사실의 `testSource: true`), 선택 `service`(문서와 모든 사실). 사실이 0건이어도 target은
-  `http`다(스캔했으나 호출 없음). `dispatch`는 싣지 않는다(호출 측 문서).
+  `--include-tests`면 `included`와 사실의 `testSource: true`), 선택 `service`(`--service`: 문서와 래퍼 `service`가 없는 사실.
+  래퍼 `service`가 그 값과 다른 사실이 있으면 문서 값은 싣지 않는다 — 계약상 문서 값과 사실 값이 다르면 입력 오류다).
+  사실이 0건이어도 target은 `http`다(스캔했으나 호출 없음). `dispatch`는 싣지 않는다(호출 측 문서).
 - `symbol.usr`(=`qualifiedName`): 호출을 감싸는 선언(함수·메서드·클래스 본문·모듈)의 pythograph id다
   (`shopclient/api.py#OrdersApi.fetch`, 모듈 수준이면 `…#<module>`). `pythograph graph`·`reach`·`impact`의 정점과 같은 문자열이라
   isthmus `trace`가 호출부에서 역방향 순회로 잇는다. 람다·컴프리헨션 안의 호출은 감싼 정의다.
 - `location`: 호출식이 시작하는 줄과 1부터 센 UTF-8 바이트 열(여러 줄 호출도 시작 줄, `wrapper.location`).
 - dynamic 사실의 `channel`은 null이다. 원문 식은 userinfo·query·토큰을 담을 수 있어 싣지 않고, 증명한 접두사만 마스킹한
   `channelPrefix`로 싣는다(계약의 보안 절). dynamic 사실의 `pathAnchor`는 접두사의 앵커, 접두사가 없으면 `base`다.
-- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·래퍼 파일·출력 상한 초과, 64 사용법 오류(래퍼 선언 스키마 위반 포함). 1은
-  예약이다.
+- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·래퍼 파일(일반 파일·파이프가 아닌 디렉터리·장치 포함)·출력 상한 초과,
+  64 사용법 오류(래퍼 선언 스키마 위반·4 MiB 초과 포함). 1은 예약이다.
 
 ## 라이브러리와 확인한 소스
 
@@ -74,9 +75,12 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 - **상수 치환**: 모듈 최상위에서 한 번만 묶이고 다시 묶이지 않는 이름만 치환한다(계약 `compose` 5). 조건문·반복문·`try`·`with`
   안 대입, 누적 대입, 같은 이름의 import·정의·`del`, 함수·클래스 정의 시점에 평가되는 장식자·기본값·주석·기반 클래스 안의
   바다코끼리 대입, 그 모듈 어느 범위의 `global` 선언, 프로젝트 어디서든 모듈 속성 대입
-  (`constants.API_ROOT = …`, 리터럴 `setattr`)이 있으면 상수가 아니다. 쓰는 모듈에서도 그 이름이 한 번만 묶여야 한다(import 뒤
-  다시 대입하면 아니다). 대문자 이름 관례는 증명으로 쓰지 않는다. 상수의 값은 문자열 리터럴이거나 증명한 상수들의 f-string·`+`
-  조립이다.
+  (`constants.API_ROOT = …`, 리터럴 `setattr`)이나 수신자 타입을 모르는 같은 이름의 속성 대입(`sys.modules[__name__].API_ROOT = …`,
+  타입 모르는 매개변수의 `target.API_ROOT = …`)이 있으면 상수가 아니다. 어느 범위든 `globals()`를, 모듈 수준에서 `vars()`·
+  `locals()`를 부르는 모듈의 이름도 상수가 아니다(`globals()["API_ROOT"] = …`처럼 이름공간 사전으로 다시 쓸 수 있다 — 그래프의
+  모듈 전역 판정과 같은 규칙이다). 쓰는 모듈에서도 그 이름이 한 번만 묶여야 한다(import 뒤 다시 대입하거나 쓰는 모듈이
+  `globals()`를 부르면 아니다). 대문자 이름 관례는 증명으로 쓰지 않는다. 상수의 값은 문자열 리터럴이거나 증명한 상수들의
+  f-string·`+` 조립이다.
 - **클래스 속성·필드**: `self.BASE_URL`·`cls.BASE_URL`·`ApiClient.BASE_URL`·`self.base`는 위 클라이언트 객체 추적과 같은
   범위의 모든 대입(클래스 본문, 메서드 안 `self.X = …`)이 같은 리터럴(또는 증명한 상수)일 때만 그 값이다. 누적 대입·풀기·반복
   변수·`with … as self.x` 대입이 하나라도 있으면 값을 모른다.
@@ -126,6 +130,11 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 `"language": "python"` 항목만 적용한다. 다른 언어 항목도 스키마는 검사한다(모르는 필드·잘못된 값은 64 — 조용히 무시하면 낡은
 선언이 호출 0건을 내어 "호출 없음"으로 읽힌다).
 
+선언 파일은 일반 파일과 파이프(FIFO, 셸 프로세스 치환 `--wrappers <(…)`)만 읽는다. 마지막 심볼릭 링크는 따라가지만(모노레포의
+공유 선언), 디렉터리·장치는 내용을 읽지 않고 2로 끝난다 — `/dev/zero`는 끝이 없다. 파이프는 쓰는 쪽이 끝낼 때까지 읽고, 쓰는
+쪽이 없는 FIFO는 기다리지 않고 빈 입력(선언 오류 64)으로 읽는다. 크기는 4 MiB까지이고 상한보다 1바이트만 더 읽어 판정한다
+(넘으면 64).
+
 - `owner`(pythograph id와 같은 모양): 메서드·생성자는 소유 클래스 id(`shopclient/api.py#Gateway`), 모듈 수준 함수는 모듈 파일
   경로(`shopclient/api.py`). 래퍼 id는 메서드·생성자면 `owner + "." + name`, 모듈 함수면 `owner + "#" + name`이다.
 - `kind: "constructor"`의 `name`은 `__init__`이고 호출은 `Endpoint(...)`다(데이터 클래스처럼 `__init__`을 정의하지 않아도 된다.
@@ -139,8 +148,9 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
   문자열일 때 리터럴로 본다. 문자열 리터럴은 계약 동사와 정확히 같을 때만 동사다(`wrapper.method`).
 - 경로: 전체 URL 리터럴은 host 뒤 경로가 root, `/`로 시작하는 경로는 선언의 `pathAnchor`, 앞 값 뒤 `/` 경로는 base다. `/` 없이
   시작하는 상대 경로는 래퍼 내부 결합을 몰라 dynamic + `ambiguous-base-join:`이다.
-- `service`를 적으면 그 래퍼 호출 사실에 싣는다. 선언된 래퍼 본문(과 그 안의 중첩 정의)의 dynamic 호출은 래퍼 호출 사실이
-  대신하므로 내지 않는다.
+- `service`를 적으면 그 래퍼 호출 사실에 싣는다(`--service`보다 우선). 그 값이 `--service`와 다르면 문서 수준 `service`는
+  싣지 않는다 — 여러 서비스를 부르는 클라이언트 문서는 문서 값을 생략하고 사실마다 싣는다는 계약 규칙이다. 선언된 래퍼
+  본문(과 그 안의 중첩 정의)의 dynamic 호출은 래퍼 호출 사실이 대신하므로 내지 않는다.
 - 선언의 대상이 스캔한 소스에 없거나 호출이 0건이면 `http-wrapper-unresolved:`다. 선언되지 않은 함수가 자기 매개변수를 URL
   전체·앞머리로 쓰거나 `/`로 끝나지 않는 리터럴 뒤에 그대로 붙이면(`BASE + path`) `http-wrapper-undeclared:`로 센다(세그먼트
   하나를 채우는 매개변수는 싱크가 아니다).
@@ -149,7 +159,7 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 
 | 접두사 | 측 | 뜻 |
 |---|---|---|
-| `route-call-coverage:` | 호출 측 | 모델링하지 않은 요청 API(urllib3·`http.client`·`build_opener`·`requests.Request`/`PreparedRequest`·`httpx.Request`·tornado·pycurl·treq·grequests·requests-futures, 클라이언트의 `send`·`build_request`·`prepare_request`·`ws_connect`) 호출 수, `urlopen`에 곧바로 넘기지 않은 `urllib.request.Request` 수, 클라이언트 타입을 증명하지 못한 수신자에 URL 리터럴(`/`·`http://`·`https://`로 시작)을 넘긴 `get`류 호출 수, 스캔 공백(순회 상한·심볼릭 링크·UTF-8이 아닌 파일 이름·파싱 실패) |
+| `route-call-coverage:` | 호출 측 | 모델링하지 않은 요청 API(urllib3·`http.client`·`build_opener`·`requests.Request`/`PreparedRequest`·`httpx.Request`·tornado·pycurl·treq·grequests·requests-futures, 클라이언트의 `send`·`build_request`·`prepare_request`·`ws_connect`) 호출 수, `urlopen`에 곧바로 넘기지 않은 `urllib.request.Request` 수, 클라이언트 타입을 증명하지 못한 수신자에 URL 리터럴(`/`·`http://`·`https://`로 시작)을 넘긴 `get`류 호출 수, 스캔 공백(순회 상한·소스를 가릴 수 있는 심볼릭 링크·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·파싱 실패) |
 | `ambiguous-base-join:` | 호출 측 | 결합 결과를 증명하지 못한 호출 수(모르는 base 뒤 `/` 없는 경로·`..`·빈 경로, `//` 경로, urljoin 상대 경로, 증명하지 못한 aiohttp 버전) |
 | `http-wrapper-undeclared:` | 호출 측 | 매개변수를 URL로 흘려보내는 선언되지 않은 함수 수 |
 | `http-wrapper-unresolved:` | 호출 측 | 대상이 없거나 호출이 0건인 파이썬 래퍼 선언(`wrappers[n]`) |
@@ -161,6 +171,9 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 - 수신자를 증명하지 못한 클라이언트(생성자 매개변수로 받아 주석 없이 필드에 넣은 클라이언트, 팩토리 함수 반환값, 컨테이너 원소)는
   사실로 내지 않고 URL 리터럴 호출만 `route-call-coverage:`로 센다.
 - 계산된 이름의 `setattr`·`__dict__` 쓰기로 바꾼 클래스 속성·모듈 상수는 따라가지 않는다.
+- f-string·`+`·서식으로 모은 URL 조각이 4,096개를 넘거나 리터럴 문자가 64 KiB를 넘으면 식 전체를 값 하나로 본다(dynamic).
+  같은 상수를 여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 조각 수를 단계마다 곱으로 늘리기 때문이다. 같은
+  상수는 한 번만 펼친다. 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 - `__init__.py` 없는 이름공간 패키지 안의 모듈 import는 이름 해석기가 외부 모듈로 본다(서버·그래프와 같은 해석기).
 - requests-toolbelt `BaseUrlSession`, 사용자 base 헬퍼, `requests.Session.request`를 감싼 하위 클래스의 재정의 동작은 모델링하지
   않는다(래퍼 선언으로 알려 준다).

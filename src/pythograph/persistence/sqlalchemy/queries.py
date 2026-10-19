@@ -69,13 +69,12 @@ class SqlAlchemyQueries:
         self.sql = sql
 
     def run(self) -> None:
-        """선언과 사용 사실을 낸다."""
-        for model in self.catalog.models.values():
-            if model.path == self.scopes.path and not model.abstract:
+        """선언과 사용 사실을 낸다(선언은 카탈로그의 경로별 색인으로 이 모듈 것만 본다)."""
+        for model in self.catalog.models_by_path.get(self.scopes.path, ()):
+            if not model.abstract:
                 self._definition(model)
-        for table in self.catalog.tables.values():
-            if table.path == self.scopes.path:
-                self._table_definition(table)
+        for table in self.catalog.tables_by_path.get(self.scopes.path, ()):
+            self._table_definition(table)
         for node in ast.walk(self.scopes.index.module.tree):
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 self._attribute(node)
