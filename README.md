@@ -381,7 +381,8 @@ recursion limit and abort the whole command. They are reported like files that f
 graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
 deep to parse". Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely
 long chains instead of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary
-operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list. String
+operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list. Chains
+inside f-string replacement fields count toward their line (every chain character of the f-string is counted). String
 annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation.

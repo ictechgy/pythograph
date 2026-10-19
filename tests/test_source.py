@@ -333,6 +333,30 @@ def test_chain_guard_counts_one_logical_line(monkeypatch: pytest.MonkeyPatch) ->
     assert syntax.chain_too_long(one_line) and not syntax.chain_too_long(many_lines)
 
 
+def test_chain_guard_counts_chains_inside_fstrings(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """f-string 치환 필드 안의 사슬도 그 논리 줄의 사슬 토큰으로 센다(바깥 사슬과 합친다).
+
+    3.10의 tokenize는 f-string 전체를 STRING 토큰 하나로 내서 연산자 토큰만 세면 `f"{a+a+…}"`가 0이었다. 그래서
+    20만 항짜리 f-string 모듈이나 그런 문자열 주석 하나로 `ast.parse`가 세그폴트(종료 139)했다.
+    """
+    half = MAX_CHAIN_TOKENS // 2 + 1
+    assert syntax._longest_chain('x = f"{' + "a+" * (MAX_CHAIN_TOKENS + 1) + 'a}"\n') > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain("x = (" + "a+" * half + 'f"{' + "a+" * half + 'a}")\n') > MAX_CHAIN_TOKENS
+    assert syntax._longest_chain('x = f"{a.b}"\n' * (MAX_CHAIN_TOKENS + 1)) == 1
+    flat = 'f"{[' + "a.b, " * (MAX_CHAIN_TOKENS + 1) + ']}"'
+    root = make_project({"flat.py": f"VALUE = {flat}\n"})
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    assert isinstance(Project.open(root).module("flat.py"), SourceModule)
+    assert isinstance(parse_annotation(flat), ast.JoinedStr)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    failure = Project.open(root).module("flat.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
+    assert parse_annotation(flat) is None
+
+
 def test_chain_guard_rejects_before_parsing(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

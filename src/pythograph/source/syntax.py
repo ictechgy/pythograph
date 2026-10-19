@@ -20,7 +20,8 @@ import tokenize
 _PARSER_OVERFLOWS_ON_CHAINS = sys.version_info < (3, 11)
 
 #: 3.10에서 파싱 전에 허용하는 논리 줄 하나의 사슬 토큰(이항 연산자·`.`·`(`·`[`) 수다. 3.10.20 실측: 메서드 사슬
-#: 8만 개(트리 깊이 16만)·`+` 15만 항에서 죽고, 메서드 사슬 5만 개·다른 사슬 10만 항은 안전했다.
+#: 8만 개(트리 깊이 16만)·`+` 15만 항에서 죽고, 메서드 사슬 5만 개·다른 사슬 10만 항은 안전했다. f-string 치환 필드
+#: 안의 사슬도 임계가 같고(10만 항 안전, 15만 항에서 죽음), 바깥 사슬과 깊이가 더해진다.
 MAX_CHAIN_TOKENS = 50_000
 
 #: 사슬을 잇는 연산자 토큰이다. `(`·`[`는 호출·첨자일 때만 잇지만 넉넉히 센다(상한 판정에서 더 세는 쪽은 안전하다).
@@ -98,7 +99,8 @@ def chain_too_long(text: str) -> bool:
     """실행 중인 파서가 C 스택을 넘길 만큼 긴 사슬이 한 논리 줄에 있는지 본다(3.10만 해당).
 
     파싱 전에 걸러야 하는 이유: 3.10은 파싱 도중 프로세스가 죽어 잡을 예외가 없다. 걸러진 소스는 파서가 거부한 깊은
-    소스와 같은 실패로 남긴다. 상한을 넘는 얕은 줄(사슬 토큰이 아주 많은 한 줄짜리 목록)도 3.10에서는 함께 걸러진다.
+    소스와 같은 실패로 남긴다. f-string 치환 필드 안의 사슬도 센다. 상한을 넘는 얕은 줄(사슬 토큰이 아주 많은 한 줄짜리
+    목록, 사슬 문자가 아주 많은 f-string)도 3.10에서는 함께 걸러진다.
 
     Args:
         text: 파싱할 소스.
@@ -113,7 +115,7 @@ def _longest_chain(text: str) -> int:
     """논리 줄 하나에 든 사슬 토큰 수의 최댓값을 재귀 없이 선형 시간에 센다.
 
     사슬 문자의 총수가 상한 이하면 토큰으로 나누지 않고 그 수를 돌려준다(어느 줄도 그보다 많을 수 없다). 상한을 넘는
-    줄을 만나면 바로 멈춘다.
+    줄을 만나면 바로 멈춘다. f-string 안의 사슬도 그 줄의 수에 더한다(`_chain_weight`).
 
     Args:
         text: 소스.
@@ -121,7 +123,7 @@ def _longest_chain(text: str) -> int:
     Returns:
         가장 긴 논리 줄의 사슬 토큰 수(총수가 상한 이하면 사슬 문자 총수).
     """
-    marks = sum(text.count(mark) for mark in _CHAIN_MARKS)
+    marks = _count_marks(text)
     if marks <= MAX_CHAIN_TOKENS:
         return marks
     longest = count = 0
@@ -129,12 +131,57 @@ def _longest_chain(text: str) -> int:
         for token in tokenize.generate_tokens(io.StringIO(text).readline):
             if token.type == tokenize.NEWLINE:
                 count = 0
-            elif token.type == tokenize.OP and token.string in _CHAIN_OPERATORS:
-                count += 1
-                longest = max(longest, count)
-                if longest > MAX_CHAIN_TOKENS:
-                    return longest
+                continue
+            count += _chain_weight(token)
+            longest = max(longest, count)
+            if longest > MAX_CHAIN_TOKENS:
+                return longest
     except (tokenize.TokenError, SyntaxError):
         # 토큰으로 나눌 수 없는 소스는 파서도 문법 오류로 거부해 트리를 만들지 않으므로 센 데까지만 본다.
         return longest
     return longest
+
+
+def _chain_weight(token: tokenize.TokenInfo) -> int:
+    """토큰 하나가 논리 줄의 사슬에 더하는 수를 정한다.
+
+    사슬 연산자 토큰은 1이다. 3.10의 tokenize는 f-string 전체를 STRING 토큰 하나로 내지만, 파서는 치환 필드의 식을
+    파싱해 그 자리 트리에 단다. 연산자 토큰만 세면 `f"{a+a+…}"`가 상한을 그대로 지나 파서가 프로세스를 죽인다. 그래서
+    f-string 토큰은 안에 든 사슬 문자 수를 더한다. 리터럴 부분과 중첩 f-string의 문자까지 세지만, 상한 판정에서 더 세는
+    쪽은 안전하다(3.12부터는 치환 필드의 연산자가 따로 OP 토큰으로 나온다).
+
+    Args:
+        token: 토큰.
+
+    Returns:
+        더할 사슬 토큰 수.
+    """
+    if token.type == tokenize.OP:
+        return 1 if token.string in _CHAIN_OPERATORS else 0
+    if token.type == tokenize.STRING and "f" in _string_prefix(token.string).lower():
+        return _count_marks(token.string)
+    return 0
+
+
+def _string_prefix(literal: str) -> str:
+    """문자열 토큰의 접두사(`f`·`rb` 등, 따옴표 앞 글자)를 돌려준다.
+
+    Args:
+        literal: STRING 토큰 문자열.
+
+    Returns:
+        접두사(없으면 빈 문자열).
+    """
+    return literal[: len(literal) - len(literal.lstrip("bBfFrRuU"))]
+
+
+def _count_marks(text: str) -> int:
+    """사슬 문자(`_CHAIN_MARKS`)의 총수를 센다. 사슬 연산자 토큰마다 적어도 하나씩 들어 있어 토큰 수의 상한이다.
+
+    Args:
+        text: 소스나 토큰 문자열.
+
+    Returns:
+        사슬 문자 수.
+    """
+    return sum(text.count(mark) for mark in _CHAIN_MARKS)

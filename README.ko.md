@@ -303,7 +303,8 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 한계에 "source nesting too deep to parse"
 이유로 남습니다. 공개 패키지에서 100단을 넘는 모듈은 드뭅니다. Python 3.10의 파서는 아주 긴 사슬에서 오류 대신
 프로세스가 죽으므로, 3.10에서는 한 논리 줄의 사슬 토큰(이항 연산자·`.`·`(`·`[`)이 50,000개를 넘는 파일을 파싱하지 않고
-같은 한계로 남깁니다(그 줄이 얕은 목록이어도 그렇습니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
+같은 한계로 남깁니다(그 줄이 얕은 목록이어도 그렇습니다). f-string 치환 필드 안의 사슬도 그 줄에 더해 셉니다(f-string의
+사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
 참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
 
 상수 평가는 라우트 문자열·설정값·SQL 텍스트·클라이언트 URL에서 f-string·`+`·목록 리터럴·모듈 상수를 따라갑니다. 같은

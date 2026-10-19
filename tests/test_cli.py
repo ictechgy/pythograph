@@ -215,21 +215,62 @@ def test_deep_modules_do_not_abort_commands(make_project: Callable[[dict[str, st
         assert document["facts"]
 
 
-def test_long_chains_do_not_crash_the_parser(make_project: Callable[[dict[str, str]], Path]) -> None:
-    """파서가 C 스택을 넘길 만큼 긴 사슬도 프로세스를 죽이지 않고 파싱 실패 한계가 된다.
+#: 3.10 파서가 C 스택을 넘기는 20만 단위 사슬 모듈이다. f-string 치환 필드 안의 사슬은 3.10 tokenize에 STRING 토큰
+#: 하나로만 보인다.
+LONG_CHAINS = {
+    "plus": "VALUE = " + "+".join(["1"] * 200_000) + "\n",
+    "fstring-plus": 'VALUE = f"{' + "+".join(["a"] * 200_000) + '}"\n',
+    "fstring-subscript": 'VALUE = f"{a' + "[0]" * 200_000 + '}"\n',
+    "fstring-format-spec": 'WIDTH = 3\nVALUE = f"{a' + ".b" * 200_000 + '!r:>{WIDTH}}"\n',
+}
 
-    3.10의 `ast.parse`는 20만 항 `+` 사슬에서 세그폴트해 종료 코드가 계약에 없는 139였다. 별도 프로세스로 실행한다.
+
+def _run_process(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """CLI를 별도 프로세스로 실행한다(파서가 프로세스를 죽여도 테스트가 살아 있게).
+
+    Args:
+        arguments: 명령 인자.
+
+    Returns:
+        실행 결과.
     """
-    root = make_project({"pkg/__init__.py": "", "pkg/table.py": "VALUE = " + "+".join(["1"] * 200_000) + "\n"})
-    result = subprocess.run(
-        [sys.executable, "-m", "pythograph", "graph", "--project", str(root), "--revision", "x"],
+    return subprocess.run(
+        [sys.executable, "-m", "pythograph", *arguments],
         capture_output=True,
         text=True,
         check=False,
         cwd=REPOSITORY,
     )
+
+
+@pytest.mark.parametrize("shape", sorted(LONG_CHAINS))
+def test_long_chains_do_not_crash_the_parser(make_project: Callable[[dict[str, str]], Path], shape: str) -> None:
+    """파서가 C 스택을 넘길 만큼 긴 사슬도 프로세스를 죽이지 않고 파싱 실패 한계가 된다.
+
+    3.10의 `ast.parse`는 20만 항 `+` 사슬에서 세그폴트해 종료 코드가 계약에 없는 139였다. f-string 안의 사슬은 사슬
+    검사가 세지 않아 그대로 세그폴트했다. 별도 프로세스로 실행한다.
+    """
+    root = make_project({"pkg/__init__.py": "", "pkg/table.py": LONG_CHAINS[shape]})
+    result = _run_process(["graph", "--project", str(root), "--revision", "x"])
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["statistics"]["unparsedFiles"] == 1
+
+
+def test_long_chain_in_a_string_annotation_does_not_crash(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """매개변수의 문자열 주석이 f-string 사슬이어도 graph·client·schema가 끝나고 그 주석만 모르는 주석이 된다.
+
+    모듈은 파싱되고 주석을 풀 때 `parse_annotation`이 파싱하는데, 3.10에서 사슬 검사가 f-string을 세지 않아 세 명령이
+    세그폴트(종료 139)했다.
+    """
+    annotation = "f'{" + "+".join(["a"] * 200_000) + "}'"
+    source = f'import requests\n\n\ndef fetch(session: "{annotation}"):\n    return session.get("/b")\n'
+    root = make_project({"pkg/__init__.py": "", "pkg/client.py": source})
+    for command in (["graph", "--revision", "x"], ["routes", "--role", "client"], ["schema"]):
+        result = _run_process([command[0], "--project", str(root), *command[1:]])
+        assert result.returncode == 0, (command, result.returncode, result.stderr)
+        document = json.loads(result.stdout)
+        if command[0] == "graph":
+            assert document["statistics"]["unparsedFiles"] == 0
 
 
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:
