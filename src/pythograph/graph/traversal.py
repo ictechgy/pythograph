@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -187,6 +188,11 @@ def build_adjacency(graph: CallGraph, direction: str, tier: str) -> Adjacency:
 def _propagate(adjacency: Adjacency, root_ids: tuple[str, ...], max_depth: int) -> tuple[Levels, bool, bool]:
     """모든 root에서 단계 동기로 전파한다.
 
+    자기 자신이 아닌 root가 `DOMINATING_ROOTS`개 이상 모인 정점은 그 가운데 가장 작은 65개를 음수 최대 힙으로 함께
+    둔다(`smallest`). 전파를 멈출지는 그 힙의 최댓값만 보면 되므로, root가 수백 개 모이는 허브 정점에서도 정점 기록
+    전체를 다시 세지 않는다. 65개가 모이기 전에는 멈출 수 없으므로 힙을 만들지 않는다(root가 적은 순회는 비용이
+    그대로다).
+
     Args:
         adjacency: 인접 목록.
         root_ids: root id.
@@ -196,7 +202,7 @@ def _propagate(adjacency: Adjacency, root_ids: tuple[str, ...], max_depth: int) 
         (단계 기록, 깊이 잘림 여부, 전파 중단 여부).
     """
     levels: Levels = {}
-    owners = {root: index for index, root in enumerate(root_ids)}
+    smallest: dict[str, list[int]] = {}
     frontier: dict[str, list[int]] = {}
     for index, root in enumerate(root_ids):
         levels[root] = {index: 0}
@@ -208,19 +214,24 @@ def _propagate(adjacency: Adjacency, root_ids: tuple[str, ...], max_depth: int) 
         following: dict[str, list[int]] = {}
         for node, roots in frontier.items():
             for neighbor in adjacency.neighbors.get(node, []):
-                pruned = _spread(levels, owners.get(neighbor), neighbor, roots, level + 1, following) or pruned
+                pruned = _spread(levels, smallest, neighbor, roots, level + 1, following) or pruned
         frontier = following
     return levels, _has_depth_cut(adjacency, levels, frontier), pruned
 
 
 def _spread(
-    levels: Levels, owner: int | None, neighbor: str, roots: list[int], level: int, following: dict[str, list[int]]
+    levels: Levels,
+    smallest: dict[str, list[int]],
+    neighbor: str,
+    roots: list[int],
+    level: int,
+    following: dict[str, list[int]],
 ) -> bool:
     """한 간선으로 root 인덱스들을 이웃에 전파한다.
 
     Args:
         levels: 단계 기록(갱신).
-        owner: 이웃이 root면 그 인덱스.
+        smallest: 자기 자신이 아닌 root가 65개 이상 모인 정점 → 그 가운데 가장 작은 65개의 음수 최대 힙(갱신).
         neighbor: 이웃 정점.
         roots: 넘길 root 인덱스.
         level: 이웃이 닿는 단계.
@@ -230,38 +241,63 @@ def _spread(
         전파를 멈춘 쌍이 있었으면 True.
     """
     held = levels.setdefault(neighbor, {})
+    heap = smallest.get(neighbor)
     pruned = False
     for root in roots:
         if root in held:
             continue
-        if _dominated(held, owner, root):
+        if heap is not None and _dominated(heap, root):
             pruned = True
             continue
         held[root] = level
         following.setdefault(neighbor, []).append(root)
+        if len(held) >= DOMINATING_ROOTS:
+            heap = _remember(smallest, neighbor, held, heap, root)
     return pruned
 
 
-def _dominated(held: dict[int, int], owner: int | None, root: int) -> bool:
+def _dominated(heap: list[int], root: int) -> bool:
     """정점이 자기 자신이 아닌 root 중 이 root보다 작은 인덱스를 이미 65개 이상 가졌는지 본다.
 
+    힙은 가장 작은 65개를 담으므로 그중 가장 큰 것이 이 root보다 작을 때가 정확히 그 경우다.
+
     Args:
-        held: 정점의 root 기록.
-        owner: 정점이 root면 그 인덱스(세지 않는다).
+        heap: 정점의 자기 자신이 아닌 가장 작은 root 인덱스 65개(음수 최대 힙).
         root: 새 root 인덱스.
 
     Returns:
         65개 이상이면 True.
     """
-    if len(held) - (0 if owner is None else 1) < DOMINATING_ROOTS:
-        return False
-    smaller = 0
-    for index in held:
-        if index != owner and index < root:
-            smaller += 1
-            if smaller >= DOMINATING_ROOTS:
-                return True
-    return False
+    return len(heap) >= DOMINATING_ROOTS and -heap[0] < root
+
+
+def _remember(
+    smallest: dict[str, list[int]], node: str, held: dict[int, int], heap: list[int] | None, root: int
+) -> list[int] | None:
+    """기록이 65개 이상인 정점에 새로 닿은 root로 가장 작은 65개 힙을 갱신하거나, 처음 65개가 모였으면 만든다.
+
+    전파를 멈추지 않은 root는 힙의 최댓값보다 작으므로 그것과 바꾼다. 힙이 없으면 기록에서 단계 0 항목(root 정점
+    자신)을 뺀 인덱스가 65개 이상인지 보고 가장 작은 65개로 힙을 만든다(정점마다 많아야 두 번이다).
+
+    Args:
+        smallest: 정점 → 힙(갱신).
+        node: 정점.
+        held: 정점의 root 기록(새 root 포함).
+        heap: 정점의 힙(없으면 None).
+        root: 새 root 인덱스.
+
+    Returns:
+        정점의 힙, 아직 65개가 아니면 None.
+    """
+    if heap is not None:
+        heapq.heapreplace(heap, -root)
+        return heap
+    others = sorted(index for index, depth in held.items() if depth)
+    if len(others) < DOMINATING_ROOTS:
+        return None
+    heap = smallest[node] = [-index for index in others[:DOMINATING_ROOTS]]
+    heapq.heapify(heap)
+    return heap
 
 
 def _has_depth_cut(adjacency: Adjacency, levels: Levels, frontier: dict[str, list[int]]) -> bool:
