@@ -22,6 +22,7 @@ from pythograph.graph.build import build_graph
 from pythograph.graph.exposure import AttributeWrite, ProgramFacts
 from pythograph.graph.flow import FlowAnalyzer
 from pythograph.graph.model import CallGraph
+from pythograph.graph.mro import MAX_CLASS_DEPTH
 from pythograph.source.project import Project
 
 #: 합성 프로젝트 도우미 타입이다.
@@ -677,3 +678,73 @@ def test_module_global_queries_do_not_linearize_unused_hierarchies(make_project:
     graph = build_graph(Project.open(make_project(files)), False)
     assert bound_targets(graph, "wiring.py#site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}
     assert graph.statistics["mroApproximated"] == 0
+
+
+#: 깊이 상한을 넘는 상속 사슬 길이다(잎부터 MRO를 계산하면 상한에서 근사하고, id 순으로 계산하면 정확하다).
+CHAIN = MAX_CLASS_DEPTH + 16
+
+#: 사슬 클래스의 빈 본문이다.
+PASS_BODY = "    pass\n"
+
+
+def deep_chain(length: int, swap: int) -> str:
+    """`D0`부터 한 줄로 물려받는 클래스 사슬이다.
+
+    `D0`은 `self.repo`를 쓰고 부르며, `D{swap}`은 `self.repo`를 바꾸고, 잎 클래스는 리터럴 `getattr` 호출이 수신자인
+    `store` 쓰기를 둔다(수집 단계가 값을 풀지 않는 수신자다). 어느 클래스도 직접 생성하지 않는다.
+
+    Args:
+        length: 클래스 수.
+        swap: `self.repo`를 바꾸는 클래스 번호.
+
+    Returns:
+        모듈 내용.
+    """
+    bodies = {
+        swap: "    def swap(self):\n        self.repo = MemRepo()\n",
+        length - 1: '    def poke(self):\n        getattr(self, "child").store = 1\n',
+    }
+    head = (
+        "from repos import MemRepo, Repo\n\n\nclass D0:\n    def __init__(self):\n        self.repo = Repo()\n\n"
+        "    def site(self):\n        return self.repo.save()\n"
+    )
+    chain = "".join(f"\n\nclass D{index}(D{index - 1}):\n{bodies.get(index, PASS_BODY)}" for index in range(1, length))
+    return head + chain
+
+
+def test_unresolved_receivers_are_resolved_in_judgment_order(make_project: MakeProject) -> None:
+    """색인은 해석기가 아직 풀지 않은 수신자(리터럴 `getattr` 호출)를 미리 풀지 않고 옛 판정 순서대로 푼다.
+
+    테스트 소스를 import하는 프로그램은 흐름 분석을 새 해석기로 해서 MRO 메모가 비어 있다. `store` 쓰기 가운데 앞선
+    `Holder.__init__` 매개변수 수신자(`other.store`)를 판정하면 그 흐름이 하위 클래스 표를 id 순으로 만들어 긴 사슬의
+    MRO도 정확하다. 색인이 그보다 먼저 잎 클래스의 `getattr(self, "child")` 수신자를 풀면 잎부터 MRO를 계산해 깊이
+    상한에서 근사하고, 근사한 클래스가 `D0`의 하위 클래스 표에서 빠져 `D0.site`가 `MemRepo`로 바꾸는 쓰기를 놓친다.
+    """
+    files = {
+        "repos.py": REPOS,
+        "a.py": """
+            from b import Holder
+            from repos import Repo
+            from tests.helpers import helper
+
+
+            def first():
+                holder = Holder(Repo())
+                helper()
+                return holder.store.save()
+        """,
+        "b.py": """
+            class Holder:
+                def __init__(self, other):
+                    other.store = other
+        """,
+        "deep.py": deep_chain(CHAIN, CHAIN - 10),
+        "tests/__init__.py": "",
+        "tests/helpers.py": """
+            def helper():
+                return 1
+        """,
+    }
+    graph = build_graph(Project.open(make_project(files)), False)
+    assert graph.statistics["boundDispatch"]["wholeProgramTests"] is True  # type: ignore[index]
+    assert bound_targets(graph, "deep.py#D0.site") == {"repos.py#Repo.save", "repos.py#MemRepo.save"}

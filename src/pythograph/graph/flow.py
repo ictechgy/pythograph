@@ -128,7 +128,9 @@ class _NameWrites:
     쓰기 하나는 많아야 두 목록에 든다. 하위 클래스까지 가리키는 정적 수신자도 하위 클래스마다 펼치지 않고 수신자
     클래스 하나에 담는다(펼치면 같은 수신자 쓰기 수 × 하위 클래스 수로 메모리가 커진다). 질의가 조상 쪽에서 찾는다.
     색인을 만들 때는 하위 클래스 표를 묻지 않는다. 표는 모든 클래스의 MRO를 계산하므로, 옛 판정처럼 속성 자리·메서드
-    가림 질의가 하위 클래스까지 가리키는 첫 쓰기를 판정할 때 만든다(모듈 전역 질의는 만들지 않았다).
+    가림 질의가 하위 클래스까지 가리키는 첫 쓰기를 판정할 때 만든다(모듈 전역 질의는 만들지 않았다). 수신자 값도
+    해석기가 이미 푼 것만 쓴다(수집 단계가 이름·속성 수신자를 푼다). 아직 풀지 않은 수신자(호출식 등)를 색인이 먼저
+    풀면 MRO 메모가 옛 판정과 다른 순서로 채워지므로, 그런 쓰기는 질의가 옛 판정처럼 차례로 푼다.
 
     Attributes:
         writes: 쓰기(원래 순서).
@@ -136,8 +138,9 @@ class _NameWrites:
         widened: 클래스 id → 정적 수신자가 그 클래스와 하위 클래스의 인스턴스·클래스 객체일 수 있는 쓰기.
         first_widened: `widened`의 첫 쓰기 (순번, 수신자 클래스), 없으면 None.
         by_module: 모듈 경로 → 그 모듈이 수신자인 쓰기.
-        unresolved: 수신자 흐름으로 판정할 쓰기(람다 뿌리, 모듈·함수·외부 값이 아닌 모르는 값).
-        module_candidates: 모듈일 수 있는 수신자(람다 뿌리, 타입 모르는 값, 외부 호출 결과) 쓰기.
+        unresolved: 수신자 흐름으로 판정할 쓰기(람다 뿌리, 아직 풀지 않은 수신자, 모듈·함수·외부 값이 아닌 모르는 값).
+        module_candidates: 타입 모르는 값·외부 호출 결과라 모듈일 수 있는 수신자 쓰기.
+        replayed: 모듈 전역 질의가 옛 판정처럼 그때 수신자 값을 풀어 고르는 쓰기(람다 뿌리, 아직 풀지 않은 수신자).
     """
 
     writes: tuple[AttributeWrite, ...]
@@ -147,6 +150,7 @@ class _NameWrites:
     by_module: dict[str, list[int]] = field(default_factory=dict)
     unresolved: list[int] = field(default_factory=list)
     module_candidates: list[int] = field(default_factory=list)
+    replayed: list[int] = field(default_factory=list)
 
 
 def _index_static(index: _NameWrites, position: int, value: InstanceValue | ClassValue) -> None:
@@ -787,6 +791,8 @@ class FlowAnalyzer:
     def _module_writes(self, path: str, name: str, depth: int) -> list[Flow]:
         """그 모듈(또는 타입 모르는 수신자 — 모듈일 수 있다)에 대한 같은 이름 속성 쓰기의 흐름이다(원래 순서).
 
+        색인이 미리 풀지 않은 쓰기(람다 뿌리, 아직 풀지 않은 수신자)는 옛 판정처럼 그 순번에서 수신자 값을 풀어 고른다.
+
         Args:
             path: 모듈 경로.
             name: 이름.
@@ -796,8 +802,27 @@ class FlowAnalyzer:
             흐름 목록.
         """
         index = self._writes_named(name)
-        positions = sorted([*index.by_module.get(path, ()), *index.module_candidates])
-        return [self._write_flow(index.writes[position], depth) for position in positions]
+        replayed = set(index.replayed)
+        positions = sorted({*index.by_module.get(path, ()), *index.module_candidates, *replayed})
+        return [
+            self._write_flow(index.writes[position], depth)
+            for position in positions
+            if position not in replayed or self._may_be_module(index.writes[position], path)
+        ]
+
+    def _may_be_module(self, write: AttributeWrite, path: str) -> bool:
+        """쓰기 수신자가 그 모듈이거나 모듈일 수 있는지 옛 판정대로 본다(수신자 값을 지금 푼다).
+
+        Args:
+            write: 쓰기.
+            path: 모듈 경로.
+
+        Returns:
+            그렇다면 True.
+        """
+        value = self.resolver.value(write.scope, write.receiver)
+        targets_module = isinstance(value, ModuleValue) and value.path == path
+        return write.lambda_receiver or targets_module or isinstance(value, (UnknownValue, ExternalResult))
 
     # --- 속성 ---
 
@@ -905,17 +930,18 @@ class FlowAnalyzer:
     def _index_write(self, index: _NameWrites, position: int, write: AttributeWrite) -> None:
         """쓰기 하나를 수신자의 정적 값으로 나눠 색인에 넣는다(`write_reaches`·`_module_writes`와 같은 분기다).
 
+        해석기가 이미 푼 수신자 값만 쓴다. 람다 뿌리와 아직 풀지 않은 수신자는 질의가 옛 판정처럼 그 순번에서 판정한다.
+
         Args:
             index: 채울 색인.
             position: 쓰기 순번.
             write: 쓰기.
         """
-        if write.lambda_receiver:
+        value = None if write.lambda_receiver else self.resolver.known_value(write.scope, write.receiver)
+        if value is None:
             index.unresolved.append(position)
-            index.module_candidates.append(position)
-            return
-        value = self.resolver.value(write.scope, write.receiver)
-        if isinstance(value, (InstanceValue, ClassValue)):
+            index.replayed.append(position)
+        elif isinstance(value, (InstanceValue, ClassValue)):
             _index_static(index, position, value)
         elif isinstance(value, ModuleValue):
             index.by_module.setdefault(value.path, []).append(position)
