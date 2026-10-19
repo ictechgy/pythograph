@@ -292,7 +292,7 @@ def test_roots_input_limits(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")
 def test_roots_from_reads_only_regular_files(tmp_path: Path) -> None:
-    """`--roots-from` 파일은 일반 파일만 읽는다(파이프는 `-`로 넘긴다). 일반 파일을 가리키는 링크는 따라간다.
+    """`--roots-from` 파일은 일반 파일과 파이프만 읽는다. 일반 파일을 가리키는 링크는 따라간다.
 
     디렉터리·장치·장치를 가리키는 링크는 내용을 읽지 않고 사용법 오류다. 전에는 장치를 상한까지 읽은 뒤 내용 오류로
     거부했다.
@@ -309,9 +309,24 @@ def test_roots_from_reads_only_regular_files(tmp_path: Path) -> None:
             collect_roots([], str(target), io.StringIO())
 
 
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="/dev/fd가 없는 플랫폼")
+def test_roots_from_reads_a_pipe() -> None:
+    """셸 프로세스 치환(`--roots-from <(…)`)이 넘기는 파이프(`/dev/fd/N`)도 읽는다(`-` 표준 입력과 같다).
+
+    일반 파일만 받던 때는 이 형태가 사용법 오류(64)였다.
+    """
+    read_end, write_end = os.pipe()
+    with os.fdopen(write_end, "w", encoding="utf-8") as writer:
+        writer.write(json.dumps(["a#b", "c#d"]))
+    try:
+        assert collect_roots([], f"/dev/fd/{read_end}", io.StringIO()) == ("a#b", "c#d")
+    finally:
+        os.close(read_end)
+
+
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
 def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -> None:
-    """쓰는 쪽이 없는 FIFO도 열기에서 멈추지 않고 사용법 오류(64)다.
+    """쓰는 쪽이 없는 FIFO도 열기·읽기에서 멈추지 않는다. 빈 입력으로 읽혀 사용법 오류(64)다.
 
     전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
     뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
@@ -328,7 +343,7 @@ def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -
         timeout=60,
     )
     assert (result.returncode, result.stdout) == (64, ""), result.stderr
-    assert "--roots-from could not be read" in result.stderr
+    assert "--roots-from must be a JSON array" in result.stderr
 
 
 def test_depth_and_reached_limits_truncate() -> None:

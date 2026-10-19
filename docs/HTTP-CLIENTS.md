@@ -23,7 +23,7 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 - `location`: 호출식이 시작하는 줄과 1부터 센 UTF-8 바이트 열(여러 줄 호출도 시작 줄, `wrapper.location`).
 - dynamic 사실의 `channel`은 null이다. 원문 식은 userinfo·query·토큰을 담을 수 있어 싣지 않고, 증명한 접두사만 마스킹한
   `channelPrefix`로 싣는다(계약의 보안 절). dynamic 사실의 `pathAnchor`는 접두사의 앵커, 접두사가 없으면 `base`다.
-- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·래퍼 파일(일반 파일이 아닌 디렉터리·장치·FIFO 포함)·출력 상한 초과,
+- 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·래퍼 파일(일반 파일·파이프가 아닌 디렉터리·장치 포함)·출력 상한 초과,
   64 사용법 오류(래퍼 선언 스키마 위반·4 MiB 초과 포함). 1은 예약이다.
 
 ## 라이브러리와 확인한 소스
@@ -130,9 +130,10 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 `"language": "python"` 항목만 적용한다. 다른 언어 항목도 스키마는 검사한다(모르는 필드·잘못된 값은 64 — 조용히 무시하면 낡은
 선언이 호출 0건을 내어 "호출 없음"으로 읽힌다).
 
-선언 파일은 일반 파일만 읽는다. 마지막 심볼릭 링크는 따라가지만(모노레포의 공유 선언), 디렉터리·장치·FIFO는 내용을 읽지
-않고 2로 끝난다 — `/dev/zero`는 끝이 없고 쓰는 쪽이 없는 FIFO는 열기에서 멈춘다. 크기는 4 MiB까지이고 상한보다 1바이트만 더
-읽어 판정한다(넘으면 64).
+선언 파일은 일반 파일과 파이프(FIFO, 셸 프로세스 치환 `--wrappers <(…)`)만 읽는다. 마지막 심볼릭 링크는 따라가지만(모노레포의
+공유 선언), 디렉터리·장치는 내용을 읽지 않고 2로 끝난다 — `/dev/zero`는 끝이 없다. 파이프는 쓰는 쪽이 끝낼 때까지 읽고, 쓰는
+쪽이 없는 FIFO는 기다리지 않고 빈 입력(선언 오류 64)으로 읽는다. 크기는 4 MiB까지이고 상한보다 1바이트만 더 읽어 판정한다
+(넘으면 64).
 
 - `owner`(pythograph id와 같은 모양): 메서드·생성자는 소유 클래스 id(`shopclient/api.py#Gateway`), 모듈 수준 함수는 모듈 파일
   경로(`shopclient/api.py`). 래퍼 id는 메서드·생성자면 `owner + "." + name`, 모듈 함수면 `owner + "#" + name`이다.

@@ -1013,8 +1013,8 @@ def test_oversized_wrapper_file_reads_only_the_byte_budget(make_project: MakePro
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
-def test_wrapper_fifo_exits_2_without_waiting_for_a_writer(make_project: MakeProject, tmp_path: Path) -> None:
-    """쓰는 쪽이 없는 FIFO도 열기에서 멈추지 않고, 일반 파일이 아니라서 입력 오류(2)다.
+def test_wrapper_fifo_without_a_writer_ends_without_waiting(make_project: MakeProject, tmp_path: Path) -> None:
+    """쓰는 쪽이 없는 FIFO도 열기·읽기에서 멈추지 않는다. 빈 입력으로 읽혀 선언 오류(64)다.
 
     전에는 열기가 쓰는 쪽을 기다려 명령이 끝나지 않았다. 별도 프로세스의 제한 시간은 멈춤을 실패로 바꾸는 안전장치일
     뿐 성능 측정이 아니다(지금은 1초 안에 끝난다).
@@ -1031,7 +1031,41 @@ def test_wrapper_fifo_exits_2_without_waiting_for_a_writer(make_project: MakePro
         cwd=REPOSITORY,
         timeout=60,
     )
-    assert (result.returncode, result.stdout) == (2, ""), result.stderr
+    assert (result.returncode, result.stdout) == (64, ""), result.stderr
+    assert "not valid UTF-8 JSON" in result.stderr
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="/dev/fd가 없는 플랫폼")
+def test_wrapper_pipe_is_read_like_a_regular_file(make_project: MakeProject, tmp_path: Path) -> None:
+    """파이프(셸 프로세스 치환 `--wrappers <(cat w.json)`이 넘기는 `/dev/fd/N`)도 일반 파일과 같게 읽는다.
+
+    일반 파일만 받던 때는 이 형태가 입력 오류(2)였고, `--wrappers`에는 `--roots-from -` 같은 표준 입력 대안이 없어
+    파이프라인에서 쓸 수 없었다.
+    """
+    root = make_project({"gw/net.py": WRAPPER_CODE})
+    entry = {
+        "language": "python",
+        "kind": "function",
+        "owner": "gw/net.py",
+        "name": "send",
+        "methodArg": {"index": 0, "label": "method"},
+        "pathArg": {"index": 1, "label": "path"},
+        "pathAnchor": "root",
+        "service": "gateway",
+    }
+    path = _wrappers(tmp_path, [entry])
+    command = ["routes", "--role", "client", "--project", str(root), "--generated-at", GENERATED_AT]
+    from_file = run_cli([*command, "--wrappers", str(path)])
+    read_end, write_end = os.pipe()
+    with os.fdopen(write_end, "wb") as writer:
+        writer.write(path.read_bytes())
+    try:
+        from_pipe = run_cli([*command, "--wrappers", f"/dev/fd/{read_end}"])
+    finally:
+        os.close(read_end)
+    assert from_pipe == from_file
+    assert from_pipe[0] == 0
+    assert {fact["service"] for fact in json.loads(from_pipe[1])["facts"]} == {"gateway"}
 
 
 def test_compose_helpers() -> None:

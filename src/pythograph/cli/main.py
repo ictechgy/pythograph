@@ -353,7 +353,7 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
 
     Raises:
         UsageError: 선언 오류(4 MiB 초과 포함).
-        InputError: 읽지 못하거나 일반 파일이 아닐 때.
+        InputError: 읽지 못하거나 일반 파일·파이프가 아닐 때.
     """
     if argument is None:
         return []
@@ -363,7 +363,7 @@ def _wrappers(argument: str | None) -> list[WrapperDecl]:
         raise UsageError(f"invalid --wrappers declaration: {error}") from error
     except OSError as error:
         raise InputError(
-            "--wrappers does not name a readable regular file; pass an http-wrappers v1 JSON file."
+            "--wrappers does not name a readable regular file or pipe; pass an http-wrappers v1 JSON file."
         ) from error
 
 

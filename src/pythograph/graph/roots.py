@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import TextIO
 
-from pythograph.source.inputs import open_regular_file
+from pythograph.source.inputs import open_input_file
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 계약의 root 상한이다.
@@ -56,8 +56,8 @@ def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO) 
 def _read(argument: str, stdin: TextIO) -> str:
     """`--roots-from` 입력을 읽는다.
 
-    파일은 일반 파일만 연다(마지막 링크는 따라간다). 쓰는 쪽이 없는 FIFO는 열기에서 멈추고 장치는 끝이 없으므로
-    파이프는 `-`(표준 입력)로 받는다.
+    파일은 일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 연다(마지막 링크는 따라간다). 장치는 끝이 없고 디렉터리는
+    읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다.
 
     Args:
         argument: 파일 경로 또는 `-`.
@@ -67,17 +67,17 @@ def _read(argument: str, stdin: TextIO) -> str:
         텍스트.
 
     Raises:
-        RootsError: 읽지 못하거나, 일반 파일이 아니거나, 너무 클 때.
+        RootsError: 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
     """
     try:
         if argument == "-":
             text = stdin.read(MAX_ROOTS_INPUT + 1)
         else:
-            with open_regular_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
+            with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
                 text = handle.read(MAX_ROOTS_INPUT + 1)
     except (OSError, UnicodeError, ValueError) as error:
         raise RootsError(
-            "--roots-from could not be read as UTF-8 text; pass a readable regular file or - for stdin."
+            "--roots-from could not be read as UTF-8 text; pass a readable regular file or pipe, or - for stdin."
         ) from error
     if len(text) > MAX_ROOTS_INPUT:
         raise RootsError("--roots-from is larger than 16 MiB; split the roots into several runs.")
