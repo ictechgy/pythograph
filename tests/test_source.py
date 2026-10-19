@@ -24,7 +24,13 @@ from pythograph.source.symbols import (
     ValueSymbol,
     absolute_module,
 )
-from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, exceeds_depth, parse_annotation
+from pythograph.source.syntax import (
+    MAX_AST_DEPTH,
+    MAX_CHAIN_TOKENS,
+    MAX_EXTRACTION_AST_DEPTH,
+    exceeds_depth,
+    parse_annotation,
+)
 from pythograph.source.text import is_contract_safe
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
 
@@ -316,6 +322,26 @@ def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) 
     tree = ast.parse(edge)
     assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
     assert not exceeds_depth(ast.parse(""), 1)
+
+
+def test_extraction_commands_use_a_higher_nesting_limit(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """routes·schema가 여는 프로젝트(`MAX_EXTRACTION_AST_DEPTH`)는 graph 상한보다 깊은 모듈도 그 상한까지 파싱한다.
+
+    graph 상한(128)을 모든 명령에 걸면 routes·schema·client가 문제없이 분석하던 모듈까지 빼고 문서 전체 한계를 달았다.
+    """
+    middle = "VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH + 50)) + "\n"
+    edge = "VALUE = " + " + ".join(["1"] * (MAX_EXTRACTION_AST_DEPTH - 2)) + "\n"
+    over = "VALUE = " + " + ".join(["1"] * (MAX_EXTRACTION_AST_DEPTH - 1)) + "\n"
+    assert (tree_depth(edge), tree_depth(over)) == (MAX_EXTRACTION_AST_DEPTH, MAX_EXTRACTION_AST_DEPTH + 1)
+    root = make_project({"middle.py": middle, "edge.py": edge, "over.py": over})
+    graph_project = Project.open(root)
+    assert isinstance(graph_project.module("middle.py"), ReadFailure)
+    extraction_project = Project.open(root, MAX_EXTRACTION_AST_DEPTH)
+    assert isinstance(extraction_project.module("middle.py"), SourceModule)
+    assert isinstance(extraction_project.module("edge.py"), SourceModule)
+    failure = extraction_project.module("over.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
 
 
 def test_chain_guard_counts_one_logical_line(monkeypatch: pytest.MonkeyPatch) -> None:

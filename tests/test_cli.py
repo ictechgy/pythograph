@@ -215,6 +215,48 @@ def test_deep_modules_do_not_abort_commands(make_project: Callable[[dict[str, st
         assert document["facts"]
 
 
+def test_moderately_deep_modules_stay_analyzed_outside_graph(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """graph 상한(128)과 routes·schema 상한(256) 사이 깊이의 모듈은 graph만 빼고 routes·client·schema는 분석한다.
+
+    graph 상한을 모든 명령에 걸었을 때는 urls.py·models.py의 무관한 깊은 식 하나로 server·schema 사실이, views.py의
+    130분기 elif 함수 하나로 client 사실이 사라지고 스코프 없는 한계가 붙었다. 상한이 없던 코드도 이 깊이에서는 세
+    명령 모두 정상이었다(내부 오류는 graph 계열만 났다).
+    """
+    unrelated = "\nUNRELATED = " + " + ".join(["1"] * 200) + "\n"
+    dispatch = "\n\ndef dispatch(code):\n    if code == 0:\n        return 0\n" + "".join(
+        f"    elif code == {index}:\n        return {index}\n" for index in range(1, 130)
+    )
+    root = make_project(
+        {
+            "manage.py": 'import os\nos.environ.setdefault("DJANGO_SETTINGS_MODULE", "shop.settings")\n',
+            "shop/__init__.py": "",
+            "shop/settings.py": 'ROOT_URLCONF = "shop.urls"\nINSTALLED_APPS = ["shop"]\n' + unrelated,
+            "shop/urls.py": (
+                "from django.urls import path\nfrom shop.views import index\n\nurlpatterns = [path('ok/', index)]\n"
+                + unrelated
+            ),
+            "shop/views.py": (
+                "import requests\n\n\ndef index(request):\n    return requests.get('https://example.com/ok')\n"
+                + dispatch
+            ),
+            "shop/models.py": (
+                "from django.db import models\n\n\n"
+                "class Item(models.Model):\n    name = models.CharField(max_length=10)\n" + unrelated
+            ),
+        }
+    )
+    documents = {
+        command[-1]: json.loads(run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])[1])
+        for command in (["graph"], ["routes", "--role", "server"], ["routes", "--role", "client"], ["schema"])
+    }
+    assert documents["graph"]["statistics"]["unparsedFiles"] == 4
+    for name in ("server", "client", "schema"):
+        assert not any("too deep" in text for text in documents[name]["limitations"]), name
+    assert [fact["channel"] for fact in documents["server"]["facts"]] == ["/ok/"]
+    assert [fact["location"]["path"] for fact in documents["client"]["facts"]] == ["shop/views.py"]
+    assert "shop/models.py#Item" in {fact["symbol"]["usr"] for fact in documents["schema"]["facts"]}
+
+
 #: 3.10 파서가 C 스택을 넘기는 20만 단위 사슬 모듈이다. f-string 치환 필드 안의 사슬은 3.10 tokenize에 STRING 토큰
 #: 하나로만 보인다.
 LONG_CHAINS = {

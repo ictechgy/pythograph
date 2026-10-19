@@ -33,6 +33,7 @@ from pythograph.routes.client.extract import ClientOptions, extract_client_calls
 from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
+from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 성공 종료 코드다.
@@ -307,7 +308,7 @@ def _routes(rest: list[str]) -> str:
     )
     if parsed.role == "client":
         return _client_routes(parsed, root, header)
-    project = Project.open(root)
+    project = Project.open(root, MAX_EXTRACTION_AST_DEPTH)
     options = RouteOptions(parsed.framework, parsed.settings_module, parsed.include_tests, parsed.dispatch)
     try:
         extraction = extract_routes(project, options)
@@ -335,7 +336,9 @@ def _client_routes(parsed: RoutesArguments, root: Path, header: DocumentHeader) 
         InputError: 래퍼 파일을 읽지 못하거나 출력이 상한을 넘을 때.
     """
     wrappers = _wrappers(parsed.wrappers)
-    extraction = extract_client_calls(Project.open(root), ClientOptions(parsed.include_tests, tuple(wrappers)))
+    extraction = extract_client_calls(
+        Project.open(root, MAX_EXTRACTION_AST_DEPTH), ClientOptions(parsed.include_tests, tuple(wrappers))
+    )
     try:
         return encode_document(build_client_document(header, extraction))
     except DocumentLimitError as error:
@@ -391,7 +394,9 @@ def _schema(rest: list[str]) -> str:
     settings_module = _settings_module(values.get("--settings"))
     generated_at = parse_timestamp(values.get("--generated-at"))
     root = resolve_project(project_argument)
-    extraction = extract_persistence(Project.open(root), SchemaOptions("--include-tests" in flags, settings_module))
+    extraction = extract_persistence(
+        Project.open(root, MAX_EXTRACTION_AST_DEPTH), SchemaOptions("--include-tests" in flags, settings_module)
+    )
     header = DocumentHeader(
         tool_version=__version__,
         generated_at=generated_at or datetime.now(timezone.utc),

@@ -11,9 +11,11 @@
   찾지 못하면 `revision`을 생략한다. 프로젝트·현재 디렉터리는 파일 신원(장치·inode)으로 비교해 대소문자·유니코드
   정규화만 다른 PATH 철자(macOS 기본 APFS)도 막는다. 분석 대상 저장소에 심은 git이 실행될 수 있던 문제다.
 
-- 구문 트리 중첩이 128단을 넘는 모듈(긴 연산자·속성·호출·첨자 사슬, 긴 `elif`)은 분석하지 않고 파싱 실패와 같은
-  한계(graph `unparsed-files:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`)로 남긴다.
-  파일 하나 때문에 모든 명령이 내부 오류(RecursionError, 종료 2)와 빈 출력으로 끝나던 문제다.
+- 구문 트리 중첩이 상한(graph·reach·impact 128단, routes·schema 256단)을 넘는 모듈(긴 연산자·속성·호출·첨자 사슬,
+  긴 `elif`)은 분석하지 않고 파싱 실패와 같은 한계(graph `unparsed-files:`, routes `route-coverage:`·
+  `route-call-coverage:`, schema `unreadable-sources:`)로 남긴다. 그런 파일 하나 때문에 명령 전체가 내부
+  오류(RecursionError, 종료 2)와 빈 출력으로 끝나던 문제다. graph 계열은 깊이 약 190부터, routes·schema는 재귀가 얕아
+  약 500(client)~1,000(URLconf·설정 사슬)부터 끝났으므로 상한을 명령마다 따로 둔다.
 - Python 3.10에서는 한 논리 줄의 사슬 토큰(이항 연산자·`.`·`(`·`[`)이 5만 개를 넘는 모듈을 파싱 전에 같은 파싱
   실패로 거른다. f-string 치환 필드 안의 사슬(`f"{a+a+…}"`, 그런 문자열 주석 포함)도 그 줄에 더해 센다. `ast.parse`가
   세그폴트해 종료 코드 139와 빈 출력으로 끝나던 문제다. 얕은 한 줄 목록이라도 사슬 토큰이 5만 개를 넘으면 함께

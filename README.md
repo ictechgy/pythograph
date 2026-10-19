@@ -375,9 +375,10 @@ U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:
 `route-call-coverage:` for routes, `unreadable-sources:` for schema) rather than producing a document that isthmus
 rejects as a whole.
 
-Modules whose syntax tree nests deeper than 128 levels (for example very long operator, attribute, call, or subscript
-chains, or long `elif` ladders) are not analyzed, so that one generated or crafted file cannot exhaust Python's
-recursion limit and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in
+Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
+and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
+long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit
+and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in
 graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
 deep to parse". Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely
 long chains instead of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary

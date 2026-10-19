@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from pythograph.source.syntax import chain_too_long, exceeds_depth
+from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, exceeds_depth
 from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
@@ -91,11 +91,14 @@ class Project:
         root: 프로젝트 realpath.
         module_roots: 모듈 이름을 파일로 풀 때 쓰는 프로젝트 상대 루트 목록(`""`는 프로젝트 루트). 제자리에서 바꿔도
             된다(`resolve_module`이 기억한 결과를 버린다).
+        max_depth: 분석하는 구문 트리의 최대 중첩 깊이(넘으면 읽지 못한 소스). 명령마다 재귀가 쓰는 프레임이 달라
+            명령이 고른다(`syntax.MAX_AST_DEPTH`·`syntax.MAX_EXTRACTION_AST_DEPTH`).
         forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
     """
 
     root: Path
     module_roots: list[str] = field(default_factory=list)
+    max_depth: int = MAX_AST_DEPTH
     _modules: dict[str, SourceModule | ReadFailure] = field(default_factory=dict)
     _files: list[str] | None = None
     skipped_links: int = 0
@@ -108,7 +111,7 @@ class Project:
     _resolved_roots: list[str] = field(default_factory=list)
 
     @classmethod
-    def open(cls, root: Path) -> Project:
+    def open(cls, root: Path, max_depth: int = MAX_AST_DEPTH) -> Project:
         """프로젝트를 열고 모듈 루트를 정한다.
 
         모듈 루트는 `manage.py`가 있는 디렉터리들(Django가 `sys.path`에 넣는 곳), 프로젝트 루트,
@@ -116,11 +119,12 @@ class Project:
 
         Args:
             root: 프로젝트 realpath(디렉터리).
+            max_depth: 분석하는 구문 트리의 최대 중첩 깊이(기본은 graph 계열 상한).
 
         Returns:
             프로젝트.
         """
-        project = cls(root=root)
+        project = cls(root=root, max_depth=max_depth)
         manage_directories = sorted(
             {
                 str(PurePosixPath(path).parent)
@@ -304,7 +308,7 @@ class Project:
     def _parse(self, relative: str) -> SourceModule | ReadFailure:
         """파일을 읽어 `ast`로 파싱한다. 어떤 실패도 예외로 새지 않게 이유로 바꾼다.
 
-        구문 트리가 `MAX_AST_DEPTH`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
+        구문 트리가 `max_depth`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
         않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구). 3.10은 긴 사슬을
         파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 본다(`chain_too_long`).
 
@@ -332,7 +336,7 @@ class Project:
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
             return ReadFailure(relative, "source nesting too deep to parse")
-        if exceeds_depth(tree):
+        if exceeds_depth(tree, self.max_depth):
             return ReadFailure(relative, "source nesting too deep to parse")
         return SourceModule(
             path=relative,

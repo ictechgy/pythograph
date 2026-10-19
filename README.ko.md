@@ -298,8 +298,9 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
 한계로 셉니다.
 
-구문 트리 중첩이 128단을 넘는 모듈(아주 긴 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나
-조작된 파일 하나가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼
+구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
+연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를
+넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼
 graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 한계에 "source nesting too deep to parse"
 이유로 남습니다. 공개 패키지에서 100단을 넘는 모듈은 드뭅니다. Python 3.10의 파서는 아주 긴 사슬에서 오류 대신
 프로세스가 죽으므로, 3.10에서는 한 논리 줄의 사슬 토큰(이항 연산자·`.`·`(`·`[`)이 50,000개를 넘는 파일을 파싱하지 않고
