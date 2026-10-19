@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from itertools import product
 from typing import Any
 
@@ -668,7 +669,7 @@ def _classify(items: list[tuple[Any, Any]], pattern: str | None) -> str | None:
         minimum, maximum, sub = items[0][1]
         inner = list(sub)
         if minimum == 1 and _is_unbounded(maximum) and len(inner) == 1:
-            accepted = frozenset(character for character in _ASCII if _single_accepts(inner[0], character))
+            accepted = _accepted_ascii(inner[0])
             if accepted == _DIGITS:
                 return "int"
             if accepted == _SLUG:
@@ -676,6 +677,44 @@ def _classify(items: list[tuple[Any, Any]], pattern: str | None) -> str | None:
             if accepted == _NOT_SLASH:
                 return None
     return "regex"
+
+
+def _accepted_ascii(item: tuple[Any, Any]) -> frozenset[str]:
+    """한 글자 항목이 받는 ASCII 문자 집합을 구한다. 모양이 같은 항목은 한 번만 계산한다(`_accepted_by_key`).
+
+    파라미터마다 ASCII 128자를 하나씩 맞춰 보면, 같은 변환기 정규식을 쓰는 파라미터가 수백 개인 경로
+    (`<int:p0><int:p1>…`) 하나에 수십 ms가 들고, 그런 상수를 경로마다 재사용하면 경로 수만큼 곱해진다.
+
+    Args:
+        item: 반복 안쪽 항목.
+
+    Returns:
+        받는 ASCII 문자 집합. 한 글자 항목(`LITERAL`·`NOT_LITERAL`·`ANY`·`IN`)이 아니면 빈 집합이다
+        (`_single_accepts`가 그런 항목에 늘 False다).
+    """
+    op, av = item
+    name = _op(op)
+    if name == "IN":
+        return _accepted_by_key((name, tuple((_op(set_op), set_av) for set_op, set_av in av)))
+    if name in ("LITERAL", "NOT_LITERAL", "ANY"):
+        return _accepted_by_key((name, av))
+    return frozenset()
+
+
+@lru_cache(maxsize=1024)
+def _accepted_by_key(key: tuple[str, Any]) -> frozenset[str]:
+    """항목 키로 받는 ASCII 문자 집합을 계산한다.
+
+    키는 연산 이름과 해시 가능한 인자다(`IN`은 집합 항목마다 (이름, 인자) 튜플). `_single_accepts`·`_set_accepts`는
+    연산을 이름으로 비교하므로 키를 항목 자리에 그대로 넘겨도 원래 항목과 같은 판정이다.
+
+    Args:
+        key: (연산 이름, 인자).
+
+    Returns:
+        받는 ASCII 문자 집합.
+    """
+    return frozenset(character for character in _ASCII if _single_accepts(key, character))
 
 
 def _is_unbounded(maximum: Any) -> bool:

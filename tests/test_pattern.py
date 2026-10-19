@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from pythograph.exchange.template import encode_decoded_literal, normalize_uri_path
+from pythograph.routes import pattern as pattern_module
 from pythograph.routes.pattern import (
     MAX_REGEX_NESTING,
     ExpansionCapped,
@@ -157,6 +160,30 @@ def test_regex_param_kinds() -> None:
     assert regex_param(r"[\s]+").kind == "regex"
     with pytest.raises(Unconvertible):
         regex_param("(?=x)x")
+
+
+def test_parameter_classification_is_computed_once_per_character_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """같은 문자 집합을 반복하는 파라미터는 ASCII 128자 판정을 한 번만 한다. 판정 결과(종류)는 같다.
+
+    파라미터마다 128자를 다시 맞춰 봐서 `<int:p0>/<int:p1>/…` 8,000자 경로 하나에 약 28ms가 들었고, 같은 상수를
+    경로마다 재사용하면 경로 수만큼 곱해졌다(100개에 약 3초).
+    """
+    checks: list[str] = []
+    single_accepts = pattern_module._single_accepts
+
+    def counting(item: tuple[Any, Any], character: str) -> bool:
+        checks.append(character)
+        return single_accepts(item, character)
+
+    monkeypatch.setattr(pattern_module, "_single_accepts", counting)
+    pattern_module._accepted_by_key.cache_clear()
+    regex = "^" + "".join(f"(?P<p{index}>[0-9]+)/(?P<s{index}>[-a-zA-Z0-9_]+)/" for index in range(100)) + "$"
+    options = convert_regex(regex, endpoint=True, anchored_by_fullmatch=True).alternatives
+    shapes = skeleton_shapes([(Literal("/"), *option) for option in options], raw=regex, trailing_policy="strict")
+    assert [shape.channel for shape in shapes] == ["/" + "{}/" * 200]
+    assert [constraint.kind for constraint in shapes[0].constraints] == ["int", "slug"] * 100
+    # 파라미터마다 `/`를 넘는지 한 번씩(200회) + 문자 집합 두 개의 128자 판정. 전에는 200 × 128회를 더 했다.
+    assert len(checks) == 200 + 2 * 128
 
 
 def test_deeply_nested_regex_is_unconvertible() -> None:

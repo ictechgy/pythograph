@@ -62,6 +62,9 @@
   규칙·변환기 인자, Django 변환기 자리·정규식 토큰열)은 원문 길이에 선형으로 만든다. 수십 KB 경로 하나로, 또는 긴
   상수를 경로마다 재사용한(`path(BIG + "eN/")`) 수 KB 모듈 하나로 `routes --role server`가 수십 초~수 시간을 쓰던
   문제다.
+- 경로 파라미터의 종류(`int`·`slug` 등)를 정할 때 문자 집합마다 ASCII 판정을 한 번만 한다. 같은 변환기를 수백 번
+  쓰는 경로(`<int:p0>/<int:p1>/…`)에서 파라미터마다 128자를 다시 맞춰 봐서 8 KiB 경로 하나에 약 28 ms(이제 약
+  10 ms)가 들던 문제다. 출력은 같다.
 - 버전 선언(`requirements*.txt`·잠금 파일·`pyproject.toml`·`Pipfile`·`setup.cfg`)과 graph 라이브러리 판정의
   `pyproject.toml` 표 머리를 읽는 정규식을 입력 길이에 선형으로 바꾼다. 긴 공백·빈 줄·닫히지 않은 괄호가 든 선언
   파일 하나로 schema·routes·graph·reach·impact가 수 시간 멈출 수 있던 문제다. PEP 508·TOML에 맞는 선언의 결과는 같다.
