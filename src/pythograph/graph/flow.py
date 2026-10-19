@@ -103,6 +103,18 @@ def union(flows: Iterable[Flow]) -> Flow:
     return Flow(frozenset(classes))
 
 
+def _includes_subclasses(value: InstanceValue | ClassValue) -> bool:
+    """값이 그 클래스의 하위 클래스 인스턴스(클래스 객체)도 가리킬 수 있는지 본다(정확하지 않은 인스턴스, 클래스 객체).
+
+    Args:
+        value: 인스턴스·클래스 값.
+
+    Returns:
+        그렇다면 True.
+    """
+    return not value.exact or isinstance(value, ClassValue)
+
+
 class BudgetExceeded(Exception):
     """질의가 단계 예산을 넘었다."""
 
@@ -113,17 +125,21 @@ class _NameWrites:
 
     속성 자리·메서드 가림·모듈 전역 질의가 같은 이름 쓰기를 질의마다 모두 다시 판정하면 클래스·모듈 수에 제곱이다.
     그래서 이름마다 한 번만 나눠 두고, 질의는 걸리는 위치만 원래 순서로 합쳐 돈다(흐름 계산 순서가 모두 훑을 때와 같다).
+    쓰기 하나는 많아야 두 목록에 든다. 하위 클래스까지 가리키는 정적 수신자도 하위 클래스마다 펼치지 않고 수신자
+    클래스 하나에 담는다(펼치면 같은 수신자 쓰기 수 × 하위 클래스 수로 메모리가 커진다). 질의가 조상 쪽에서 찾는다.
 
     Attributes:
         writes: 쓰기(원래 순서).
-        by_class: 클래스 id → 정적 수신자(프로젝트 인스턴스·클래스)가 그 클래스 인스턴스·클래스 객체일 수 있는 쓰기.
+        exact: 클래스 id → 정적 수신자(프로젝트 인스턴스·클래스)가 가리킬 수 있는 클래스가 그 클래스 하나뿐인 쓰기.
+        widened: 클래스 id → 정적 수신자가 그 클래스와 그 하위 클래스(있을 때만)의 인스턴스·클래스 객체일 수 있는 쓰기.
         by_module: 모듈 경로 → 그 모듈이 수신자인 쓰기.
         unresolved: 수신자 흐름으로 판정할 쓰기(람다 뿌리, 모듈·함수·외부 값이 아닌 모르는 값).
         module_candidates: 모듈일 수 있는 수신자(람다 뿌리, 타입 모르는 값, 외부 호출 결과) 쓰기.
     """
 
     writes: tuple[AttributeWrite, ...]
-    by_class: dict[str, list[int]] = field(default_factory=dict)
+    exact: dict[str, list[int]] = field(default_factory=dict)
+    widened: dict[str, list[int]] = field(default_factory=dict)
     by_module: dict[str, list[int]] = field(default_factory=dict)
     unresolved: list[int] = field(default_factory=list)
     module_candidates: list[int] = field(default_factory=list)
@@ -782,7 +798,7 @@ class FlowAnalyzer:
         Returns:
             클래스 id 집합.
         """
-        widened = not value.exact or isinstance(value, ClassValue)
+        widened = _includes_subclasses(value)
         key = (value.definition.id, widened)
         cached = self._instance_classes.get(key)
         if cached is None:
@@ -863,8 +879,11 @@ class FlowAnalyzer:
             return
         value = self.resolver.value(write.scope, write.receiver)
         if isinstance(value, (InstanceValue, ClassValue)):
-            for class_id in self.instance_classes(value):
-                index.by_class.setdefault(class_id, []).append(position)
+            # 하위 클래스가 없으면 그 클래스 하나만 가리킨다. 이 확인이 하위 클래스 표를 옛 판정(`instance_classes`)과
+            # 같은 때 만든다(MRO 메모는 처음 계산한 순서를 따라 깊은 사슬·순환에서 근사가 달라질 수 있다).
+            owner = value.definition
+            widened = _includes_subclasses(value) and bool(self.linearizer.subclasses(owner))
+            (index.widened if widened else index.exact).setdefault(owner.id, []).append(position)
         elif isinstance(value, ModuleValue):
             index.by_module.setdefault(value.path, []).append(position)
         elif not isinstance(value, _NOT_INSTANCES):
@@ -888,13 +907,35 @@ class FlowAnalyzer:
             닿을 수 있는 쓰기.
         """
         index = self._writes_named(name)
-        reached = {position for class_id in classes for position in index.by_class.get(class_id, ())}
+        reached = self._static_writes(index, classes)
         for position in sorted(reached.union(index.unresolved)):
             write = index.writes[position]
             if position in reached or self.write_reaches(
                 write.scope, write.receiver, classes, depth, write.lambda_receiver
             ):
                 yield write
+
+    def _static_writes(self, index: _NameWrites, classes: frozenset[str]) -> set[int]:
+        """정적 수신자 쓰기 가운데 그 클래스들의 인스턴스(또는 클래스 객체)에 닿는 것의 순번이다.
+
+        수신자 값의 `instance_classes`가 질의 클래스 c를 담는 쓰기다: 수신자 클래스가 c이거나, 하위 클래스까지 가리키는
+        수신자의 클래스가 c의 프로젝트 상위 클래스다(`Linearizer.superclass_ids`는 하위 클래스 표의 역관계라 두 판정이
+        정확히 같다). 질의 클래스와 그 조상을 먼저 모아 버킷마다 한 번만 읽는다.
+
+        Args:
+            index: 이름의 쓰기 색인.
+            classes: 클래스 id.
+
+        Returns:
+            쓰기 순번 집합.
+        """
+        reached = {position for class_id in classes for position in index.exact.get(class_id, ())}
+        if index.widened:
+            owners = set(classes)
+            for class_id in classes:
+                owners.update(self.linearizer.superclass_ids(class_id))
+            reached.update(position for owner in owners for position in index.widened.get(owner, ()))
+        return reached
 
     def _class_body_opaque(self, definition: Definition, name: str) -> str | None:
         """MRO의 프로젝트 클래스 본문이 이름을 멤버 표가 모르는 방식으로 묶는지 본다(두 번 대입, 반복 변수, import 등).

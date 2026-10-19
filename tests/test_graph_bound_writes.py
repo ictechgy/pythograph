@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -203,6 +204,80 @@ def test_module_global_queries_scan_writes_once(make_project: MakeProject, monke
     expected = {f"mods/m{index}.py#run" for index in range(COUNT)}
     assert bound_sources(graph, "repos.py#Repo.save") == bound_sources(graph, "repos.py#OtherRepo.save") == expected
     assert counter["scanned"] <= 2 * COUNT
+
+
+def capture_analyzers(monkeypatch: pytest.MonkeyPatch, analyzers: list[FlowAnalyzer]) -> None:
+    """그래프 구축이 만드는 값 흐름 질의기를 모은다(쓰기 색인 크기를 보려고).
+
+    Args:
+        monkeypatch: pytest monkeypatch.
+        analyzers: 만든 질의기를 담을 목록.
+    """
+    original = build_module.FlowAnalyzer
+
+    def create(*args: Any, **kwargs: Any) -> FlowAnalyzer:
+        """원래 질의기를 만들고 모은다."""
+        analyzer = original(*args, **kwargs)
+        analyzers.append(analyzer)
+        return analyzer
+
+    monkeypatch.setattr(build_module, "FlowAnalyzer", create)
+
+
+def indexed_positions(index: Any) -> int:
+    """쓰기 색인의 모든 목록(클래스·모듈 버킷과 판정 목록)에 든 쓰기 순번 수다.
+
+    Args:
+        index: 이름 하나의 쓰기 색인.
+
+    Returns:
+        순번 수.
+    """
+    total = 0
+    for item in fields(index):
+        value = getattr(index, item.name)
+        if isinstance(value, dict):
+            total += sum(len(positions) for positions in value.values())
+        elif isinstance(value, list):
+            total += len(value)
+    return total
+
+
+def wide_files(count: int) -> dict[str, str]:
+    """기반 클래스 메서드 N개가 같은 이름 속성을 쓰고(`self.repo = Repo()`) 하위 클래스가 N개인 프로젝트다.
+
+    `self`는 하위 클래스 인스턴스일 수도 있어 쓰기마다 하위 클래스 N개 모두의 자리에 닿는다. 손자 클래스 `Leaf`는
+    조상 두 단계를 거쳐 기반 클래스 쓰기를 받는다.
+
+    Args:
+        count: 쓰는 메서드 수이자 하위 클래스 수.
+
+    Returns:
+        상대 경로 → 내용.
+    """
+    setters = "".join(f"\n    def set{index}(self):\n        self.repo = Repo()\n" for index in range(count))
+    children = "".join(f"\n\nclass Child{index}(Base):\n    pass\n" for index in range(count))
+    leaf = "\n\nclass Leaf(Child0):\n    def site(self):\n        return self.repo.save()\n"
+    run = "\n    def run(self):\n        return self.repo.save()\n"
+    main = "\n\ndef main():\n    Leaf().set0()\n    return Leaf().site()\n"
+    return {"repos.py": REPOS, "app.py": f"from repos import Repo\n\n\nclass Base:{setters}{run}{children}{leaf}{main}"}
+
+
+def test_subclass_receiver_writes_are_indexed_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
+    """하위 클래스까지 가리키는 수신자(`self`)의 쓰기는 하위 클래스 수와 무관하게 색인에 한 번씩만 든다.
+
+    쓰기를 하위 클래스마다 펼쳐 담으면 기반 클래스 쓰기 N개 × 하위 클래스 N개로 색인이 커진다(펼치던 색인은 N=300에서
+    90,600개를 담았고, 같은 모양 N=4,000 한 파일에서 graph 최대 RSS를 약 120 MB에서 1 GB 넘게 키웠다). 쓰기 하나는
+    많아야 두 목록에 들고, 하위 클래스 자리는 질의 쪽 조상에서 기반 클래스 쓰기를 찾는다.
+    """
+    analyzers: list[FlowAnalyzer] = []
+    capture_analyzers(monkeypatch, analyzers)
+    graph = build_graph(Project.open(make_project(wide_files(COUNT))), False)
+    assert bound_targets(graph, "app.py#Base.run") == bound_targets(graph, "app.py#Leaf.site") == {"repos.py#Repo.save"}
+    [analyzer] = analyzers
+    index = analyzer._name_writes["repo"]
+    assert len(index.writes) == COUNT
+    assert indexed_positions(index) <= 2 * COUNT
 
 
 def bound_targets(graph: CallGraph, source: str) -> set[str]:
