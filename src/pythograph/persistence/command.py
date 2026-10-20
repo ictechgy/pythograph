@@ -15,6 +15,7 @@ from pythograph.persistence.django.declarations import DjangoDeclarations
 from pythograph.persistence.django.queries import DjangoQueries
 from pythograph.persistence.django.settings import read_project_settings
 from pythograph.persistence.model import PersistenceExtraction
+from pythograph.persistence.names import MAX_FSA2_AUTONAME_LENGTH
 from pythograph.persistence.scope import ModuleScopes
 from pythograph.persistence.sqlalchemy.catalog import SqlAlchemyCatalog
 from pythograph.persistence.sqlalchemy.queries import SqlAlchemyQueries
@@ -235,6 +236,13 @@ def _catalog_gaps(
         extraction.add_gap(
             "flask-sqlalchemy-naming-unverified:",
             f"{sqlalchemy.naming_disagreements} Flask-SQLAlchemy table names differ between major versions 2 and 3",
+        )
+    if sqlalchemy.long_autoname_classes:
+        extraction.add_gap(
+            "flask-sqlalchemy-naming-unverified:",
+            f"{sqlalchemy.long_autoname_classes} Flask-SQLAlchemy class names are longer than "
+            f"{MAX_FSA2_AUTONAME_LENGTH:,} characters, so their major version 2 automatic table names were not "
+            "computed; set __tablename__ on these classes",
         )
     for package in sorted(sqlalchemy.unsupported):
         extraction.add_gap("unsupported-db-packages:", f"mapped classes built on {package} are not interpreted")

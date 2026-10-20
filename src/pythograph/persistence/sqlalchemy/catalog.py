@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pythograph.persistence.model import RelationName
-from pythograph.persistence.names import FSA_NAMING
+from pythograph.persistence.names import FSA_NAMING, MAX_FSA2_AUTONAME_LENGTH
 from pythograph.source.evaluate import Evaluator
 from pythograph.source.project import SourceModule
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable, ValueSymbol
@@ -183,6 +183,9 @@ class SqlAlchemyCatalog:
         self.symbols = symbols
         self.fsa_majors = fsa_majors
         self.naming_disagreements = 0
+        # 2.x 규칙을 적용하지 않아 자동 이름을 모르는 긴 클래스 이름 수다(`_auto_name`). 두 규칙이 다른 이름 수
+        # (`naming_disagreements`)와 따로 센다.
+        self.long_autoname_classes = 0
         self.evaluator = Evaluator(symbols)
         self.models: dict[str, SaModel] = {}
         self.tables: dict[int, SaTable] = {}
@@ -820,12 +823,19 @@ class SqlAlchemyCatalog:
     def _auto_name(self, class_name: str) -> object:
         """Flask-SQLAlchemy 자동 이름을 후보 메이저 모두에서 같을 때만 돌려준다.
 
+        후보에 2.x가 있고 클래스 이름이 `MAX_FSA2_AUTONAME_LENGTH`자를 넘으면 2.x 규칙을 부르지 않고 이름을 모르는
+        것으로 센다(`long_autoname_classes`). 2.x 정규식은 이름 길이의 제곱 시간이 들고, 2.x 이름을 모르면 버전을 모를
+        때 두 규칙이 같은지도 확인할 수 없어서다. 3.x만 후보면 규칙이 선형이라 길이와 관계없이 이름을 짓는다.
+
         Args:
             class_name: 클래스 이름.
 
         Returns:
-            이름, 후보마다 다르면 `...`.
+            이름, 후보마다 다르거나 2.x 규칙을 적용하지 않았으면 `...`.
         """
+        if 2 in self.fsa_majors and len(class_name) > MAX_FSA2_AUTONAME_LENGTH:
+            self.long_autoname_classes += 1
+            return ...
         names = {FSA_NAMING[major](class_name) for major in self.fsa_majors}
         if len(names) == 1:
             return next(iter(names))

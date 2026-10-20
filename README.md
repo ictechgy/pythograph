@@ -454,6 +454,12 @@ followed and count as `route-coverage:`. Registering the same blueprints along m
 Flask does, up to 200,000 nested registrations (`route-coverage:` beyond that); the expansion stops early once more
 than 100,000 route-decl facts make the document impossible, ending with the usual fact-limit error (exit code 2).
 
+Flask-SQLAlchemy 2's automatic table name rule (`([A-Z]+)(?=[a-z0-9])`, kept exactly as Flask-SQLAlchemy writes it)
+backtracks over a long run of capitals in time quadratic in the class name's length, so it is not applied to class
+names longer than 1,000 characters. When major version 2 is a candidate (declared, or the version is not limited to one
+major), such a class's automatic table name becomes a `dynamic` fact with a `flask-sqlalchemy-naming-unverified:`
+limitation; set `__tablename__` to name it. The linear Flask-SQLAlchemy 3 rule applies at any length.
+
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
 once. The directory walk counts only links whose name could hide sources it would otherwise read, judged from the

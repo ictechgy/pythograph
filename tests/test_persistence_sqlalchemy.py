@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from pythograph.persistence import names
 from pythograph.persistence.model import PersistenceExtraction
 from pythograph.persistence.scope import ModuleScopes
 from pythograph.persistence.sqlalchemy.catalog import SqlAlchemyCatalog
@@ -316,6 +317,98 @@ class User2FA(db.Model):
     limitations = document["limitations"]
     assert isinstance(limitations, list)
     assert any(item.startswith("flask-sqlalchemy-naming-unverified: 1 ") for item in limitations)
+
+
+#: Flask-SQLAlchemy 2.x 규칙을 적용하지 않은 긴 클래스 이름 하나의 한계 문장이다.
+LONG_CLASS_NAMES = (
+    "flask-sqlalchemy-naming-unverified: 1 Flask-SQLAlchemy class names are longer than 1,000 characters, so their "
+    "major version 2 automatic table names were not computed; set __tablename__ on these classes"
+)
+
+
+def _recording_v2(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Flask-SQLAlchemy 2.x 자동 이름 함수가 받은 이름 길이를 호출 순서대로 기록하게 바꾼다.
+
+    1,000자를 넘는 이름은 실제 정규식을 부르지 않고 빈 이름을 돌려준다. 규칙을 건너뛰지 않는 코드에서도 테스트가 정규식
+    역추적(이름 길이의 제곱)으로 오래 멈추지 않고 바로 실패하게 하려는 것이다.
+
+    Args:
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        받은 이름 길이 목록(호출할 때마다 늘어난다).
+    """
+    lengths: list[int] = []
+    original = names.FSA_NAMING[2]
+
+    def recording(name: str) -> str:
+        """길이를 기록하고 1,000자 이하만 실제 2.x 규칙으로 바꾼다."""
+        lengths.append(len(name))
+        return original(name) if len(name) <= 1_000 else ""
+
+    monkeypatch.setitem(names.FSA_NAMING, 2, recording)
+    return lengths
+
+
+def _flask_models(*class_names: str) -> str:
+    """이름 없는 Flask-SQLAlchemy 매핑 클래스만 담은 모델 모듈을 만든다(자동 이름을 받는다).
+
+    Args:
+        class_names: 클래스 이름.
+
+    Returns:
+        `app/models.py` 내용.
+    """
+    lines = ["from flask_sqlalchemy import SQLAlchemy", "", "db = SQLAlchemy()", ""]
+    for name in class_names:
+        lines += ["", f"class {name}(db.Model):", "    id = db.Column(db.Integer, primary_key=True)", ""]
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("requirements", [None, "flask-sqlalchemy==2.5.1\n"], ids=["unknown-version", "major-2"])
+def test_flask_sqlalchemy_2_rule_skips_class_names_over_1000_characters(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch, requirements: str | None
+) -> None:
+    """2.x가 후보면 1,000자를 넘는 클래스 이름에는 2.x 자동 이름 규칙을 적용하지 않고 dynamic과 한계로 남긴다.
+
+    2.x 정규식 `([A-Z]+)(?=[a-z0-9])`는 소문자·숫자가 뒤따르지 않는 대문자 연속에서 이름 길이의 제곱 시간이 든다
+    (`"A"`×32,000이 5초, 4 MiB 이름 하나면 약 하루). 정규식은 Flask-SQLAlchemy와 같아야 해서 바꾸지 않고, 1,000자
+    이하 이름은 지금처럼 이름을 짓는다. 두 이름은 2.x·3.x 규칙이 같은 꼴이라 길이만 결과를 가른다. 2.x 이름을 모르면
+    두 규칙이 같은지도 모르므로 버전을 모를 때도 3.x 이름을 정적으로 내지 않는다.
+    """
+    at_limit, over_limit = "A" + "b" * 999, "A" + "b" * 1_000
+    lengths = _recording_v2(monkeypatch)
+    extra = {"requirements.txt": requirements} if requirements else None
+    models = _flask_models(at_limit, over_limit)
+    document = schema_document(_project(make_project, "x = 1\n", models=models, extra=extra))
+    rows = {row[:3] for row in relation_rows(document)}
+    assert lengths == [1_000]
+    assert {(at_limit.lower(), None, False), (at_limit.lower(), "id", False), (over_limit, None, True)} <= rows
+    assert not {row for row in rows if row[0] == over_limit.lower()}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert LONG_CLASS_NAMES in limitations
+    assert "dynamic-relation-names: 1 SQLAlchemy mapped classes have computed table names" in limitations
+    assert not any("differ between major versions" in item for item in limitations)
+
+
+def test_flask_sqlalchemy_3_rule_names_class_names_of_any_length(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3.x만 후보면 2.x 규칙을 부르지 않으므로 긴 클래스 이름도 3.x 규칙으로 이름을 짓고 한계를 남기지 않는다.
+
+    3.x 정규식은 한 글자 대안과 고정 폭 둘러보기라 이름 길이에 선형이다(`"A"`×32,000이 1 ms 안팎).
+    """
+    long_name = "A" * 40_000
+    lengths = _recording_v2(monkeypatch)
+    extra = {"requirements.txt": "flask-sqlalchemy==3.1.1\n"}
+    document = schema_document(_project(make_project, "x = 1\n", models=_flask_models(long_name), extra=extra))
+    rows = {row[:3] for row in relation_rows(document)}
+    assert lengths == []
+    assert {(long_name.lower(), None, False), (long_name.lower(), "id", False)} <= rows
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert not any(item.startswith("flask-sqlalchemy-naming-unverified:") for item in limitations)
 
 
 def test_flask_sqlalchemy_model_class_options(make_project: MakeProject) -> None:

@@ -17,6 +17,14 @@ _CAMEL_BOUNDARY = re.compile(r"((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))")
 #: Flask-SQLAlchemy 2.x `camelcase_re`다(2.5.1 `flask_sqlalchemy/model.py`).
 _CAMEL_RUN_V2 = re.compile(r"([A-Z]+)(?=[a-z0-9])")
 
+#: Flask-SQLAlchemy 2.x 자동 이름 규칙(`camel_to_snake_case_v2`)을 적용하는 클래스 이름의 최대 길이(글자 수)다.
+#: `_CAMEL_RUN_V2`는 소문자·숫자가 뒤따르지 않는 대문자 연속에서 시작 위치마다 연속 끝까지 역추적해 이름 길이의 제곱
+#: 시간이 든다(`"A"`×1,000이 약 5 ms, ×32,000이 5초, 파일 상한 4 MiB 이름 하나면 약 하루). 정규식은 Flask-SQLAlchemy와
+#: 같아야 하므로 바꾸지 않고, 이 길이를 넘는 이름에만 규칙을 적용하지 않는다. 실재하는 클래스 이름은 수십 자라(CPython
+#: 3.13 표준 라이브러리·Django 5.2·SQLAlchemy 2.0의 클래스 7,158개 중 가장 긴 것이 45자) 1,000자는 넉넉하고, 그 제곱
+#: 비용은 수 ms다. 3.x 규칙(`_CAMEL_BOUNDARY`)은 한 글자 대안과 고정 폭 둘러보기라 선형이어서 길이와 관계없이 적용한다.
+MAX_FSA2_AUTONAME_LENGTH = 1_000
+
 
 def camel_to_snake_case(name: str) -> str:
     """Flask-SQLAlchemy 3의 자동 `__tablename__` 규칙이다.

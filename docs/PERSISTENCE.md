@@ -117,7 +117,7 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 | 스키마: `__table_args__`(사전 또는 끝이 사전인 튜플)의 `schema`, 없으면 기반 `MetaData(schema=)`. Core `Table`은 `schema=`, 없으면 MetaData 스키마(Flask-SQLAlchemy `db.Table`은 `SQLAlchemy(metadata=)`) | `sql/schema.py` `Table`·`MetaData`(스크래치에서 실측) |
 | Flask-SQLAlchemy 자동 이름: `camel_to_snake_case(클래스 이름)` = `re.sub(r"((?<=[a-z0-9])[A-Z]\|(?!^)[A-Z](?=[a-z]))", r"_\1", name).lower().lstrip("_")`. 이름이 어디에도 없을 때, 또는 매핑된 부모에만 있을 때 붙인다. 매핑된 부모가 있으면 자기 기본 키 컬럼이 있을 때만 조인 테이블이고 없으면 단일 테이블 상속(부모 테이블) | Flask-SQLAlchemy 3.1.1 `model.py` `camel_to_snake_case`·`should_set_tablename`·`NameMixin.__table_cls__`(3.0.5 동일) |
 | `disable_autonaming=True`거나 `model_class`가 이미 만든 declarative 클래스면 자동 이름이 없다 | `extension.py` `_make_declarative_base` |
-| Flask-SQLAlchemy 2.x는 `([A-Z]+)(?=[a-z0-9])` 규칙이다(`User2FA` → 3.x `user2_fa`, 2.x `user2FA`). 버전을 한 메이저로 선언하지 않으면 두 규칙이 같은 이름만 정적이고 나머지는 dynamic과 `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2.5.1 `model.py` `camelcase_re`·`camel_to_snake_case` |
+| Flask-SQLAlchemy 2.x는 `([A-Z]+)(?=[a-z0-9])` 규칙이다(`User2FA` → 3.x `user2_fa`, 2.x `user2FA`). 버전을 한 메이저로 선언하지 않으면 두 규칙이 같은 이름만 정적이고 나머지는 dynamic과 `flask-sqlalchemy-naming-unverified:`. 이 정규식은 소문자·숫자가 뒤따르지 않는 대문자 연속에서 이름 길이의 제곱 시간이 들어(`"A"`×32,000이 5초) 1,000자를 넘는 클래스 이름에는 적용하지 않는다(정규식은 그대로 둔다). 2.x가 후보면(2로 선언했거나 한 메이저로 선언하지 않았으면) 그런 클래스의 자동 이름은 dynamic과 `flask-sqlalchemy-naming-unverified:`이고, 3.x만 후보면 선형인 3.x 규칙으로 길이와 관계없이 짓는다 | Flask-SQLAlchemy 2.5.1 `model.py` `camelcase_re`·`camel_to_snake_case` |
 
 ### 사용 규칙
 
@@ -192,7 +192,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `dynamic-relation-names:` | 이유별 dynamic 사실 수(매니저 수신자, 조회식, 백엔드·라벨에 따라 다른 이름, SQL 플레이스홀더 등) |
 | `django-app-label-unresolved:` | 앱 라벨을 확정하지 못한 모델 수 |
 | `django-database-backend-unknown:` | `DATABASES` ENGINE을 읽지 못해 모든 내장 백엔드가 같은 이름만 정적 |
-| `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2·3 규칙이 다른 자동 이름 수 |
+| `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2·3 규칙이 다른 자동 이름 수, 2.x 규칙을 적용하지 않은 1,000자 초과 클래스 이름 수 |
 | `persistence-framework-version-unknown:` | Django 5·SQLAlchemy 2로 선언하지 않음(확인한 버전 밖) |
 | `unmodeled-orm-mappings:` | 모르는 외부 기반 클래스를 상속해 필드 목록이 불완전한 Django 모델 |
 | `unresolved-django-lookups:` | 모델에 귀속하지 못한 `OuterRef` |
