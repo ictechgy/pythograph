@@ -412,6 +412,19 @@ annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) ar
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation.
 
+One run parses at most 64 MiB of Python source in total, counting only the modules it parses successfully. A module
+that would push the total past this budget is not parsed and is reported like a file that fails to parse
+(`unparsed-files:` in graph output, `route-coverage:` or `route-call-coverage:` for routes, `unreadable-sources:` for
+schema) with the reason "the run's total parsed source would exceed its 64 MiB budget; pass a narrower --project";
+the command still succeeds with the other modules. Each command parses in a fixed order (path order, with modules
+reached through imports parsed when first needed), so the same input skips the same modules on every run. Parsed syntax
+trees stay in memory until the command ends, because name resolution can return to any module: ordinary code peaks
+at about 30–55 bytes of memory per source byte (`graph` on sympy, 26 MB of source in 1,532 files, takes about 1 GB),
+so a run at the budget needs about 2–4 GB. Literal-heavy modules (large list literals, generated tables, thousands
+of `x = 1` lines) keep about 220–350 bytes per source byte, so a crafted repository can still use 15–25 GB
+within the budget. Analyze untrusted repositories under an operating-system memory limit (a cgroup or container
+memory limit, or `ulimit -v` on Linux).
+
 Constant evaluation follows f-strings, `+`, list literals, and module constants for route strings, settings, SQL text,
 and client URLs. A short chain that references the same constant many times (`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)
 would otherwise grow exponentially, so repeated references are expanded once, values built this way are capped at

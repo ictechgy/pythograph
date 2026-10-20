@@ -290,9 +290,11 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
   문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`, 끝에 `revision-unverified:`).
-- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과). 깊은
-  모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않도록 그 모듈만 뺀다. 빠진 파일에는 정점이 없고
-  `bound`는 `scan-incomplete`로 연다.
+- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과, 실행당
+  파싱 총량 64 MiB 초과). 깊은 모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않도록 그 모듈만 뺀다.
+  파싱 총량 때문에 빠진 파일은 같은 접두사의 줄 하나에 수와 이유("could not be analyzed: the run's total parsed source
+  would exceed its 64 MiB budget; pass a narrower --project")를 따로 싣는다. 빠진 파일에는 정점이 없고 `bound`는
+  `scan-incomplete`로 연다.
 - 같은 입력이면 같은 바이트다(`--generated-at`으로 시각 고정).
 
 ## 검증

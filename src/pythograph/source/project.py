@@ -4,8 +4,8 @@
 - 분석 대상 코드는 import하거나 실행하지 않는다. 표준 라이브러리 `ast.parse`로만 읽는다.
 - 심볼릭 링크는 따라가지 않는다(프로젝트 밖을 읽거나 순환하지 않기 위해서다). 순회에서는 따라갔다면 읽었을 소스를
   가릴 수 있는 링크만 세고, 이름 해석·선언 파일 읽기에서 만난 링크는 모두 센다.
-- 파일 크기·순회 항목 수·깊이에 상한을 둔다. 넘거나 읽지 못한 파일은 실패로 기록해 한계로 남긴다. 모듈 루트로 쓰는
-  `manage.py` 디렉터리 수에도 상한을 두고 넘은 수를 센다.
+- 파일 크기·순회 항목 수·깊이와 실행 하나가 파싱하는 소스 총량에 상한을 둔다. 넘거나 읽지 못한 파일은 실패로 기록해
+  한계로 남긴다. 모듈 루트로 쓰는 `manage.py` 디렉터리 수에도 상한을 두고 넘은 수를 센다.
 - 경로는 모두 프로젝트 상대 POSIX 문자열로 다룬다. 절대 경로를 출력·오류 문구에 싣지 않는다.
 - 경로는 사실의 위치와 심볼 id가 되므로, 교환 형식이 쓸 수 없는 이름(UTF-8이 아님, 계약 금지 문자)의 파일은
   건너뛰고 센다.
@@ -28,6 +28,15 @@ from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
+
+#: 실행 하나가 파싱하는 파이썬 소스의 총량(바이트, 파싱에 성공한 모듈만 센다)이다. 파싱한 구문 트리는 이름 해석이
+#: 언제든 다시 쓰므로 명령이 끝날 때까지 모두 남고, 메모리는 소스 바이트에 비례한다. 실측(CPython 3.13): 보통 코드의
+#: 트리는 바이트당 약 25~30 B이고 명령의 최대 RSS는 바이트당 약 30~55 B다(sympy 26.2 MB·1,532파일의 graph 0.96 GB,
+#: Django 5.7 MB의 graph 0.33 GB). 64 MiB는 실측한 가장 큰 실제 프로젝트(sympy)의 2.5배이고, 보통 코드면 최대 RSS가
+#: 약 2~4 GB라 작은 CI 러너(7 GB)에 들어간다. 리터럴 위주 소스(`DATA = [0, 1, …]`, `x = 1` 반복)는 트리와 부모 사전만
+#: 바이트당 약 220~350 B라 예산을 채우면 15~25 GB가 될 수 있으므로, 그런 입력의 메모리 상한은 OS 제한이
+#: 맡는다(README). 넘게 할 모듈은 파싱하지 않고 읽지 못한 소스로 남긴다(`source_budget_reason`).
+MAX_TOTAL_SOURCE_BYTES = 64 * 1024 * 1024
 
 #: 순회할 최대 디렉터리 항목 수다.
 MAX_SCANNED_ENTRIES = 200_000
@@ -105,6 +114,8 @@ class Project:
             명령이 고른다(`syntax.MAX_AST_DEPTH`·`syntax.MAX_EXTRACTION_AST_DEPTH`).
         forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
         skipped_module_roots: 상한(`MAX_MODULE_ROOTS`) 밖이라 모듈 루트로 쓰지 않은 `manage.py` 디렉터리 수.
+        parsed_source_bytes: 지금까지 파싱에 성공한 모듈의 소스 바이트 합(`MAX_TOTAL_SOURCE_BYTES`와 비교한다).
+        budget_skipped_modules: 파싱 총량 예산을 넘게 해 파싱하지 않은 모듈 수.
     """
 
     root: Path
@@ -118,6 +129,8 @@ class Project:
     forbidden_names: int = 0
     scan_errors: int = 0
     skipped_module_roots: int = 0
+    parsed_source_bytes: int = 0
+    budget_skipped_modules: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
     _resolved_modules: dict[str, str | None] = field(default_factory=dict)
     _resolved_roots: list[str] = field(default_factory=list)
@@ -335,6 +348,11 @@ class Project:
         않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구). 3.10은 긴 사슬을
         파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 본다(`chain_too_long`).
 
+        파싱에 성공한 모듈의 바이트 합이 `MAX_TOTAL_SOURCE_BYTES`를 넘게 할 모듈은 파서를 부르지 않고 실패로 남긴다.
+        조밀한 소스는 파싱하는 동안 메모리를 쓰므로 파싱 전에 보고, 3.10만 하는 사슬 판정보다 먼저 보므로 예산을 넘는
+        모듈의 이유는 버전과 무관하다. 트리를 남기지 않는 실패(문법 오류·깊은 중첩)는 예산을 쓰지 않는다. 파싱 순서는
+        명령마다 정해져 있어(경로 순, import로 먼저 닿은 모듈) 같은 입력이면 같은 모듈이 빠진다.
+
         Args:
             relative: 프로젝트 상대 경로.
 
@@ -351,6 +369,9 @@ class Project:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
             return ReadFailure(relative, "file is not valid UTF-8")
+        if self.parsed_source_bytes + len(data) > MAX_TOTAL_SOURCE_BYTES:
+            self.budget_skipped_modules += 1
+            return ReadFailure(relative, source_budget_reason())
         if chain_too_long(text):
             return ReadFailure(relative, "source nesting too deep to parse")
         try:
@@ -361,6 +382,7 @@ class Project:
             return ReadFailure(relative, "source nesting too deep to parse")
         if exceeds_depth(tree, self.max_depth):
             return ReadFailure(relative, "source nesting too deep to parse")
+        self.parsed_source_bytes += len(data)
         return SourceModule(
             path=relative,
             name=self.module_name(relative),
@@ -596,6 +618,33 @@ def skipped_roots_reason(count: int) -> str:
         "shallowest are), so imports that only they would resolve are treated as external; pass a narrower "
         "--project to analyze them"
     )
+
+
+def source_budget_reason() -> str:
+    """파싱 총량 예산을 넘게 해 파싱하지 않은 모듈의 실패 이유를 만든다(명령마다 "could not be analyzed: " 뒤에 싣는다).
+
+    원인(실행 하나의 파싱 총량 상한)과 방향(`--project`를 좁혀 나눠 분석)을 함께 싣는다. 상한은 부르는 시점의 값을 쓴다.
+
+    Returns:
+        실패 이유 문구.
+    """
+    return (
+        f"the run's total parsed source would exceed its {_size_text(MAX_TOTAL_SOURCE_BYTES)} budget; "
+        "pass a narrower --project"
+    )
+
+
+def _size_text(size: int) -> str:
+    """바이트 수를 한계 문구에 쓰는 크기로 바꾼다(MiB의 배수면 MiB, 아니면 바이트).
+
+    Args:
+        size: 바이트 수.
+
+    Returns:
+        `64 MiB`·`1,000 bytes` 같은 문구.
+    """
+    mebibyte = 1024 * 1024
+    return f"{size // mebibyte} MiB" if size % mebibyte == 0 else f"{size:,} bytes"
 
 
 def _entry_key(name: str) -> str:

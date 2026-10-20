@@ -329,6 +329,16 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
 참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
 
+실행 하나가 파싱하는 파이썬 소스는 모두 합쳐 64 MiB까지입니다(파싱에 성공한 모듈만 셉니다). 합이 이 예산을 넘게 할
+모듈은 파싱하지 않고, 파싱하지 못한 파일처럼 graph `unparsed-files:`, routes `route-coverage:`·`route-call-coverage:`,
+schema `unreadable-sources:` 한계에 "the run's total parsed source would exceed its 64 MiB budget; pass a narrower
+--project" 이유로 남깁니다. 명령은 나머지 모듈로 성공합니다. 명령마다 파싱 순서가 정해져 있어(경로 순, import로 닿은
+모듈은 처음 필요할 때) 같은 입력이면 실행마다 같은 모듈이 빠집니다. 파싱한 구문 트리는 이름 해석이 어느 모듈로든 돌아갈 수
+있어 명령이 끝날 때까지 메모리에 남습니다. 보통 코드는 최대 메모리가 소스 바이트당 약 30~55 B라(sympy 1,532파일
+26 MB의 `graph`가 약 1 GB) 예산을 다 채워도 약 2~4 GB입니다. 큰 리스트 리터럴·생성된 표·`x = 1` 수천 줄처럼
+리터럴 위주인 모듈은 소스 바이트당 약 220~350 B가 남아, 조작한 저장소는 예산 안에서도 15~25 GB를 쓸 수 있습니다.
+신뢰하지 않는 저장소는 운영체제 메모리 제한(cgroup·컨테이너 메모리 제한, Linux `ulimit -v`) 아래에서 분석하세요.
+
 상수 평가는 라우트 문자열·설정값·SQL 텍스트·클라이언트 URL에서 f-string·`+`·목록 리터럴·모듈 상수를 따라갑니다. 같은
 상수를 여러 번 참조하는 짧은 사슬(`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)은 그대로 펼치면 단계마다 곱으로 커지므로, 같은 참조는
 한 번만 펼치고 이렇게 만든 값은 64 KiB(문자열은 문자 수, 목록은 원소 수와 그 문자 수), 클라이언트 URL 식은 조각 4,096개까지만
