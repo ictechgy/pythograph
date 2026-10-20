@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### Security
+
+- `graph`·`reach`·`impact`가 `revision`을 읽으려고 실행하는 git이 git 설정(분석 대상 저장소의 `.git/config`와 그
+  include, 사용자·시스템 설정)이 정한 filter 드라이버(`clean`·`smudge`·`process`)를 실행하지 않는다. git 호출마다 바로
+  앞에서 드라이버 이름을 모아 빈 명령과 `required=false`로 덮고 `log.showSignature`도 끈다. 서브모듈 안에서는 git을
+  띄우지 않는다(`git status --ignore-submodules=all`, 인덱스에 서브모듈이 있으면 status를 실행하지 않는다). 드라이버를
+  모으지 못하거나 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있어 덮을 수 없으면 git 명령을 더 실행하지 않는다. 전에는
+  `.git`째 받은 압축본·사본을 분석하면 `git status`가 stat 캐시가 낡은 파일을 다시 읽으며 그 `.git/config`(include와
+  서브모듈 저장소 설정 포함)가 정한 filter 명령을 `.gitattributes`·`.git/info/attributes`를 따라 사용자 권한으로
+  실행했다. 깨끗한 저장소의 revision 판독은 git 프로세스 2개에서 6개가 된다(파일 314개 클론에서 중앙값 32 → 69 ms).
+  무엇을 덮고 무엇을 여전히 신뢰하는지는 README Security(보안) 절에 있다.
+
 ### Fixed
 
 - `graph`·`reach`·`impact`가 `revision`용 git을 PATH의 절대 경로 항목에서만 찾아 그 절대 경로로 실행한다. 빈·상대
@@ -86,6 +98,11 @@
 - 모듈 이름 해석 결과를 한 실행 안에서 기억한다. `manage.py`가 여러 개(모두 모듈 루트)인 저장소에서 같은 외부
   이름을 찾을 때마다 루트 수 × 후보 2개의 성분별 lstat을 되풀이하던 문제다(합성 6서비스 monorepo에서 schema
   17.1 → 1.6 s, graph 10.2 → 1.6 s). 출력은 같다.
+- 모듈 이름을 풀 때 모듈 루트(`manage.py`가 있는 디렉터리)마다 항목 이름을 한 번만 읽어, 이름의 첫 성분이 없는
+  루트에서는 후보 경로를 lstat하지 않는다. 파일마다 모듈 이름을 정할 때와 graph가 import마다 루트의 테스트 디렉터리
+  판정을 할 때도 루트 전부를 다시 훑지 않는다. 항목 비교는 대소문자·유니코드 정규화를 무시하므로(macOS 기본 APFS가 같은
+  항목으로 찾는 철자를 거르지 않는다) 해석 결과와 링크 수는 같다. 전에는 빈 `manage.py`만 늘려도 고유 이름마다 모든
+  루트를 검사해 명령이 루트 수에 비례해 느려졌다(graph, 고유 이름 400개·루트 256개 5.07 → 0.21 s). 출력은 같다.
 - graph가 클래스 수준 대입을 클래스마다 한 번만 모은다. 메서드만 있는 클래스를 MRO 조회마다 다시 훑던 문제다. 출력은
   같다.
 - schema의 Django 모델·SQLAlchemy 매핑 선언 단계가 모듈마다 자기 모듈의 모델·테이블만 본다. 모듈마다 전체 모델을
@@ -107,6 +124,48 @@
 - CI와 릴리스 빌드가 hatchling과 그 의존성의 버전·해시를 고정한 `build-constraints.txt`를 `--require-hashes`로
   쓰고, setup-uv의 uv를 0.12.17로 고정한다. 태그 시점의 PyPI 최신 빌드 백엔드가 게시물에 들어가지 않게 하기
   위해서다. 다시 만드는 절차는 `RELEASING.md` "빌드 도구 고정"에 있다.
+
+- `graph`·`reach`·`impact`: git-lfs처럼 filter로 정규화되던 파일은 git stat 캐시가 낡으면(복사·압축 해제한 트리, touch한
+  파일) 작업 트리를 바뀐 것으로 보고 `revision`을 싣지 않는다. 확인하지 못한 깨끗한 `HEAD`를 주장하지 않기 위해서다.
+  서브모듈이 있는 작업 트리와 덮을 수 없는 filter 드라이버 이름이 있는 저장소는 `revision`을 싣지 않고, 스냅샷과 순회
+  문서의 `limitations` 끝에 `revision-unverified:` 한계로 이유를 단다. 도움말의 `--revision` 기본값 설명에 서브모듈
+  조건을 더했다. 이런 트리에서 `revision`이 필요하면 `--revision`으로 준다.
+
+- routes·schema가 증명하지 못한 모듈 상수를 평가하지 않는다. 묶음 규칙은 graph·`routes --role client`와 같아, 모듈
+  수준에서 두 번 이상 묶이거나(`+=`, 두 번째 대입, 반복 변수, import), `if`·`try`·`for`·`while`·`with`·`match` 블록
+  안에서 묶이거나, 함수가 `global`로 선언하거나, `globals()`(모듈 수준 `vars()`·`locals()`)를 부르는 모듈에 있는 이름은
+  모르는 값이다. 여기에 더해 모듈 어디서든 제자리에서 바뀌는 이름(`INSTALLED_APPS.append(...)`, `NAME[k] = ...`)도
+  모르는 값으로 보고, import·star import·모듈 별칭으로 거쳐 가는 모든 모듈의 묶음을 본다. 그 값으로 만든 경로는
+  `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의 `route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base`
+  앵커와 `unresolved-route-prefix:`, 그렇게 바뀌는 `INSTALLED_APPS`는 `framework-provided-routes:` 한계("INSTALLED_APPS
+  could not be read …"), 테이블 이름은 `dynamic` 사실과 `dynamic-relation-names:`, `execute()`에 넘긴 SQL 상수는
+  `unresolved-sql-arguments:`가 된다. 전에는 마지막 무조건 대입을 상수로 써 `/api/users/` 같은 거짓 정적
+  경로·method·테이블 이름을 내거나, `INSTALLED_APPS`에 더한 staticfiles·DRF 앱과 `FORCE_SCRIPT_NAME`의 한계를 빠뜨렸다.
+- schema: SQL 텍스트 관계 추출이 같은 문장(비인용 `;`로 나뉜다)의 CTE 이름인 한정자 없는 피연산자, 함수 인자 안 `FROM`의
+  피연산자(`EXTRACT(YEAR FROM created_at)`·`TRIM`·`SUBSTRING` 등. 그 안의 하위 질의는 그대로 관계다),
+  `IS [NOT] DISTINCT FROM`의 피연산자를 relation-use로 내지 않고, 그 자리의 플레이스홀더도 dynamic
+  사실·`dynamic-relation-names:` 수로 세지 않는다(persistence 생산자 계열 공통 사례 14개). 전에는 이 이름을 정적
+  relation-use로 내 isthmus가 완전한 카탈로그와 맞출 때 거짓 `relation-use-without-decl` error를 냈다. 규칙을 문구
+  그대로 적용하므로 실제 테이블과 이름이 같은 CTE는 같은 문장의 그 테이블 사용(CTE 본문이 읽는 테이블, `INSERT INTO`
+  대상)도 가리고, 절 단어가 아닌 이름 뒤 괄호 속 DML의 `FROM`(`COPY (DELETE FROM t …)`)은 함수 인자로 읽는다.
+
+- `manage.py` 디렉터리가 256개를 넘으면 (깊이, 경로) 순으로 얕은 256개만 모듈 루트로 쓰고, 나머지 디렉터리에서만 풀리는
+  import는 외부로 본다. 쓰지 않은 디렉터리 수는 graph `scan-incomplete:`(닫힌 세계 `bound` 증명도 막는다), routes
+  `route-coverage:`·`route-call-coverage:`, schema `scan-truncated:` 한계로 남기고 종료 0으로 계속한다. 모든 루트에 같은
+  첫 성분을 두는 조작 입력도 이름당 비용이 루트 256개분으로 묶인다(graph, 고유 이름 400개, 루트 1,024개 23.8 → 6.3 s,
+  4,096개 94.3 → 8.0 s).
+- graph·reach·impact·routes·schema: 한 실행이 파싱하는 파이썬 소스를 모두 합쳐 64 MiB(파싱에 성공한 모듈만 센다)로
+  묶는다. 합이 이를 넘게 할 모듈은 파싱하지 않고 graph `unparsed-files:`(이유 줄을 따로 싣고 닫힌 세계 `bound` 증명도
+  막는다), routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:` 한계에 "the run's total parsed
+  source would exceed its 64 MiB budget; pass a narrower --project"로 남기고 나머지로 성공한다. 명령마다 파싱 순서가
+  정해져 있어 같은 입력이면 같은 모듈이 빠진다. 전에는 파일당 4 MiB 상한만 있어 파싱한 구문 트리가 파일 수만큼 끝없이
+  쌓였다. 보통 코드는 이 예산을 다 채워도 최대 RSS가 약 2–4 GB다. 리터럴 위주 소스는 바이트당 약 220–350 B가 남아 예산
+  안에서도 15–25 GB가 될 수 있으므로, README가 신뢰하지 않는 저장소는 OS 메모리 제한 아래에서 돌리라고 안내한다.
+- schema: Flask-SQLAlchemy 2.x 자동 테이블 이름 규칙(`([A-Z]+)(?=[a-z0-9])`)을 1,000자를 넘는 클래스 이름에는 적용하지
+  않는다. 2.x가 후보면(2로 선언했거나 한 메이저로 선언하지 않았으면) 그런 클래스의 자동 테이블 이름은 `dynamic` 사실과
+  `flask-sqlalchemy-naming-unverified:` 한계(그런 클래스 수와 `__tablename__`을 적으라는 안내)가 되고, 3.x만 후보면
+  지금처럼 3.x 규칙으로 짓는다. 전에는 이 정규식의 역추적이 이름 길이의 제곱이라 긴 대문자 클래스 이름 하나로 schema가
+  수 초에서 하루 가까이 멈췄다(32,000자 이름 4.78 → 0.07 s). 정규식과 1,000자 이하 이름의 결과는 그대로다.
 
 ## [0.2.2] - 2026-10-13 (UTC)
 
