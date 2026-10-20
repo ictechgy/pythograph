@@ -75,6 +75,20 @@ _REGISTRATIONS_CAPPED = (
     "(the same blueprints registered along many paths), so the remaining registrations were not followed"
 )
 
+#: 다시 묶이는 모듈 이름(`SymbolTable.proven`이 증명하지 못함)을 거친 블루프린트 등록의 limitation 문장 틀이다. 그
+#: 이름이 실행 경로에 따라 다른 앱·블루프린트를 가리킬 수 있어 등록 접두사를 정적으로 정하지 않는다.
+_REBOUND_REGISTRATIONS = (
+    "{count} Flask blueprint registrations go through a module name that may refer to another app or blueprint "
+    "(bound more than once or conditionally), so their routes are emitted with a base anchor"
+)
+
+#: 다시 묶이는 모듈 이름에 단 규칙이 root 앵커였을 자리의 limitation 문장 틀이다. 규칙이 어느 객체에 붙는지
+#: 정적으로 정하지 못한다(먼저 묶인 객체에 단 규칙은 앱에 닿지 않을 수 있다).
+_REBOUND_RULES = (
+    "{count} Flask rules are registered through a module name that may refer to another app or blueprint "
+    "(bound more than once or conditionally), so they are emitted with a base anchor"
+)
+
 
 @dataclass
 class _Object:
@@ -88,6 +102,9 @@ class _Object:
         strict_slashes: 앱 `url_map.strict_slashes`(모르면 `UNKNOWN`).
         merge_slashes: 앱 `url_map.merge_slashes`.
         converters: 앱 사용자 변환기.
+        rules: 이 객체에 단 규칙.
+        children: 등록한 하위 블루프린트(블루프린트, 등록 옵션 `url_prefix`, 위치, 등록이 거친 이름이 모두 정적 객체
+            하나로 증명되는지).
     """
 
     kind: str
@@ -98,12 +115,16 @@ class _Object:
     merge_slashes: object = True
     converters: dict[str, str | None] = field(default_factory=dict)
     rules: list[_Rule] = field(default_factory=list)
-    children: list[tuple[_Object, object, Location]] = field(default_factory=list)
+    children: list[tuple[_Object, object, Location, bool]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class _Rule:
-    """등록한 규칙 하나."""
+    """등록한 규칙 하나.
+
+    Attributes:
+        rebound: 규칙을 단 앱·블루프린트 이름이 정적 객체 하나로 증명되지 않는다(다시 묶이는 모듈 이름).
+    """
 
     rule: str | None
     methods: tuple[str, ...] | None
@@ -111,6 +132,7 @@ class _Rule:
     strict_slashes: object
     location: Location
     uncertain: bool
+    rebound: bool = False
 
 
 @dataclass(frozen=True)
@@ -232,7 +254,8 @@ def _emit_object(
 
     등록 경로(앱부터 이 객체까지)에 이미 있는 객체를 다시 등록하면 순환이다. Flask는 그런 앱을 등록하다 실패하므로
     (자기 등록은 ValueError, 서로 등록은 끝없는 재귀) 따라가지 않고 한계로 센다. 같은 블루프린트를 다른 경로로 다시
-    등록하는 격자는 Flask가 허용해 그대로 펼치되 `_Emission.may_register`의 상한에서 멈춘다.
+    등록하는 격자는 Flask가 허용해 그대로 펼치되 `_Emission.may_register`의 상한에서 멈춘다. 다시 묶이는 모듈 이름을
+    거친 등록은 그 이름이 다른 객체를 가리킬 수 있으므로 접두사를 모르는 등록처럼 base 앵커로 낸다.
 
     Args:
         obj: 앱 또는 블루프린트.
@@ -248,7 +271,7 @@ def _emit_object(
     for rule in obj.rules:
         _emit_rule(rule, prefix, extraction, app, anchor, is_test_path(rule.location.path))
     path = (*path, obj.key)
-    for child, option_prefix, _location in obj.children:
+    for child, option_prefix, _location, proven in obj.children:
         if app is None:
             return
         if child.key in path:
@@ -256,8 +279,10 @@ def _emit_object(
             continue
         if not emission.may_register():
             return
-        child_prefix = _child_prefix(prefix, option_prefix, child.url_prefix)
-        if child_prefix is UNKNOWN:
+        child_prefix = _child_prefix(prefix, option_prefix, child.url_prefix) if proven else UNKNOWN
+        if not proven:
+            extraction.add_gap("unresolved-route-prefix:", _REBOUND_REGISTRATIONS)
+        elif child_prefix is UNKNOWN:
             extraction.add_gap(
                 "unresolved-route-prefix:",
                 "{count} Flask blueprint registrations use a url_prefix that is not a literal",
@@ -305,7 +330,7 @@ def _joined_rule(prefix: object, rule: str) -> str | None:
 def _emit_rule(
     rule: _Rule, prefix: object, extraction: Extraction, app: _Object | None, anchor: str, test_source: bool
 ) -> None:
-    """규칙 하나를 선언으로 낸다.
+    """규칙 하나를 선언으로 낸다. 다시 묶이는 모듈 이름에 단 규칙(`_Rule.rebound`)은 root 대신 base 앵커로 낸다.
 
     Args:
         rule: 규칙.
@@ -315,6 +340,10 @@ def _emit_rule(
         anchor: 경로 앵커.
         test_source: 테스트 소스인지.
     """
+    if rule.rebound and anchor == "root":
+        # 규칙을 단 이름이 다른 객체를 가리킬 수 있다. 등록 쪽이 이미 base면 그 한계가 같은 사실을 덮는다.
+        anchor = "base"
+        extraction.add_gap("unresolved-route-prefix:", _REBOUND_RULES)
     shapes = _rule_shapes(rule, prefix, app)
     templates = tuple(shape.channel for shape in shapes if not shape.dynamic and shape.channel)
     for shape in shapes:
@@ -501,6 +530,11 @@ class _Collector:
     def _add_object(self, kind: str, key: tuple[str, str, str], call: ast.Call) -> None:
         """객체를 만든다. 생성자 인자에서 `url_prefix`·정적 파일 경로를 읽는다.
 
+        같은 키에 다시 대입하면 마지막 객체가 남는다. 모듈 수준 이름이 다시 묶이면(`ModuleIndex.rebound`) 그 이름은
+        실행 경로에 따라 다른 객체(다른 묶음은 Flask 객체가 아닐 수도 있다)를 가리킬 수 있으므로 정적 파일 경로를 이
+        호출의 값과 관계없이 모르는 값으로 둔다. 규칙과 등록은 그 이름을 거칠 때마다 `_Registrar._lookup`이 같은
+        판정으로 base 앵커를 고른다.
+
         Args:
             kind: `app`·`blueprint`.
             key: 객체 키.
@@ -519,7 +553,22 @@ class _Collector:
                 else "static"
             )
         obj.static = self._static_path(path, keywords, folder, call, 3 if kind == "blueprint" else 1)
+        if not key[1] and self.module_name_rebound(path, key[2]):
+            obj.static = UNKNOWN
         self.objects[key] = obj
+
+    def module_name_rebound(self, path: str, name: str) -> bool:
+        """모듈 수준 이름이 정적 객체 하나를 증명하지 못하는지 본다(상수 평가와 같은 묶음 판정).
+
+        Args:
+            path: 모듈 경로.
+            name: 모듈 수준 이름.
+
+        Returns:
+            다시 묶이면(또는 모듈을 읽지 못했으면) True.
+        """
+        index = self.symbols.index(path)
+        return index is None or index.rebound(name)
 
     def _static_path(
         self, path: str, keywords: dict[str, ast.expr], folder: object, call: ast.Call, position: int
@@ -742,7 +791,7 @@ class _Registrar:
         self.run(statement.body, scope, loops)
 
     def _object(self, node: ast.expr, scope: str, loops: dict[str, list[ast.expr]]) -> _Object | None:
-        """식이 가리키는 앱·블루프린트를 찾는다(반복 변수 → 함수 지역 → 바깥 함수 → 모듈 → import).
+        """식이 가리키는 앱·블루프린트를 찾는다(`_lookup`의 객체만).
 
         Args:
             node: 식.
@@ -752,19 +801,38 @@ class _Registrar:
         Returns:
             객체 또는 None.
         """
+        return self._lookup(node, scope, loops)[0]
+
+    def _lookup(self, node: ast.expr, scope: str, loops: dict[str, list[ast.expr]]) -> tuple[_Object | None, bool]:
+        """식이 가리키는 앱·블루프린트와, 거친 이름이 정적 객체 하나로 증명되는지를 함께 찾는다.
+
+        찾는 순서는 반복 변수(리터럴 목록을 도는 반복의 원소) → 함수 지역 → 바깥 함수 → 모듈 → import다. 모듈 수준
+        이름은 상수 평가와 같은 묶음 판정(`ModuleIndex.rebound`, import·모듈 별칭으로 거쳐 간 묶음까지는
+        `SymbolTable.proven`)을 지나야 증명된다. 두 번 이상·조건부로 묶인 이름은 실행 경로에 따라 다른 객체를 가리킬
+        수 있기 때문이다. 함수 지역 이름(앱 팩토리)은 판정하지 않는다.
+
+        Args:
+            node: 식.
+            scope: 함수 점 경로.
+            loops: 반복 변수 바인딩.
+
+        Returns:
+            (객체 또는 None, 증명되는지). 객체가 없으면 증명 여부는 True다.
+        """
         if isinstance(node, ast.Name) and node.id in loops and loops[node.id]:
-            return self._object(loops[node.id][0], scope, {})
+            return self._lookup(loops[node.id][0], scope, {})
         if isinstance(node, ast.Name):
             parts = scope.split(".") if scope else []
             for depth in range(len(parts), -1, -1):
                 found = self.collector.objects.get((self.path, ".".join(parts[:depth]), node.id))
                 if found is not None:
-                    return found
+                    return found, depth > 0 or not self.collector.module_name_rebound(self.path, node.id)
         if isinstance(node, (ast.Name, ast.Attribute)):
             symbol = self._resolve(node, scope)
             if isinstance(symbol, ValueSymbol):
-                return self.collector.objects.get((symbol.path, "", symbol.name))
-        return None
+                found = self.collector.objects.get((symbol.path, "", symbol.name))
+                return found, found is None or self.collector.symbols.proven(symbol)
+        return None, True
 
     def _decorated(
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, scope: str, loops: dict[str, list[ast.expr]]
@@ -782,12 +850,14 @@ class _Registrar:
             name = decorator.func.attr
             if name != "route" and name not in _SHORTCUTS:
                 continue
-            owner = self._object(decorator.func.value, scope, loops)
+            owner, proven = self._lookup(decorator.func.value, scope, loops)
             if owner is None:
                 continue
             qualname = f"{scope}.{function.name}" if scope else function.name
             usr = f"{self.path}#{qualname}"
-            self._add_rule(owner, decorator, _SHORTCUTS.get(name), [("*", usr, usr)], None, False, loops)
+            self._add_rule(
+                owner, decorator, _SHORTCUTS.get(name), [("*", usr, usr)], None, False, loops, rebound=not proven
+            )
 
     def _call(self, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.add_url_rule`·`X.register_blueprint`·`X.url_map.converters.update` 호출을 처리한다.
@@ -806,17 +876,18 @@ class _Registrar:
                 for key, value in zip(call.args[0].keys, call.args[0].values, strict=False):
                     self._converter(owner, key, value)
             return
-        owner = self._object(func.value, scope, loops)
+        owner, owner_proven = self._lookup(func.value, scope, loops)
         if owner is None:
             return
         if func.attr == "add_url_rule":
-            self._add_url_rule(owner, call, scope, loops)
+            self._add_url_rule(owner, call, scope, loops, rebound=not owner_proven)
         elif func.attr == "register_blueprint" and call.args:
-            child = self._object(call.args[0], scope, loops)
+            child, child_proven = self._lookup(call.args[0], scope, loops)
             keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
             prefix = self.collector._optional_string(self.path, keywords.get("url_prefix"), -1, call)
             if child is not None:
-                owner.children.append((child, prefix, node_location(self.path, call, self.has_bom)))
+                location = node_location(self.path, call, self.has_bom)
+                owner.children.append((child, prefix, location, owner_proven and child_proven))
 
     def _assignment(self, statement: ast.Assign, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.url_map.strict_slashes = …`·`X.url_map.merge_slashes = …`·`X.url_map.converters[n] = C`를 처리한다.
@@ -854,7 +925,9 @@ class _Registrar:
         if name is not None:
             owner.converters[name] = converter_regex(self.collector.symbols, self.collector.evaluator, self.path, value)
 
-    def _add_url_rule(self, owner: _Object, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
+    def _add_url_rule(
+        self, owner: _Object, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]], rebound: bool
+    ) -> None:
         """`X.add_url_rule(rule, endpoint=None, view_func=None, **options)`를 기록한다.
 
         Args:
@@ -862,6 +935,7 @@ class _Registrar:
             call: 호출 식.
             scope: 함수 점 경로.
             loops: 반복 변수 바인딩.
+            rebound: `X`가 다시 묶이는 모듈 이름이라 객체를 증명하지 못하는지.
         """
         view = (
             call.args[2]
@@ -869,7 +943,7 @@ class _Registrar:
             else next((keyword.value for keyword in call.keywords if keyword.arg == "view_func"), None)
         )
         handlers, view_methods, uncertain = self._view_handlers(view, scope)
-        self._add_rule(owner, call, None, handlers, view_methods, uncertain, loops)
+        self._add_rule(owner, call, None, handlers, view_methods, uncertain, loops, rebound=rebound)
 
     def _view_handlers(
         self, view: ast.expr | None, scope: str
@@ -997,6 +1071,7 @@ class _Registrar:
         view_methods: tuple[str, ...] | None,
         uncertain: bool,
         loops: dict[str, list[ast.expr]],
+        rebound: bool,
     ) -> None:
         """규칙을 기록한다. method는 `methods` 인자 → 단축 장식자 → 뷰의 methods → GET 순서다.
 
@@ -1008,6 +1083,7 @@ class _Registrar:
             view_methods: 뷰의 methods.
             uncertain: 확정 불가 여부.
             loops: 반복 변수 바인딩(리터럴 목록을 도는 반복의 규칙 문자열).
+            rebound: 규칙을 단 이름이 다시 묶이는 모듈 이름이라 객체를 증명하지 못하는지(`_Rule.rebound`).
         """
         keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
         rule_node = call.args[0] if call.args else keywords.get("rule")
@@ -1018,7 +1094,7 @@ class _Registrar:
         methods, uncertain = self._methods(keywords, shortcut, view_methods, uncertain)
         resolved = _bind_handlers(handlers, methods)
         location = node_location(self.path, rule_node if rule_node is not None else call, self.has_bom)
-        owner.rules.append(_Rule(rule, methods, tuple(resolved), strict, location, uncertain))
+        owner.rules.append(_Rule(rule, methods, tuple(resolved), strict, location, uncertain, rebound))
 
     def _strict(self, keywords: dict[str, ast.expr]) -> object:
         """규칙의 `strict_slashes` 옵션을 읽는다.

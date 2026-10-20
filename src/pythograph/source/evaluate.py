@@ -3,6 +3,11 @@
 라우트 문자열·method 목록·설정값처럼 리터럴이거나 리터럴에서 곧장 얻는 값만 구한다. 구하지 못하면
 `UNKNOWN`을 돌려주고 호출자가 dynamic·limitation으로 처리한다. 추측하지 않는다.
 
+모듈 상수는 해석 경로의 모든 모듈에서 정적 값 하나로 증명된 이름만 따라간다(`SymbolTable.proven`). 두 번 이상
+묶이거나(`+=` 포함), 조건·반복·예외·`with`·`match` 블록 안에서 묶이거나, `global`·이름공간 사전·제자리 변경
+(`NAME.append(…)`)으로 바뀌는 이름은 마지막 무조건 대입이 있어도 `UNKNOWN`이다. graph 안정 전역 판정·client 모듈
+상수 증명과 같은 기준이고, 목록 값을 바꾸는 제자리 변경은 상수 평가만 더 본다.
+
 같은 이름을 여러 번 참조하는 f-string·`+`·목록 사슬(`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)은 짧은 소스로도 결과
 크기와 평가 횟수가 단계마다 곱으로 늘어난다. 그래서 이어 붙이거나 모아 만든 값에 크기 상한
 (`MAX_EVALUATED_LENGTH`)을 두고, 같은 (모듈, 식, 깊이)의 작은 결과는 메모해 다시 펼치지 않는다.
@@ -231,7 +236,7 @@ class Evaluator:
         return "".join(parts), length
 
     def _name(self, path: str, name: str, depth: int) -> Sized:
-        """모듈 수준 이름을 따라 평가한다.
+        """모듈 수준 이름을 따라 평가한다. 정적 값으로 증명되지 않은 이름은 모른다.
 
         Args:
             path: 모듈 경로.
@@ -242,12 +247,12 @@ class Evaluator:
             (값 또는 `UNKNOWN`, 크기).
         """
         symbol = self.symbols.resolve_name(path, name)
-        if isinstance(symbol, ValueSymbol):
+        if isinstance(symbol, ValueSymbol) and self.symbols.proven(symbol):
             return self._sized(symbol.path, symbol.node, depth + 1)
         return UNKNOWN, 0
 
     def _attribute(self, path: str, node: ast.Attribute, depth: int) -> Sized:
-        """`settings.X`나 다른 모듈의 상수를 평가한다.
+        """`settings.X`나 다른 모듈의 상수를 평가한다. 정적 값으로 증명되지 않은 이름은 모른다.
 
         Args:
             path: 모듈 경로.
@@ -261,7 +266,7 @@ class Evaluator:
         if base is not None and getattr(base, "dotted", None) == "django.conf.settings":
             return self._setting(node.attr)
         symbol = self.symbols.resolve_expr(path, node)
-        if isinstance(symbol, ValueSymbol):
+        if isinstance(symbol, ValueSymbol) and self.symbols.proven(symbol):
             return self._sized(symbol.path, symbol.node, depth + 1)
         return UNKNOWN, 0
 

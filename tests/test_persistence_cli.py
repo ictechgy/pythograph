@@ -159,6 +159,76 @@ def run(connection, name, table):
     assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
 
 
+def test_sql_text_rebound_constants_are_not_read(make_project: MakeProject) -> None:
+    """두 번 이상 묶이거나(`+=` 포함) 조건부로 다시 묶은 모듈 상수는 SQL 인자·조각으로 읽지 않는다.
+
+    마지막 무조건 대입만 SQL로 읽어 `QUERY += " JOIN audit …"`·조건부 테이블 이름을 한계 없이 첫 값으로 냈다.
+    읽지 못한 인자는 `unresolved-sql-arguments:`, 읽지 못한 조각은 `{}`이고, 대문자 SQL 리터럴은 리터럴 스캔이 읽는다.
+    """
+    root = make_project(
+        {
+            "db.py": """
+import os
+import sqlite3
+
+QUERY = "SELECT * FROM orders"
+QUERY += " JOIN audit ON audit.id = orders.id"
+TABLE = "accounts"
+if os.environ.get("ARCHIVE"):
+    TABLE = "archived_accounts"
+STABLE = "SELECT * FROM stable_table"
+
+
+def run(connection):
+    cursor = connection.cursor()
+    cursor.execute(QUERY)
+    cursor.execute(f"select * from {TABLE}")
+    cursor.execute(STABLE)
+""",
+        }
+    )
+    document = schema_document(root)
+    rows = {row[:3] for row in relation_rows(document)}
+    assert {("stable_table", None, False), ("orders", None, False), ("select * from {}", None, True)} <= rows
+    assert ("accounts", None, False) not in rows
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
+
+
+def test_sql_text_skips_cte_names_function_from_and_distinct_from(make_project: MakeProject) -> None:
+    """CTE 이름·함수 인자 안의 FROM·`IS [NOT] DISTINCT FROM` 피연산자는 relation-use 사실이 아니다(sink·대문자 리터럴).
+
+    전에는 `recent`·`created_at`·`name`·`$1`을 정적 relation-use로 내 isthmus가 완전한 카탈로그와 맞추면 거짓
+    `relation-use-without-decl` error를 냈다. `IS DISTINCT FROM %s`는 `?`로 바뀌어 관계 자리의 플레이스홀더로 세여
+    dynamic 사실까지 더했다.
+    """
+    root = make_project(
+        {
+            "db.py": """
+import sqlite3
+
+REPORT = "SELECT TRIM(BOTH ' ' FROM name) FROM customers"
+
+
+def run(connection, kind):
+    cursor = connection.cursor()
+    cursor.execute("WITH recent AS (SELECT * FROM orders) SELECT * FROM recent")
+    cursor.execute("select extract(year from created_at) from invoices")
+    cursor.execute("SELECT * FROM events WHERE kind IS DISTINCT FROM %s", [kind])
+    cursor.execute("SELECT * FROM audits WHERE kind IS NOT DISTINCT FROM $1")
+    return REPORT
+""",
+        }
+    )
+    document = schema_document(root)
+    rows = {row[:3] for row in relation_rows(document)}
+    assert rows == {(name, None, False) for name in ("customers", "orders", "invoices", "events", "audits")}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert not any(item.startswith("dynamic-relation-names:") for item in limitations)
+
+
 def test_sql_text_expands_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
     """같은 상수를 여러 번 참조하는 f-string 사슬은 (식, 깊이)마다 한 번만 펼친다.
 

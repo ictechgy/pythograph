@@ -251,7 +251,9 @@ class SqlText:
     def _name_text(self, node: ast.Name, depth: int) -> str | None:
         """이름을 같은 함수의 유일한 대입이나 모듈 상수로 푼다.
 
-        같은 모듈 안의 값 식은 대문자 리터럴 스캔에서 빼서(이미 SQL로 읽었다) 같은 SQL을 두 번 내지 않는다.
+        같은 모듈 안의 값 식은 대문자 리터럴 스캔에서 빼서(이미 SQL로 읽었다) 같은 SQL을 두 번 내지 않는다. 정적 값으로
+        증명되지 않은 모듈 이름(두 번 이상 묶임·`+=`·조건부 대입 등)은 모르는 텍스트이고, 그 값 식은 다른 리터럴처럼
+        리터럴 스캔이 읽는다.
 
         Args:
             node: 이름.
@@ -268,7 +270,11 @@ class SqlText:
             self._consume(binding.value)
             return self.text(binding.value, depth + 1)
         symbol = self.evaluator.symbols.resolve_name(self.scopes.path, node.id)
-        if isinstance(symbol, ValueSymbol) and symbol.path == self.scopes.path:
+        if (
+            isinstance(symbol, ValueSymbol)
+            and symbol.path == self.scopes.path
+            and self.evaluator.symbols.proven(symbol)
+        ):
             self._consume(symbol.node)
             return self.text(symbol.node, depth + 1)
         return self.evaluator.string(self.scopes.path, node)

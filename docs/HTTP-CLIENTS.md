@@ -159,7 +159,7 @@ pythograph routes --role client --project <root> [--wrappers <file>] [--service 
 
 | 접두사 | 측 | 뜻 |
 |---|---|---|
-| `route-call-coverage:` | 호출 측 | 모델링하지 않은 요청 API(urllib3·`http.client`·`build_opener`·`requests.Request`/`PreparedRequest`·`httpx.Request`·tornado·pycurl·treq·grequests·requests-futures, 클라이언트의 `send`·`build_request`·`prepare_request`·`ws_connect`) 호출 수, `urlopen`에 곧바로 넘기지 않은 `urllib.request.Request` 수, 클라이언트 타입을 증명하지 못한 수신자에 URL 리터럴(`/`·`http://`·`https://`로 시작)을 넘긴 `get`류 호출 수, 스캔 공백(순회 상한·소스를 가릴 수 있는 심볼릭 링크·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·파싱 실패) |
+| `route-call-coverage:` | 호출 측 | 모델링하지 않은 요청 API(urllib3·`http.client`·`build_opener`·`requests.Request`/`PreparedRequest`·`httpx.Request`·tornado·pycurl·treq·grequests·requests-futures, 클라이언트의 `send`·`build_request`·`prepare_request`·`ws_connect`) 호출 수, `urlopen`에 곧바로 넘기지 않은 `urllib.request.Request` 수, 클라이언트 타입을 증명하지 못한 수신자에 URL 리터럴(`/`·`http://`·`https://`로 시작)을 넘긴 `get`류 호출 수, 스캔 공백(순회 상한·소스를 가릴 수 있는 심볼릭 링크·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·파싱 실패(구문 트리 노드 1,000,000개 초과·실행당 파싱 총량 64 MiB 초과 포함)·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(얕은 순 256개 밖)) |
 | `ambiguous-base-join:` | 호출 측 | 결합 결과를 증명하지 못한 호출 수(모르는 base 뒤 `/` 없는 경로·`..`·빈 경로, `//` 경로, urljoin 상대 경로, 증명하지 못한 aiohttp 버전) |
 | `http-wrapper-undeclared:` | 호출 측 | 매개변수를 URL로 흘려보내는 선언되지 않은 함수 수 |
 | `http-wrapper-unresolved:` | 호출 측 | 대상이 없거나 호출이 0건인 파이썬 래퍼 선언(`wrappers[n]`) |

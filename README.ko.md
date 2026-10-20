@@ -12,7 +12,9 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 언어에서 본 것만 보고하고, 조인은 isthmus가 한다.
 
 분석 대상 프로젝트는 표준 라이브러리 `ast`로만 파싱한다. import하거나 실행하지 않으며, pythograph는 런타임
-의존성이 없고 네트워크를 쓰지 않는다(`graph`·`reach`·`impact`는 `revision`을 읽으려고 프로젝트 루트의 git만 실행한다).
+의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 `graph`·`reach`·`impact`가 `revision`을 읽으려고 프로젝트
+루트에서 실행하는 git 하나다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고, 부분 clone에 빠진 객체를
+받아 오지 않으며, 서브모듈 안에서는 돌지 않는다([보안](#보안)).
 
 ## 상태
 
@@ -119,7 +121,12 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 `django.contrib.staticfiles`·Flask 정적 파일은 접두사 스코프의 `framework-provided-routes:`(Flask 정적 파일은
 `GET`·`HEAD`도), `FORCE_SCRIPT_NAME`·`i18n_patterns`·등록이 보이지 않는 블루프린트는 `base` 앵커와
 `unresolved-route-prefix:`, Django 5·DRF 3·Flask 3으로 버전을 제한하지 않은 프로젝트는
-`route-framework-version-unknown:`이다.
+`route-framework-version-unknown:`이다. 증명하지 못한 모듈 상수·설정([소스 읽기 상한](#소스-읽기-상한): 두 번 묶임,
+`+=`, `if`·반복문·`try`·`with`·`match` 블록 안 대입, `global` 재대입, `INSTALLED_APPS.append(...)` 같은 제자리 변경)은
+모르는 값이다. 그 값으로 만든 경로 문자열은 `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의
+`route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base` 앵커, 그렇게 바뀌는 `INSTALLED_APPS`는 스코프 없는
+`framework-provided-routes:` 한계가 된다. 그런 이름에 묶인 Flask 앱·블루프린트는 실행할 때 다른 객체일 수 있으므로, 그
+이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다.
 
 ### 결정 사항
 
@@ -186,11 +193,18 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
   `session.query`·`session.get`·`join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`, 생성자,
   `table.c.name`, `text()`.
 - **SQL 텍스트**: 가족 공유 어휘 추출기(tsograph·dartograph·cartograph·kartograph와 같은 벡터)로 명시 SQL 인자를,
-  그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외).
+  그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외). persistence 생산자 계열 공통 규칙대로 `;`로 나뉜 같은 문장의
+  CTE 이름인 한정자 없는 이름, 함수 인자 안 `FROM`의 피연산자(`EXTRACT(YEAR FROM created_at)`·`TRIM`·`SUBSTRING`. 그
+  안의 하위 질의는 그대로 센다), `IS [NOT] DISTINCT FROM`의 피연산자는 relation-use가 아니다. 규칙을 문구 그대로
+  적용하므로 실제 테이블과 이름이 같은 CTE는 같은 문장에서 그 테이블도 가리고(`WITH users AS (SELECT * FROM users …)`의
+  본문이 읽는 `users`, `INSERT INTO users` 대상), 절 단어가 아닌 이름 뒤 괄호 속 DML의 `FROM`
+  (`COPY (DELETE FROM t …)`)은 함수 인자로 읽는다.
 - **channel**은 코드·매핑이 쓴 관계 이름(한정했을 때만 `schema.table`, 기본 스키마는 추측하지 않음), **method**는
   컬럼, **symbol.usr**는 감싸는 함수·메서드·모델 클래스이며 `routes`와 같은 id다. 백엔드·앱 라벨·Flask-SQLAlchemy
-  버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 실행 중에 만든 SQL은 추측하지 않고 `dynamic` 사실과
-  `dynamic-relation-names:` 한계로 낸다.
+  버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 증명하지 못한 모듈 상수(`TABLE += ...` 뒤의 `db_table = TABLE`,
+  조건부로 다시 대입한 접두사로 만든 `__tablename__`), 증명하지 못한 이름으로 가리킨 Core `Table` 객체(`users`를 다시
+  대입한 뒤의 `select(users)`·`__table__ = users`·`secondary=users`), 실행 중에 만든 SQL은 추측하지 않고 `dynamic`
+  사실과 `dynamic-relation-names:` 한계로 낸다. 그런 상수를 `execute()`에 넘기면 `unresolved-sql-arguments:`로 센다.
 - 테스트 소스(`--include-tests`가 없을 때)와 마이그레이션(Django `migrations/`, Alembic `versions/`)은 읽지 않는다.
   마이그레이션은 과거 스키마를 기술한다.
 
@@ -234,7 +248,9 @@ pythograph impact (reach와 같은 옵션)
   `reach`·`impact`는 isthmus 입력 상한 16 Mi 문자를 그대로 둔다. 직렬화 방식은 그대로라 상한을 올린 것만으로 16 Mi 문자 이하 스냅샷은 바뀌지 않는다.
 - **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),
   `--max-depth`·`--max-reached` 잘림, `rootsTruncated`. 정점이 아닌 root는 `symbol` 없이 싣고 문서를 쓴 뒤 64로 끝난다.
-  `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD, `graphRevision`은 그래프 내용 SHA-256이다.
+  `revision`은 `--revision` 또는 작업 트리가 깨끗할 때의 git HEAD다. 저장소 git 설정을 따르지 않고는 깨끗한지 확인할
+  수 없는 작업 트리(서브모듈이 있는 트리, 확인에 쓰는 객체가 빠진 부분 clone, [보안](#보안))는 생략하고 스냅샷과 순회
+  문서에 `revision-unverified:` 한계를 단다. `graphRevision`은 그래프 내용 SHA-256이다.
 
 ## 검증
 
@@ -298,6 +314,13 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
 한계로 셉니다.
 
+`manage.py`가 있는 디렉터리는 Django가 `sys.path`에 넣는 곳이라 모듈 루트입니다. import는 이 디렉터리들(얕은 것부터),
+프로젝트 루트, `src/` 순서로 풀고, 모듈 이름은 파일을 담은 가장 깊은 루트를 기준으로 짓습니다. 모듈 루트로 쓰는 `manage.py`
+디렉터리는 (깊이, 경로) 순으로 얕은 256개까지입니다. 나머지 디렉터리에서만 풀리는 import는 외부로 보이므로, 그 디렉터리
+수를 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `scan-truncated:` 한계로 세고 닫힌
+세계 `bound` 증명도 막습니다. 그런 프로젝트는 `--project`를 좁혀 따로 분석하세요. 모듈 루트의 항목은 한 번만 읽으므로,
+이름을 풀 때는 그 이름의 첫 성분이 있는 루트에서만 파일시스템을 봅니다.
+
 구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를
 넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼
@@ -308,6 +331,21 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
 참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
 
+실행 하나가 파싱하는 파이썬 소스는 모두 합쳐 64 MiB까지입니다(파싱에 성공한 모듈만 셉니다). 합이 이 예산을 넘게 할
+모듈은 파싱하지 않고, 파싱하지 못한 파일처럼 graph `unparsed-files:`, routes `route-coverage:`·`route-call-coverage:`,
+schema `unreadable-sources:` 한계에 "the run's total parsed source would exceed its 64 MiB budget; pass a narrower
+--project" 이유로 남깁니다. 명령은 나머지 모듈로 성공합니다. 명령마다 파싱 순서가 정해져 있어(경로 순, import로 닿은
+모듈은 처음 필요할 때) 같은 입력이면 실행마다 같은 모듈이 빠집니다. 파싱한 구문 트리는 이름 해석이 어느 모듈로든 돌아갈 수
+있어 명령이 끝날 때까지 메모리에 남습니다. 보통 코드는 최대 메모리가 소스 바이트당 약 30–55 B라(sympy 1,532파일
+26 MB의 `graph`가 약 1 GB) 예산을 다 채워도 약 2–4 GB입니다. 구문 트리 노드(문맥·연산자 잎 포함)가 1,000,000개를 넘는
+모듈도 남기지 않고 같은 한계에 "syntax tree larger than 1,000,000 nodes" 이유로 남깁니다. 설치한 패키지(sympy·torch·
+NumPy·SciPy·faker 등)와 표준 라이브러리의 큰 파일을 재 보니 가장 큰 실제 모듈이 약 20만 노드였고, `x = 1` 줄로 채운
+4 MiB 모듈은 약 280만 노드로 약 0.9 GB가 남았습니다. 그래서 모듈 하나가 남기는 트리는 약 0.45 GB까지이고, 모듈 하나를
+파싱하는 동안의 봉우리는 파일 크기 상한(4 MiB)이 묶어 약 2–3 GB입니다. 노드 상한 아래의 리터럴 위주 모듈(큰 리스트
+리터럴·생성된 표·`x = 1` 수천 줄)은 여전히 소스 바이트당 약 220–350 B가 남아, 그런 데이터를 여러 모듈로 나눈 조작
+저장소는 예산 안에서도 15–25 GB를 쓸 수 있습니다. pythograph는 이 경우를 아직 막지 않습니다. 신뢰하지 않는 저장소는
+운영체제 메모리 제한(cgroup·컨테이너 메모리 제한, Linux `ulimit -v`) 아래에서 분석하세요.
+
 상수 평가는 라우트 문자열·설정값·SQL 텍스트·클라이언트 URL에서 f-string·`+`·목록 리터럴·모듈 상수를 따라갑니다. 같은
 상수를 여러 번 참조하는 짧은 사슬(`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)은 그대로 펼치면 단계마다 곱으로 커지므로, 같은 참조는
 한 번만 펼치고 이렇게 만든 값은 64 KiB(문자열은 문자 수, 목록은 원소 수와 그 문자 수), 클라이언트 URL 식은 조각 4,096개까지만
@@ -317,6 +355,14 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 문자열)과, 그보다 짧아도 리터럴 글자(Flask 변환기 밖, Django `path()` 변환기 자리 밖, `re_path` 묶음 밖)만으로 템플릿
 상한을 넘는 경로는 변환하지 않고 너무 긴 템플릿과 같은 dynamic 사실로 냅니다.
 
+라우트 문자열·설정값·SQL 텍스트·schema 이름은 증명한 모듈 상수만 따라가며, 묶음 규칙은 호출 그래프의 안정 전역 판정·
+`routes --role client`와 같습니다. 모듈 수준에서 두 번 이상 묶이거나(`+=`, 두 번째 대입, 반복 변수, import),
+`if`·`try`·`for`·`while`·`with`·`match` 블록 안에서 묶이거나, 함수가 `global`로 선언하거나, `globals()`(모듈 수준
+`vars()`·`locals()`)를 부르는 모듈에 있는 이름은 무조건 대입이 있어도 모르는 값입니다. 여기에 더해 모듈 어디서든
+제자리에서 바꾸는 이름(`NAME.append(...)`, `NAME[k] = ...`)도 모르는 값으로 보고, import·star import·모듈 별칭으로
+거쳐 가는 모든 모듈의 묶음을 봅니다. 그래서 star import한 설정을 바꾸는 설정 모듈(`from .base import *` 뒤
+`INSTALLED_APPS += [...]`)은 그 설정을 모르는 값으로 만듭니다.
+
 클래스 계층(routes·graph의 뷰 클래스, schema의 SQLAlchemy 매핑)은 32단까지만 따라가고 클래스마다 깊이별로 한 번만 펼치므로,
 다이아몬드 모양 계층도 지수로 많은 경로 수가 아니라 클래스 수에 비례하는 시간이 듭니다. 파이썬으로는 만들 수 없는
 정적 상속 순환이 있으면 지나온 경로에 따라 결과가 달라지는데, 뷰 클래스 하나를 그렇게 다시 펴는 일이 1,024번을 넘으면
@@ -324,6 +370,12 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 `route-coverage:`로 셉니다. 같은 블루프린트를 여러 경로로 등록하면 Flask처럼 경로마다 펼치되 하위 등록 200,000개까지만
 펼치고(넘으면 `route-coverage:`), 펼치는 도중 route-decl 사실이 100,000개를 넘어 문서를 낼 수 없게 되면 바로 멈추고
 평소의 사실 상한 오류(종료 코드 2)로 끝납니다.
+
+Flask-SQLAlchemy 2의 자동 테이블 이름 규칙(`([A-Z]+)(?=[a-z0-9])`, Flask-SQLAlchemy가 쓴 그대로 둡니다)은 긴 대문자
+연속에서 클래스 이름 길이의 제곱만큼 역추적하므로, 1,000자를 넘는 클래스 이름에는 적용하지 않습니다. 메이저 2가
+후보이면(2로 선언했거나 한 메이저로 선언하지 않았으면) 그런 클래스의 자동 테이블 이름은 `dynamic` 사실과
+`flask-sqlalchemy-naming-unverified:` 한계가 됩니다. `__tablename__`을 적으면 그 이름을 씁니다. 선형인
+Flask-SQLAlchemy 3 규칙은 길이와 관계없이 적용합니다.
 
 모듈·패키지 이름 해석과 의존성 선언 파일을 포함해 프로젝트 상대 경로의 모든 성분에서 심볼릭 링크를 검사합니다.
 프로젝트 내부를 가리키는 링크도 거부하며, 발견한 같은 링크 경로는 한 번만 셉니다. 디렉터리 순회는 따라갔다면 읽었을
@@ -334,6 +386,45 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 않고 열고, 읽기 전에 열린 파일의 신원도 확인합니다.
 다른 운영체제에서는 읽기 전에 경로 성분과 파일 신원을 재검사하지만 원자적인 검사는 아닙니다. 변경 중이 아닌 프로젝트를
 분석하세요. 파일시스템 스냅샷이나 동시 변경에 대한 샌드박스는 아닙니다. 분석 대상 Python 코드는 import·실행하지 않습니다.
+
+## 보안
+
+pythograph가 띄우는 외부 프로그램은 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를 실행하고 프로젝트 루트에
+`.git`이 있을 때만, `revision`을 읽으려고 프로젝트 루트에서 `git config`·`git ls-files`·`git status`·`git rev-parse`를
+실행한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
+압축본·사본과 함께 온 `.git` 디렉터리는 git이 작업 트리를 읽으며 실행할 명령을 정할 수 있다(git(1)의 "SECURITY").
+pythograph는 이 git 호출이 그런 명령에 닿는 것으로 아는 경로를 막는다.
+
+- 호출 바로 앞에서 git이 보는 filter 드라이버와 promisor 설정을 모은다(`filter.<드라이버>.clean`·`smudge`·`process`,
+  `extensions.partialClone`, `remote.<이름>.promisor`·`partialCloneFilter`를 `git config -z --includes --get-regexp`로
+  읽는다. 저장소 설정과 그 include, 사용자 설정, 시스템 설정을 모두 본다). 드라이버마다 `clean`·`smudge`·`process`를 빈
+  명령으로, `required`를 `false`로 덮으므로 git은 어느 것도 실행하지 않는다. `.gitattributes`와 `.git/info/attributes`
+  어느 쪽에서 붙인 드라이버든 같다.
+- 빠진 객체를 받아 오지 않는다. 부분 clone(promisor 원격이 있는 저장소)은 없는 객체를 그때그때 받아 오고, 그 fetch는 원격
+  설정(`remote.<이름>.uploadpack`, `core.sshCommand` 등)을 따른다. 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 모은 설정에
+  promisor 키가 있으면 설정 조회를 뺀 모든 호출에 `--no-lazy-fetch`도 붙인다. 둘 다 git 2.45부터 있다. 옛 git은 환경
+  변수를 무시하지만 그 옵션은 시작 전에 거부하므로 부분 clone을 읽지 않는다.
+- `core.fsmonitor`, untracked cache, `log.showSignature`, 선택 잠금(`GIT_OPTIONAL_LOCKS=0`, 인덱스를 다시 쓰지 않는다)을
+  끈다. pythograph는 `git diff`·`git log`를 실행하지 않는다.
+- 서브모듈 안에서는 git을 띄우지 않는다. `git status`는 `--ignore-submodules=all`로 돌고, 인덱스에 서브모듈이 있으면 아예
+  실행하지 않는다.
+- 이 설정을 모으지 못하거나 드라이버 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있으면(git의 `-c`는 첫 `=`에서
+  나누므로 그런 드라이버는 덮을 수 없다) 다른 git 명령을 실행하지 않는다.
+
+달라지는 점:
+
+- git-lfs처럼 filter로 정규화되는 파일은 원문으로 비교한다. 그 파일의 git stat 캐시가 낡으면(복사·압축 해제한 트리, touch한
+  파일) 작업 트리를 바뀐 것으로 보고 `revision`을 싣지 않는다. 확인하지 못한 깨끗한 `HEAD`를 주장하지 않기 위해서다.
+  신뢰하는 checkout이면 먼저 `git status`로 stat 캐시를 새로 고친다.
+- 서브모듈이 있는 작업 트리는 `revision`을 자동으로 싣지 않는다. pythograph는 서브모듈 안의 소스도 분석하는데, 서브모듈마다
+  자기 설정을 따르지 않고는 깨끗한지 알 수 없기 때문이다. 덮을 수 없는 드라이버 이름이 있으면 git을 아예 실행하지 않는다.
+  두 경우 모두 `graph` 스냅샷과 `reach`·`impact` 문서에 `revision-unverified:` 한계를 단다.
+- 부분 clone은 이미 있는 객체로만 읽는다. 작업 트리를 확인하는 데 빠진 객체가 필요하거나 git이 2.45보다 오래되면
+  `revision`을 싣지 않고 같은 `revision-unverified:` 한계로 이유를 단다. 확인에 쓰는 객체를 모두 가진 부분 clone은 git 2.45
+  이상에서 `revision`을 그대로 싣는다.
+- 나머지 git 설정은 여전히 git이 무엇을 보고할지를 정하고(예: `core.worktree`), 위에서 막은 경로 밖의 설정은 그대로 믿는다.
+  그래서 자동 `revision`은 `.git` 디렉터리만큼만 믿을 수 있다. `.git`을 신뢰하지 않는 트리라면 `--revision <id>`를 준다.
+  그러면 git을 전혀 실행하지 않는다.
 
 ## 개발
 

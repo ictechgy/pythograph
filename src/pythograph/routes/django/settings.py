@@ -3,7 +3,10 @@
 Django는 `DJANGO_SETTINGS_MODULE` 환경 변수로 설정 모듈을 정하고, 프로젝트 템플릿의 `manage.py`·
 `wsgi.py`·`asgi.py`는 `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "<모듈>")`로 기본값을 둔다.
 pythograph는 그 기본값 리터럴을 읽는다(`--settings`로 바꿀 수 있다). 환경 변수 재정의는 모델링하지 않는다.
-설정값은 모듈 수준 대문자 이름의 무조건 대입만 읽고, 프로젝트 안 모듈의 `from x import *`는 먼저 합친다.
+설정값은 모듈 수준 대문자 이름의 무조건 대입만 읽고, 프로젝트 안 모듈의 `from x import *`는 먼저 합친다. 정적 값
+하나로 증명되지 않는 대문자 이름(두 번 이상 묶임·`+=`·조건·반복·예외·`with` 블록 안 대입·`global` 재대입·
+`.append` 같은 제자리 변경, 이름공간 사전을 쓰는 모듈)은 읽지 못한 설정(`UNKNOWN`)이며 star import로 합친 기반
+설정 값도 덮는다(`ModuleIndex.rebound`).
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from pythograph.source.evaluate import UNKNOWN, Evaluator
-from pythograph.source.symbols import SymbolTable, star_import_modules
+from pythograph.source.symbols import ModuleIndex, SymbolTable, star_import_modules
 
 #: 설정 모듈을 따라가는 star import 최대 깊이다.
 MAX_STAR_DEPTH = 8
@@ -136,6 +139,27 @@ def _module_settings(symbols: SymbolTable, path: str, depth: int, seen: set[str]
             values.update(_module_settings(symbols, star_path, depth + 1, seen | {path}))
     evaluator = Evaluator(symbols)
     for name, node in index.values.items():
-        if name.isupper():
+        if name.isupper() and not index.rebound(name):
             values[name] = evaluator.value(path, node)
+    for name in _unproven_settings(index, values):
+        values[name] = UNKNOWN
     return values
+
+
+def _unproven_settings(index: ModuleIndex, merged: dict[str, object]) -> list[str]:
+    """설정 모듈이 정적 값 하나로 증명하지 못하는 대문자 이름을 돌려준다.
+
+    이 모듈이 묶거나 바꾸는 이름과, 모듈이 이름공간 사전을 쓰면 star import로 합친 이름까지 본다. 그런 이름은 기반
+    설정 값을 남기면 안 된다. 실행하면 이 모듈이 바꾼 값(`from .base import *` 뒤 `INSTALLED_APPS += [...]`)이나
+    조건에 따라 생기는 값(`if …: FORCE_SCRIPT_NAME = "/sub"`)이 남기 때문이다.
+
+    Args:
+        index: 설정 모듈 색인.
+        merged: 지금까지 모은 이름 → 값(star import로 합친 값과 이 모듈 값).
+
+    Returns:
+        이름 목록(정렬).
+    """
+    summary = index.bindings()
+    names = set(merged) | set(summary.counts) | summary.declared_globals | summary.mutated
+    return sorted(name for name in names if name.isupper() and index.rebound(name))

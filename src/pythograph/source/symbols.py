@@ -11,6 +11,12 @@
 모듈 안에서 찾지 못한 이름은 프로젝트 모듈의 `from x import *`를 뒤에서부터(뒤의 `*`가 앞의 것을 덮는다) 따라간다.
 대상 모듈의 리터럴 `__all__`, 없으면 밑줄로 시작하지 않는 이름만 내보낸 것으로 본다(파이썬 `import *` 규칙). 외부
 모듈이나 `__all__`을 확정하지 못한 모듈의 `*`를 만나면 그 모듈이 이름을 가릴 수 있어 모른다(None).
+
+모듈 변수(`ValueSymbol`)와 모듈(`ModuleSymbol`) 해석 결과는 거쳐 온 모듈 수준 묶음(`via`: import·star import·모듈
+별칭의 (모듈, 이름))을 함께 싣는다. 상수 평가는 그 경로의 모든 묶음과 값의 묶음이 정적 값 하나로 증명될 때만 값을
+쓴다(`SymbolTable.proven`). 두 번 이상 묶이거나(`+=` 포함), 조건·반복·예외·`with`·`match` 블록 안에서 묶이거나,
+`global`·이름공간 사전·제자리 변경(`NAME.append(…)`)으로 바뀌는 이름은 증명하지 못한다(`ModuleIndex.rebound`).
+이름이 가리키는 대상은 그대로이므로 호출 그래프의 이름 해석은 바뀌지 않고, 판정은 값을 평가할 때만 한다.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 
+from pythograph.source.bindings import ModuleBindings, module_bindings
 from pythograph.source.project import Project, SourceModule
 
 #: 이름 해석에서 따라가는 최대 import 홉 수다(순환 방지).
@@ -76,21 +83,32 @@ class ExternalSymbol:
     dotted: str
 
 
+#: 해석 경로에서 거친 모듈 수준 묶음 (모듈 경로, 이름)의 목록이다(쓰는 쪽 모듈부터).
+Route = tuple[tuple[str, str], ...]
+
+
 @dataclass(frozen=True)
 class ModuleSymbol:
-    """프로젝트 안의 모듈."""
+    """프로젝트 안의 모듈. `via`는 이 모듈에 닿기까지 거친 모듈 수준 묶음(`import a as m`의 `m` 등)이다."""
 
     path: str
     dotted: str
+    via: Route = ()
 
 
 @dataclass(frozen=True)
 class ValueSymbol:
-    """모듈 수준 변수. `node`는 마지막 무조건 대입의 값 식이다."""
+    """모듈 수준 변수. `node`는 마지막 무조건 대입의 값 식이다.
+
+    `via`는 값의 묶음(`path`, `name`)에 닿기까지 거친 모듈 수준 묶음이다. 상수 평가는 그 모두가 정적 값 하나로
+    증명될 때만 값을 쓴다(`SymbolTable.proven`). graph 해석기는 같은 판정을 자기 묶음 수집기로 하므로(`graph.scope`)
+    보지 않는다.
+    """
 
     path: str
     name: str
     node: ast.expr
+    via: Route = ()
 
 
 @dataclass(frozen=True)
@@ -113,7 +131,7 @@ class ModuleIndex:
         module: 파싱한 모듈.
         definitions: 모듈 수준 함수·클래스 정의.
         imports: 모듈 수준(조건문 안 포함) import 묶음.
-        values: 모듈 수준 단순 이름 대입의 마지막 값 식(조건문 밖).
+        values: 모듈 수준 단순 이름 대입의 마지막 값 식(조건문 밖). 정적 값인지는 `rebound`가 정한다.
         parents: 노드 → 부모 노드.
     """
 
@@ -122,6 +140,47 @@ class ModuleIndex:
     imports: dict[str, ImportBinding] = field(default_factory=dict)
     values: dict[str, ast.expr] = field(default_factory=dict)
     parents: dict[ast.AST, ast.AST] = field(default_factory=dict)
+    _bindings: ModuleBindings | None = field(default=None, init=False, repr=False)
+    _namespace: bool | None = field(default=None, init=False, repr=False)
+
+    def bindings(self) -> ModuleBindings:
+        """모듈 수준 묶음 요약을 처음 쓸 때 만든다(캐시). 상수를 증명하지 않는 명령(graph)은 만들지 않는다.
+
+        Returns:
+            묶음 요약(고치지 않는다).
+        """
+        if self._bindings is None:
+            self._bindings = module_bindings(self.module.tree)
+        return self._bindings
+
+    def rebound(self, name: str) -> bool:
+        """이 모듈의 이름 묶음이 정적 값 하나를 증명하지 못하는지 본다.
+
+        두 번 이상 묶이거나(`+=` 포함), 조건·반복·예외·`with`·`match` 블록 안에서 묶이거나, 어느 함수든 `global`로
+        선언하거나, 제자리에서 바뀌거나(`NAME.append(…)`, `NAME[k] = …`), 모듈이 이름공간 사전을 쓰면(`globals()`)
+        증명하지 못한다. 한 번 묶였어도 색인이 값·import·정의로 담지 않은 묶음(누적 대입, 반복 변수, `with … as`,
+        바다코끼리, `del`, 값 없는 주석 선언, 풀기)이면 증명하지 못한다. 그런 이름은 star import로 들어온 같은 이름도
+        가린다. 묶음 셈은 client 모듈 상수 증명과 같고(`source.bindings`), graph 안정 전역 판정과 결과가 같은지는
+        테스트가 고정한다. 제자리 변경은 목록 값을 바꾸므로 상수 평가만 더 본다.
+
+        Args:
+            name: 이름.
+
+        Returns:
+            증명하지 못하면 True. 이 모듈이 묶지 않는 이름은 False다.
+        """
+        if self._namespace is None:
+            self._namespace = uses_namespace(self.module.tree)
+        summary = self.bindings()
+        if self._namespace or name in summary.declared_globals or name in summary.mutated:
+            return True
+        # `import pkg.a`·`import pkg.b`는 같은 패키지 객체 `pkg`를 묶으므로 한 묶음으로 센다.
+        count = summary.counts[name] - max(summary.package_imports[name] - 1, 0)
+        if count == 0:
+            return False
+        if count > 1 or name in summary.nested:
+            return True
+        return name not in self.values and name not in self.imports and name not in self.definitions
 
     def qualname(self, node: ast.AST) -> str:
         """정의 노드의 어휘적 점 경로를 만든다.
@@ -172,6 +231,9 @@ class SymbolTable:
     def resolve_name(self, path: str, name: str, hops: int = 0) -> Symbol | None:
         """모듈 수준 이름을 해석한다.
 
+        import·star import로 다른 모듈의 값·모듈에 닿으면 이 모듈의 묶음 (경로, 이름)을 결과의 `via` 앞에 더한다. 이
+        모듈이 그 이름을 다시 묶으면(조건부 대입·`+=` 등) 상수 평가가 그 값을 쓰지 않게 하기 위해서다.
+
         Args:
             path: 이름을 쓰는 모듈의 경로.
             name: 이름.
@@ -187,10 +249,37 @@ class SymbolTable:
             node = index.definitions[name]
             return ProjectSymbol(path, index.qualname(node), node)
         if name in index.imports:
-            return self.resolve_binding(index.imports[name], hops + 1)
+            return _through(((path, name),), self.resolve_binding(index.imports[name], hops + 1))
         if name in index.values:
             return ValueSymbol(path, name, index.values[name])
-        return self._star_lookup(index, name, hops)[0]
+        return _through(((path, name),), self._star_lookup(index, name, hops)[0])
+
+    def proven(self, symbol: ValueSymbol) -> bool:
+        """모듈 변수 해석 결과가 정적 값 하나로 증명되는지 본다: 거쳐 온 묶음(`via`)과 값의 묶음이 모두 그렇다.
+
+        판정(`ModuleIndex.rebound`)은 상수 평가가 값을 쓸 때만 한다. 호출 그래프처럼 값을 평가하지 않는 명령은 묶음
+        요약을 만들지 않는다.
+
+        Args:
+            symbol: 모듈 변수 해석 결과.
+
+        Returns:
+            증명되면 True.
+        """
+        return not any(self._rebound(path, name) for path, name in (*symbol.via, (symbol.path, symbol.name)))
+
+    def _rebound(self, path: str, name: str) -> bool:
+        """모듈의 이름 묶음이 정적 값 하나를 증명하지 못하는지 본다. 읽지 못한 모듈이면 증명하지 못한다.
+
+        Args:
+            path: 모듈 경로.
+            name: 이름.
+
+        Returns:
+            증명하지 못하면 True.
+        """
+        index = self.index(path)
+        return index is None or index.rebound(name)
 
     def star_blocked(self, path: str, name: str) -> bool:
         """모듈의 `*` import가 이름을 가릴 수 있어 모르는지(외부·`__all__` 미확정 모듈의 `*`) 돌려준다.
@@ -310,14 +399,34 @@ class SymbolTable:
             return ExternalSymbol(f"{base.dotted}.{name}")
         if isinstance(base, ModuleSymbol):
             found = self.resolve_name(base.path, name, hops + 1)
-            if found is not None:
-                return found
-            submodule = f"{base.dotted}.{name}"
-            submodule_path = self.project.resolve_module(submodule)
-            return ModuleSymbol(submodule_path, submodule) if submodule_path else None
+            if found is None:
+                submodule = f"{base.dotted}.{name}"
+                submodule_path = self.project.resolve_module(submodule)
+                found = ModuleSymbol(submodule_path, submodule) if submodule_path else None
+            # 모듈을 가리킨 별칭의 묶음도 거쳐 온 경로다(`import a as m`·`import b as m`이면 `m.X`도 증명하지 못한다).
+            return _through(base.via, found)
         if isinstance(base, ProjectSymbol) and isinstance(base.node, ast.ClassDef):
             return MemberSymbol(base, name)
         return None
+
+
+def _through(route: Route, symbol: Symbol | None) -> Symbol | None:
+    """값·모듈 해석 결과의 `via` 앞에 거쳐 온 묶음을 더한다. 다른 결과와 가리키는 대상은 그대로다.
+
+    Args:
+        route: 앞에 더할 묶음(쓰는 쪽 모듈부터).
+        symbol: 해석 결과.
+
+    Returns:
+        경로를 더한 결과.
+    """
+    if not route:
+        return symbol
+    if isinstance(symbol, ValueSymbol):
+        return ValueSymbol(symbol.path, symbol.name, symbol.node, (*route, *symbol.via))
+    if isinstance(symbol, ModuleSymbol):
+        return ModuleSymbol(symbol.path, symbol.dotted, (*route, *symbol.via))
+    return symbol
 
 
 def _build_index(module: SourceModule) -> ModuleIndex:

@@ -6,13 +6,20 @@ import ast
 import os
 import subprocess
 import sys
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable, Iterator
+from pathlib import Path, PurePosixPath
 
 import pytest
 
+from pythograph.graph import exposure
+from pythograph.graph.build import scan_modules
+from pythograph.graph.index import DefinitionIndex
+from pythograph.graph.scope import Resolver
+from pythograph.graph.values import ClassValue
+from pythograph.routes.client.constants import ModuleConstants
 from pythograph.source import project as project_module
 from pythograph.source import syntax
+from pythograph.source.bindings import module_bindings
 from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, UNKNOWN, Evaluator, value_size
 from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
 from pythograph.source.symbols import (
@@ -30,6 +37,7 @@ from pythograph.source.syntax import (
     MAX_EXTRACTION_AST_DEPTH,
     exceeds_depth,
     parse_annotation,
+    tree_overflow,
 )
 from pythograph.source.text import is_contract_safe
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
@@ -157,6 +165,227 @@ def test_evaluator_caps_constructed_values(make_project: Callable[[dict[str, str
     assert value_size(["a" * 10], limit=5) == 6
 
 
+def test_evaluator_does_not_evaluate_rebound_module_names(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """두 번 이상 묶이거나 블록 안에서 묶이거나 `global`·이름공간·제자리 변경으로 바뀌는 모듈 이름은 상수가 아니다.
+
+    마지막 무조건 대입을 상수로 써서 `PREFIX += "v2/"`·조건부 재대입·두 대입 사이의 사용·`.append`·함수의
+    `global` 재대입을 무시했다. import·star import·모듈 별칭으로 거쳐 간 모듈이 이름을 다시 묶어도 같다. 한 번만
+    무조건 대입한 이름은 그대로 상수다.
+    """
+    root = make_project(
+        {
+            "consts.py": """
+                import os
+                PREFIX = "api/"
+                PREFIX += "v2/"
+                OTHER = "shop/"
+                if os.environ.get("X"):
+                    OTHER = "debug-shop/"
+                ONLY_IF = "a"
+                if os.environ.get("Y"):
+                    ONLY_COND = "b"
+                TWICE = "first/"
+                USE_BETWEEN = TWICE + "x"
+                TWICE = "second/"
+                for LOOPED in ("a", "b"):
+                    pass
+                with open("f") as WITHED:
+                    pass
+                APPS = ["a"]
+                APPS.append("b")
+                ITEMS = ["a"]
+                ITEMS[0] = "b"
+                ONCE = "once/"
+                COPIED = ONCE + "x"
+
+
+                def rebind():
+                    global GLOBALED
+                    GLOBALED = "z"
+
+
+                GLOBALED = "y"
+            """,
+            "other_consts.py": 'ONCE = "other/"\n',
+            "fallback.py": 'try:\n    from consts import ONCE as BASE\nexcept ImportError:\n    BASE = "fallback/"\n',
+            "importer.py": "import consts\nfrom consts import ONCE, PREFIX\nfrom fallback import BASE\n",
+            "star_base.py": 'SHARED = "base/"\nGROWN = "base/"\nAPPENDED = ["base"]\n',
+            "star_user.py": """
+                import os
+                from star_base import *
+                if os.environ.get("X"):
+                    SHARED = "override/"
+                GROWN += "more/"
+                APPENDED.append("more")
+            """,
+            "alias.py": """
+                import os
+                if os.environ.get("X"):
+                    import consts as chosen
+                else:
+                    import other_consts as chosen
+            """,
+            "namespace.py": 'NAME = "a"\nglobals()["NAME"] = "b"\n',
+            "pkg/__init__.py": "",
+            "pkg/consts.py": 'ROOT = "root/"\n',
+            "pkg/other.py": "",
+            # 별칭 없는 `import pkg.x`는 몇 번이든 같은 패키지 객체를 묶는다. 조건부 대입은 다시 묶는다.
+            "dotted.py": "import pkg.consts\nimport pkg.other\n",
+            "dotted_rebound.py": "import os\nimport pkg.consts\nif os.environ.get('X'):\n    pkg = None\n",
+        }
+    )
+    evaluator = Evaluator(SymbolTable(Project.open(root)))
+    constant = {
+        ("consts.py", "ONCE"): "once/",
+        ("consts.py", "COPIED"): "once/x",
+        ("consts.py", "ONLY_IF"): "a",
+        ("importer.py", "ONCE"): "once/",
+        ("importer.py", "consts.ONCE"): "once/",
+        ("star_base.py", "SHARED"): "base/",
+        ("other_consts.py", "ONCE"): "other/",
+        ("dotted.py", "pkg.consts.ROOT"): "root/",
+    }
+    for (path, source), expected in constant.items():
+        assert evaluator.value(path, _expr(source)) == expected, (path, source)
+    unknown = [
+        ("consts.py", name)
+        for name in ("PREFIX", "OTHER", "ONLY_COND", "TWICE", "USE_BETWEEN", "LOOPED", "WITHED", "APPS", "ITEMS")
+    ]
+    unknown += [("consts.py", "GLOBALED"), ("fallback.py", "BASE"), ("importer.py", "PREFIX")]
+    unknown += [("importer.py", "consts.PREFIX"), ("importer.py", "BASE"), ("alias.py", "chosen.ONCE")]
+    unknown += [("star_user.py", name) for name in ("SHARED", "GROWN", "APPENDED")]
+    unknown += [("namespace.py", "NAME"), ("dotted_rebound.py", "pkg.consts.ROOT")]
+    for path, source in unknown:
+        assert evaluator.value(path, _expr(source)) is UNKNOWN, (path, source)
+
+
+#: 재대입 판정을 고정하는 모듈 수준 문장 틀이다(이름 → 문장, `{a}`·`{b}`는 값 식). `ONCE`만 정적 값으로 증명된다.
+_REBINDING_PATTERNS = {
+    "ONCE": "ONCE = {a}\n",
+    "TWICE": "TWICE = {a}\nTWICE = {b}\n",
+    "GROWN": "GROWN = {a}\nGROWN += {b}\n",
+    "BRANCHED": "BRANCHED = {a}\nif FLAG:\n    BRANCHED = {b}\n",
+    "ONLY_BRANCH": "if FLAG:\n    ONLY_BRANCH = {a}\n",
+    "TRIED": "TRIED = {a}\ntry:\n    TRIED = {b}\nexcept ValueError:\n    pass\n",
+    "LOOPED": "LOOPED = {a}\nfor _item in ():\n    LOOPED = {b}\n",
+    "WHILED": "WHILED = {a}\nwhile FLAG:\n    WHILED = {b}\n    break\n",
+    "WITHED": "WITHED = {a}\nwith FLAG:\n    WITHED = {b}\n",
+    "MATCHED": "MATCHED = {a}\nmatch FLAG:\n    case 1:\n        MATCHED = {b}\n",
+    "GLOBALED": "GLOBALED = {a}\n\n\ndef rebind():\n    global GLOBALED\n    GLOBALED = {b}\n",
+}
+
+
+def _rebinding_module(first: str, second: str, namespace: bool = False) -> str:
+    """재대입 사례를 모두 담은 모듈 소스를 만든다.
+
+    Args:
+        first: `{a}` 자리 값 식.
+        second: `{b}` 자리 값 식.
+        namespace: 모듈이 `globals()`로 이름공간을 다시 쓰는지.
+
+    Returns:
+        모듈 소스.
+    """
+    lines = ["FLAG = 0\n\n\nclass First:\n    pass\n\n\nclass Second:\n    pass\n"]
+    lines += [pattern.format(a=first, b=second) for pattern in _REBINDING_PATTERNS.values()]
+    if namespace:
+        lines.append('globals()["FLAG"] = 1\n')
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize("namespace", [False, True], ids=["plain", "namespace"])
+def test_rebinding_judgment_matches_graph_and_client(
+    make_project: Callable[[dict[str, str]], Path], namespace: bool
+) -> None:
+    """상수 평가(routes·schema), graph 해석기, client 모듈 상수 증명이 같은 이름을 정적 값으로 본다.
+
+    세 구현은 따로 있다(graph는 함수 범위까지 다루는 자기 묶음 수집기, client와 상수 평가는 `source.bindings`). 두 번
+    이상 묶임(`+=` 포함), 조건·반복·예외·`with`·`match` 블록 안의 묶음, 함수의 `global` 재대입, 이름공간 쓰기에서
+    판정이 갈라지지 않게 고정한다. graph는 클래스 값, 나머지는 문자열 값으로 본다.
+    """
+    root = make_project(
+        {
+            "strings.py": _rebinding_module('"/a"', '"/b"', namespace),
+            "classes.py": _rebinding_module("First", "Second", namespace),
+        }
+    )
+    project = Project.open(root)
+    symbols = SymbolTable(project)
+    evaluator = Evaluator(symbols)
+    resolver = Resolver(DefinitionIndex(project, symbols, include_tests=False), symbols)
+    constants = ModuleConstants(symbols, set(), set())
+    for name in _REBINDING_PATTERNS:
+        expected = name == "ONCE" and not namespace
+        evaluated = evaluator.value("strings.py", _expr(name)) is not UNKNOWN
+        graph = isinstance(resolver.module_name_value("classes.py", name, 0), ClassValue)
+        client = isinstance(symbols.resolve_name("strings.py", name), ValueSymbol) and constants.proven(
+            "strings.py", name
+        )
+        assert (evaluated, graph, client) == (expected, expected, expected), name
+
+
+def test_module_bindings_marks_blocks_globals_and_in_place_changes() -> None:
+    """묶음 수와 함께 블록 안 묶음, `global` 선언, 제자리 변경(변경 메서드·첨자 쓰기·지우기) 대상을 모은다."""
+    source = """
+import os
+import os.path
+import json as encoder
+A = 1
+if os.environ.get("X"):
+    B = 2
+    import json
+for C in ():
+    pass
+D = [1]
+D.append(2)
+E = {}
+E["k"] = 1
+del E["k"]
+F = [[1]]
+F[0].append(2)
+G = "a"
+UPPER = G.upper()
+
+
+def change(items):
+    global H
+    items.extend([1])
+
+
+def typed(a=(d := 1)) -> (ret := int):
+    pass
+
+
+H = 0
+X: int
+[y := 1 for _ in ()]
+[q for q in ()]
+f = lambda x=(e := 2): x
+try:
+    pass
+except ValueError as error:
+    pass
+match A:
+    case [first, *rest]:
+        pass
+    case {"k": value, **others}:
+        pass
+"""
+    summary = module_bindings(ast.parse(source))
+    assert summary.counts["A"] == 1
+    assert summary.counts["G"] == 1
+    # 값 없는 주석 선언, 컴프리헨션 안 바다코끼리, 정의 시점 식(기본값·반환 주석·람다 기본값)의 바다코끼리도 모듈
+    # 묶음으로 센다(client 상수 증명과 같은 셈). 바다코끼리 없는 컴프리헨션의 반복 변수는 세지 않는다.
+    assert [summary.counts[name] for name in ("X", "y", "d", "ret", "e", "f", "typed")] == [1] * 7
+    assert summary.counts["q"] == 0
+    # 별칭 없는 `import os`·`import os.path`는 둘 다 묶음으로 세되 같은 패키지 객체를 묶는 import로도 센다.
+    assert (summary.counts["os"], summary.package_imports["os"]) == (2, 2)
+    assert (summary.counts["encoder"], summary.package_imports["encoder"]) == (1, 0)
+    assert summary.nested == {"B", "json", "C", "error", "first", "rest", "value", "others"}
+    assert summary.mutated == {"D", "E", "F", "items"}
+    assert summary.declared_globals == {"H"}
+
+
 def test_symbol_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:
     """import·상대 import·하위 모듈·클래스 멤버·외부 이름을 해석한다."""
     root = make_project(
@@ -219,6 +448,164 @@ def test_module_resolution_is_remembered_per_module_roots(
     assert project.resolve_module("app") == "lib/app.py"
     assert project.resolve_module("pkg.mod") == "pkg/mod.py"
     assert len(checked) > first
+
+
+def _count_checked_stats(project: Project, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """프로젝트의 성분별 lstat 검사(`_checked_stat`) 호출을 인자 경로 순서대로 모은다.
+
+    Args:
+        project: 프로젝트.
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        호출마다 인자 경로가 쌓이는 목록.
+    """
+    checked: list[str] = []
+    checked_stat = project._checked_stat
+
+    def counting(relative: str) -> os.stat_result:
+        checked.append(relative)
+        return checked_stat(relative)
+
+    monkeypatch.setattr(project, "_checked_stat", counting)
+    return checked
+
+
+def test_unique_names_do_not_recheck_every_module_root(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """고유 이름마다 모든 모듈 루트를 다시 lstat하지 않는다. 루트 항목은 처음 닿을 때 한 번만 읽는다.
+
+    빈 `manage.py`를 수천 개 두면 고유 외부 이름 하나마다 모듈 루트 수 × 후보 2개의 성분별 lstat을 해, graph·reach·
+    impact가 루트 수에 비례해 느려지던 문제다(루트 4,096개에서 고유 이름 400개를 푸는 graph가 66.8초).
+    """
+    files = {f"sites/s{index}/manage.py": "" for index in range(1000)}
+    files["app/__init__.py"] = ""
+    project = Project.open(make_project(files))
+    checked = _count_checked_stats(project, monkeypatch)
+    assert project.resolve_module("ext0.sub") is None
+    first = len(checked)
+    assert first <= len(project.module_roots)
+    for number in range(1, 200):
+        assert project.resolve_module(f"ext{number}.sub") is None
+    assert len(checked) == first
+    assert project.resolve_module("app") == "app/__init__.py"
+
+
+class _CountingRoots(list[str]):
+    """모듈 루트 목록을 훑은 횟수를 센다(`for`·`list()`·`any()`가 부르는 `__iter__`)."""
+
+    def __init__(self, roots: list[str]) -> None:
+        """목록을 감싼다.
+
+        Args:
+            roots: 모듈 루트.
+        """
+        super().__init__(roots)
+        self.scans = 0
+
+    def __iter__(self) -> Iterator[str]:
+        """훑을 때마다 센다.
+
+        Returns:
+            원소 반복자.
+        """
+        self.scans += 1
+        return super().__iter__()
+
+
+def _reference_module_name(roots: list[str], relative: str) -> str:
+    """파일마다 모든 모듈 루트와 비교하던 옛 모듈 이름 규칙이다(파일을 담은 가장 긴 루트 기준, 결과 대조용).
+
+    Args:
+        roots: 모듈 루트.
+        relative: 프로젝트 상대 `.py` 경로.
+
+    Returns:
+        점으로 이은 모듈 이름.
+    """
+    path = PurePosixPath(relative)
+    best = ""
+    for root in roots:
+        if root and relative.startswith(root + "/") and len(root) > len(best):
+            best = root
+    inner = path.relative_to(best) if best else path
+    parts = list(inner.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def test_module_names_do_not_scan_every_module_root(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """모듈 이름은 파일을 담은 가장 긴 모듈 루트 기준 그대로이고, 파일마다 모듈 루트 전부를 훑지 않는다.
+
+    파싱한 파일마다 모든 루트와 문자열을 비교해, `manage.py`가 수천 개인 저장소에서 파일 수 × 루트 수가 들었다.
+    """
+    project = Project.open(make_project({"app.py": ""}))
+    roots = ["a", "a/b", "", "src", "a/b/", "x//y", *(f"sites/s{index}" for index in range(500))]
+    paths = [
+        "a/b/c/d.py",
+        "a/b.py",
+        "a/b/__init__.py",
+        "a/b/c/__init__.py",
+        "a//b.py",
+        "x//y/z.py",
+        "./a/b.py",
+        "src/pkg/mod.py",
+        "sites/s499/app/models.py",
+        "sites/s4990/app.py",
+        "top.py",
+        "__init__.py",
+    ]
+    counting = _CountingRoots(roots)
+    project.module_roots = counting
+    names = {path: project.module_name(path) for path in paths * 20}
+    assert names == {path: _reference_module_name(roots, path) for path in paths}
+    assert counting.scans <= 1
+
+
+def test_test_import_judgment_checks_module_roots_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """테스트 소스 import 판정은 모듈 루트가 테스트 디렉터리 아래인지를 import 이름마다가 아니라 한 번만 본다."""
+    files = {f"sites/s{index}/manage.py": "" for index in range(50)}
+    files["tests/test_app.py"] = ""
+    files["app.py"] = "".join(f"import ext{number}\n" for number in range(100))
+    project = Project.open(make_project(files))
+    imports = scan_modules(DefinitionIndex(project, SymbolTable(project), False)).imports
+    calls: list[str] = []
+    is_test = exposure.is_test_path
+
+    def counting(relative: str) -> bool:
+        calls.append(relative)
+        return is_test(relative)
+
+    monkeypatch.setattr(exposure, "is_test_path", counting)
+    # `tests_joined`를 테스트 모듈로 가져오면 pytest가 테스트로 수집하므로 모듈을 거쳐 부른다.
+    assert not exposure.tests_joined(project, imports)
+    assert len(imports) == 100
+    assert len(calls) < 2 * (len(project.python_files()) + len(imports) + len(project.module_roots))
+
+
+@pytest.mark.parametrize("count", [255, 256])
+def test_only_the_shallowest_manage_directories_become_module_roots(
+    make_project: Callable[[dict[str, str]], Path], count: int
+) -> None:
+    """`manage.py` 디렉터리는 (깊이, 경로) 순으로 앞 256개만 모듈 루트로 쓰고, 나머지 수를 센다.
+
+    루트 항목 색인 뒤에도 모든 루트에 같은 첫 성분(`pkg/`)을 두면 이름 하나마다 모든 루트를 봐야 해서, 루트 수에
+    비례하는 비용이 남는다(루트 4,096개에서 82.2초). 그래서 루트 수 자체에 상한을 둔다.
+    """
+    files = {f"sites/s{index:03d}/manage.py": "" for index in range(count)}
+    files.update({f"sites/s{index:03d}/pkg/__init__.py": "" for index in range(count)})
+    files["manage.py"] = ""
+    files["src/app.py"] = ""
+    project = Project.open(make_project(files))
+    kept = ["", *(f"sites/s{index:03d}" for index in range(count))][: project_module.MAX_MODULE_ROOTS]
+    assert project.module_roots == [*kept, "src"]
+    assert project.skipped_module_roots == count + 1 - len(kept)
+    # 상한 값 자체를 고정한다: 루트의 manage.py까지 256개면 모두 쓰고, 257개면 하나를 뺀다.
+    assert project.skipped_module_roots == (1 if count == 256 else 0)
 
 
 def test_star_import_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:
@@ -322,6 +709,19 @@ def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) 
     tree = ast.parse(edge)
     assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
     assert not exceeds_depth(ast.parse(""), 1)
+
+
+def test_tree_overflow_counts_every_node_and_keeps_the_depth_rule() -> None:
+    """노드 수는 `ast.walk`가 내는 모든 노드(문맥 잎 포함)이고 상한과 같으면 넘지 않는다. 중첩 판정은 `exceeds_depth`와
+    같고, 상한 층에 닿기 전에 노드 수가 넘으면 노드 쪽으로 멈춘다."""
+    tree = ast.parse("DATA = [1, 2, 3, 4, 5]\nNAME = DATA\n")
+    nodes = len(list(ast.walk(tree)))
+    assert tree_overflow(tree, MAX_AST_DEPTH, nodes) is None
+    assert tree_overflow(tree, MAX_AST_DEPTH, nodes - 1) == "nodes"
+    deep = ast.parse("VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 1)) + "\n")
+    assert tree_overflow(deep, MAX_AST_DEPTH, 10**9) == "depth"
+    assert tree_overflow(deep, MAX_AST_DEPTH, 10) == "nodes"
+    assert tree_overflow(ast.parse(""), 1, 1) is None
 
 
 def test_extraction_commands_use_a_higher_nesting_limit(make_project: Callable[[dict[str, str]], Path]) -> None:

@@ -27,7 +27,7 @@ from pythograph.graph.document import (
     encode_snapshot,
 )
 from pythograph.graph.model import DISPATCH_MODES, CallGraph
-from pythograph.graph.revision import git_revision
+from pythograph.graph.revision import GitRevision, read_git_revision
 from pythograph.graph.roots import RootsError, collect_roots
 from pythograph.graph.traversal import (
     MAX_REACHED,
@@ -48,7 +48,8 @@ snapshot (nodes, edges with evidence tiers, unresolved-call counts, limitations)
 Options:
   --project <root>           Project root; node ids and locations are relative to it
   --include-tests            Also make test sources graph nodes
-  --revision <id>            Source revision to record (default: git HEAD when the work tree is clean)
+  --revision <id>            Source revision to record (default: git HEAD when the work tree is clean
+                             and has no submodules)
   --generated-at <timestamp> Fixed generatedAt (YYYY-MM-DDTHH:MM:SS.sssZ) for byte-identical output
   --format json              Output format (json is the only format)
 
@@ -67,7 +68,8 @@ _TRAVERSAL_OPTIONS = """Options:
   --max-reached <n>          Maximum reached symbols, 1-100000 (default 100000)
   --roots-from <file|->      More roots from a JSON string array or a bridge-facts document (- is stdin)
   --include-tests            Also make test sources graph nodes
-  --revision <id>            Source revision to record (default: git HEAD when the work tree is clean)
+  --revision <id>            Source revision to record (default: git HEAD when the work tree is clean
+                             and has no submodules)
   --generated-at <timestamp> Fixed generatedAt (YYYY-MM-DDTHH:MM:SS.sssZ) for byte-identical output
   --format json              Output format (json is the only format)
 
@@ -366,11 +368,13 @@ def _common(line: CommandLine, usage: str) -> tuple[Path, GraphHeader]:
         raise UsageError(f"--revision must be 1-{MAX_REVISION_LENGTH} characters without control characters.")
     generated_at = parse_timestamp(line.values.get("--generated-at"))
     root = resolve_project(project_argument)
+    reading = GitRevision(revision) if revision is not None else read_git_revision(root)
     header = GraphHeader(
         tool_version=__version__,
         generated_at=generated_at or datetime.now(timezone.utc),
         project=root.as_posix(),
-        revision=revision if revision is not None else git_revision(root),
+        revision=reading.revision,
+        revision_limitation=reading.limitation,
     )
     return root, header
 

@@ -143,6 +143,11 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
   as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
   같은 이름의 모듈 수준 import를 가린다.
+- 모듈 수준 앱·블루프린트 이름은 상수 평가와 같은 묶음 판정을 지나야 그 객체로 본다(두 번 이상·조건부로 묶이거나
+  `global`로 다시 묶이는 이름 등, import·모듈 별칭으로 거쳐 간 묶음도 본다). 지나지 못한 이름은 실행 경로에 따라 다른
+  객체를 가리킬 수 있으므로(`bp = Blueprint(…, url_prefix="/api")` 뒤 `if V2: bp = Blueprint(…, url_prefix="/v2")`)
+  그 이름에 단 규칙과 그 이름을 거친 블루프린트 등록은 `pathAnchor: "base"`(규칙만)와 `unresolved-route-prefix:`이고,
+  그런 앱의 정적 파일은 스코프 없는 `framework-provided-routes:`다. 함수(앱 팩토리) 안 지역 이름은 판정하지 않는다.
 - 앱에 닿는 등록을 찾지 못한 블루프린트의 규칙은 `pathAnchor: "base"`(규칙만)와 `unresolved-route-prefix:`다.
 
 ## 한계와 스코프
@@ -151,6 +156,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 |---|---|
 | 설정 모듈·`ROOT_URLCONF`를 찾지 못함 | 사실 0건 + `route-coverage:` |
 | `FORCE_SCRIPT_NAME` 설정 | 모든 사실 `pathAnchor: "base"` + `unresolved-route-prefix:` |
+| 증명하지 못한 모듈 상수·설정: 모듈 수준에서 두 번 이상 묶임(`+=` 포함), `if`·반복문·`try`·`with`·`match` 블록 안 대입, 함수의 `global` 재대입, `globals()`(모듈 수준 `vars()`·`locals()`)를 부르는 모듈, 모듈 어디서든 `NAME.append(…)`·`NAME[k] = …` 같은 제자리 변경. import·star import·모듈 별칭으로 거쳐 간 모듈의 묶음도 본다 | 모르는 값이다(마지막 무조건 대입이 있어도). 경로 문자열은 dynamic 사실 + `route-coverage:`("… is not a literal"), method 목록은 method를 확정하지 못한 뷰와 같고, 설정은 읽지 못한 설정이다(조건부 `FORCE_SCRIPT_NAME`은 base 앵커 + `unresolved-route-prefix:`, `INSTALLED_APPS`는 스코프 없는 `framework-provided-routes:`). 설정 모듈이 star import로 합친 기반 설정을 바꾸면(`INSTALLED_APPS += [...]`) 그 설정도 같다. 그런 이름이 가리키는 Flask 앱·블루프린트에 단 규칙과 그 이름을 거친 블루프린트 등록은 `pathAnchor: "base"` + `unresolved-route-prefix:`, 그런 앱의 정적 파일은 스코프 없는 `framework-provided-routes:`다 |
 | 조건문(`if`·`try`) 안 등록 | decl 대신 `route-coverage:`, 템플릿을 확정하면 `templates` 스코프 |
 | 반복문으로 만든 목록, 모르는 호출·식, 모르는 호출로 바꾼 목록 | 그 자리에 `route-coverage:`, include 접두사가 정적이면 세그먼트 경계 `templatePrefixes` 스코프 |
 | 프로젝트 밖 URL 모듈 include | Django·DRF 모듈이면 `framework-provided-routes:`, 그 밖은 `route-coverage:`, 접두사 스코프 |
@@ -171,7 +177,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | i18n 접두사 | 그 아래 사실 `pathAnchor: "base"` |
 | 맨 앞 include 문자열이 리터럴이 아님(앞 조각이 빈 문자열·`re_path`의 `^`·언어 접두사뿐) | 그 조각을 떼고 하위 사실 `pathAnchor: "base"` + `unresolved-route-prefix:`. 앞에 리터럴 경로가 있으면 dynamic |
 | 프로젝트 밖 핸들러(usr 없음) | `missing-route-usrs:`(체인 전용) |
-| 파싱 실패(문법 오류·실행 중인 파이썬보다 새 문법·UTF-8 아님·4 MiB 초과·구문 트리 중첩 256단 초과), 교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029), 소스를 가릴 수 있는 심볼릭 링크, 순회 상한(200,000 항목, 깊이 64) | `route-coverage:` |
+| 파싱 실패(문법 오류·실행 중인 파이썬보다 새 문법·UTF-8 아님·4 MiB 초과·구문 트리 중첩 256단 초과·구문 트리 노드 1,000,000개 초과·실행당 파싱 총량 64 MiB 초과), 교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029), 소스를 가릴 수 있는 심볼릭 링크, 순회 상한(200,000 항목, 깊이 64), 모듈 루트로 쓰지 않은 `manage.py` 디렉터리(얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다) | `route-coverage:` |
 | 버전 선언을 확인하지 못함 | `route-framework-version-unknown:` |
 
 스코프는 그 한계가 가릴 수 있는 모든 요청의 상한일 때만 싣는다. 스코프는 문서 조립 전에 계약 검사
@@ -189,6 +195,11 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   (`route-decl-shadowed`)가 `order`로 한다.
 - **조건부 등록은 decl이 아니라 스코프 있는 한계다.** 설정에 따라 없는 경로를 선언으로 내면 거짓 match가 되고,
   빼면 거짓 error가 되므로, "있을 수 있음"을 템플릿 스코프 한계로 나타낸다.
+- **다시 묶는 모듈 상수는 상수가 아니다.** 마지막 무조건 대입을 상수로 쓰면 `PREFIX += "v2/"`의 실제 경로
+  `/api/v2/users/`를 `/api/users/`로, 조건부로 바뀌는 접두사를 한 값으로, 두 대입 사이에서 쓴 앞 값을 뒤 값으로 내고
+  `INSTALLED_APPS += [...]`·조건부 `FORCE_SCRIPT_NAME`의 한계를 빠뜨린다. 호출 그래프의 안정 전역 판정·client 모듈 상수
+  증명과 같은 기준으로 모르는 값을 낸다. routes는 `INSTALLED_APPS`를 persistence처럼 순서대로 읽어 상위 집합으로 두지
+  않고 읽지 못한 설정으로 둔다. 스코프 없는 `framework-provided-routes:` 한계라 거짓 error 쪽으로는 틀리지 않는다.
 - **HEAD·자동 OPTIONS는 내지 않는다.** tsograph(Next.js)와 같은 결정이다. 소비자의 `head-as-get`·`options-any`가
   처리한다.
 - **계약 밖 동사는 `ANY`로 바꾸지 않는다.** isthmus는 route-decl `method`가 계약 동사나 `ANY`가 아니면 문서 전체를

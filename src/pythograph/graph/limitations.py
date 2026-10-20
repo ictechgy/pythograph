@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import cast
 
 from pythograph.graph.model import DISPATCH_MODES
-from pythograph.source.project import Project
+from pythograph.source.project import Project, skipped_roots_reason, source_budget_reason
 
 #: 프레임워크 표를 만든 설치본 버전이다.
 FRAMEWORK_VERSIONS = "Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3"
@@ -168,6 +168,12 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
     unparsed = cast(int, statistics.get("unparsedFiles", 0))
     if unparsed:
         lines.append(f"unparsed-files: {unparsed} Python files could not be read or parsed and have no symbols")
+    if project.budget_skipped_modules:
+        # 파싱 총량 예산 때문에 빠진 파일은 원인과 방향을 따로 알린다(위 수에는 이유가 없다).
+        lines.append(
+            f"unparsed-files: {project.budget_skipped_modules} Python files could not be analyzed: "
+            + source_budget_reason()
+        )
     if project.scan_capped or project.skipped_links or project.unencodable_names:
         lines.append(
             "scan-incomplete: the file walk stopped at a limit or skipped symbolic links or undecodable names; "
@@ -183,4 +189,6 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
             f"scan-incomplete: {project.scan_errors} directory entries could not be read; "
             "symbols in those paths may be missing"
         )
+    if project.skipped_module_roots:
+        lines.append(f"scan-incomplete: {skipped_roots_reason(project.skipped_module_roots)}")
     return lines

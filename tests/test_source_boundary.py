@@ -222,6 +222,163 @@ def test_only_links_that_may_hide_sources_limit_documents(
     assert documents[2]["statistics"]["boundDispatch"]["scanIncomplete"] is hiding
 
 
+def _full_search(project: Project, name: str) -> str | None:
+    """색인 없이 모든 모듈 루트·후보를 검사하던 옛 이름 찾기다(색인이 결과·링크 수를 바꾸지 않는지 대조한다).
+
+    Args:
+        project: 프로젝트.
+        name: 모듈 이름.
+
+    Returns:
+        프로젝트 상대 경로, 없으면 None.
+    """
+    if not name or any(not part.isidentifier() for part in name.split(".")):
+        return None
+    relative_parts = name.replace(".", "/")
+    for root in project.module_roots:
+        base = f"{root}/{relative_parts}" if root else relative_parts
+        for candidate in (f"{base}/__init__.py", f"{base}.py"):
+            if project.is_file(candidate):
+                return candidate
+    return None
+
+
+#: 색인 대조용 모듈 루트다(순서가 우선순위다). 링크 아래 루트, 없는 루트, 파일인 루트, 목록을 못 읽는 루트를 섞는다.
+_INDEX_ROOTS = ["site_a", "site_b", "build/linked_root", "missing_root", "file_root", "locked", "", "src"]
+
+#: 색인 대조용 이름이다. 대소문자·유니코드 정규화만 다른 철자, 순회가 세지 않는 링크 아래 이름, 외부 이름을 섞는다.
+_INDEX_NAMES = [
+    "shop",
+    "Shop.models",
+    "SHOP",
+    "mod",
+    "MOD",
+    "caf\u00e9",
+    "CAF\u00c9",
+    "env.x",
+    "env",
+    "linkmod",
+    "pkg",
+    "plain.deep.leaf",
+    "inner",
+    "Inner",
+    "build.linked_root.pkg",
+    "missing.name",
+    "django.db",
+    "x",
+    "",
+]
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_module_root_index_keeps_resolution_and_link_counts(
+    make_project: MakeProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
+) -> None:
+    """루트 항목 색인으로 후보를 거른 해석이 모든 후보를 검사하던 해석과 결과·링크 수가 같다.
+
+    대소문자·유니코드 정규화를 무시하는 파일시스템(macOS 기본 APFS)에서는 lstat이 철자가 다른 이름(`SHOP`·NFC `café`)도
+    찾으므로 색인도 그 이름을 같은 이름으로 본다. 순회가 세지 않은 링크(건너뛰는 이름 `env`, `build/` 아래 루트)는
+    해석이 처음 닿을 때 세고, 목록을 못 읽는 루트는 예전처럼 후보를 모두 검사한다.
+    """
+    if fallback:
+        monkeypatch.setattr(project_module, "_HAS_DIR_FD", False)
+    root = make_project(
+        {
+            "site_a/manage.py": "",
+            "site_a/Shop/__init__.py": "",
+            "site_a/Shop/models.py": "",
+            "site_a/mod.py": "",
+            "site_b/manage.py": "",
+            "site_b/shop/__init__.py": "",
+            "site_b/cafe\u0301.py": "",
+            "plain/__init__.py": "",
+            "plain/deep/leaf.py": "",
+            "file_root": "not a directory\n",
+            "locked/inner.py": "",
+            "build/keep.txt": "",
+        }
+    )
+    outside = tmp_path / "outside"
+    (outside / "pkg").mkdir(parents=True)
+    (outside / "pkg" / "__init__.py").write_text("")
+    (root / "site_b" / "env").symlink_to(outside, target_is_directory=True)
+    (root / "site_b" / "linkmod.py").symlink_to(outside / "pkg" / "__init__.py")
+    (root / "build" / "linked_root").symlink_to(outside, target_is_directory=True)
+    (root / "locked").chmod(0o311)
+    try:
+        reference, indexed = Project.open(root), Project.open(root)
+        reference.module_roots = list(_INDEX_ROOTS)
+        indexed.module_roots = list(_INDEX_ROOTS)
+        for name in _INDEX_NAMES * 2:
+            assert indexed.resolve_module(name) == _full_search(reference, name), name
+            assert indexed.skipped_links == reference.skipped_links, name
+    finally:
+        (root / "locked").chmod(0o755)
+    # 순회가 센 `linkmod.py` 하나에, 해석이 처음 닿을 때 센 `site_b/env`·`build/linked_root`가 더해진다.
+    assert reference.skipped_links == 3
+
+
+def test_module_root_with_too_many_entries_is_searched_without_an_index(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """항목이 순회 상한보다 많은 루트는 항목을 끝까지 읽지 않고, 색인 없이 예전처럼 후보를 모두 검사한다."""
+    project = Project.open(make_project({"a.py": "", "b.py": "", "pkg/__init__.py": "", "pkg/mod.py": ""}))
+    monkeypatch.setattr(project_module, "MAX_SCANNED_ENTRIES", 2)
+    checked: list[str] = []
+    checked_stat = project._checked_stat
+
+    def counting(relative: str) -> os.stat_result:
+        checked.append(relative)
+        return checked_stat(relative)
+
+    monkeypatch.setattr(project, "_checked_stat", counting)
+    assert project.resolve_module("pkg.mod") == "pkg/mod.py"
+    before = len(checked)
+    assert project.resolve_module("missing") is None
+    assert checked[before:] == ["missing/__init__.py", "missing.py"]
+
+
+@pytest.mark.parametrize("skipped", [False, True])
+def test_manage_directories_beyond_the_root_limit_limit_documents(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch, skipped: bool
+) -> None:
+    """모듈 루트로 쓰지 않은 `manage.py` 디렉터리 수를 routes(server·client)·schema·graph 한계로 남기고 `bound`를 연다.
+
+    상한 밖 디렉터리의 코드는 그 디렉터리 기준 import가 풀리지 않아 호출이 외부로 보이므로, 빈 결과를 완전하다고 읽지
+    않게 알린다. 상한(256)을 작게 바꿔 디렉터리 둘로 확인한다.
+    """
+    monkeypatch.setattr(project_module, "MAX_MODULE_ROOTS", 1 if skipped else 2)
+    root = make_project(
+        {
+            "sites/a/manage.py": "",
+            "sites/b/manage.py": "",
+            "sites/b/shop/__init__.py": "",
+            "sites/b/shop/models.py": "def save():\n    pass\n",
+            "sites/b/shop/views.py": "from shop.models import save\n\n\ndef index():\n    save()\n",
+        }
+    )
+    commands = {
+        "route-coverage:": ["routes", "--role", "server"],
+        "route-call-coverage:": ["routes", "--role", "client"],
+        "scan-truncated:": ["schema"],
+        "scan-incomplete:": ["graph"],
+    }
+    documents = {
+        prefix: json.loads(run_cli([*command, "--project", str(root)])[1]) for prefix, command in commands.items()
+    }
+    reason = (
+        "1 directories containing manage.py are not used as module roots (only the 1 shallowest are), so imports "
+        "that only they would resolve are treated as external; pass a narrower --project to analyze them"
+    )
+    for prefix, document in documents.items():
+        lines = [text for text in document["limitations"] if "module roots" in text]
+        assert lines == ([f"{prefix} {reason}"] if skipped else []), document["limitations"]
+    graph = documents["scan-incomplete:"]
+    assert graph["statistics"]["boundDispatch"]["scanIncomplete"] is skipped
+    edges = {(edge["from"], edge["to"]) for edge in graph["edges"]}
+    assert (("sites/b/shop/views.py#index", "sites/b/shop/models.py#save") in edges) is not skipped
+
+
 @pytest.mark.parametrize(
     "relative", ["../outside/app.py", "/app.py", "C:/app.py", "C:app.py", "a\\app.py", "bad\x00.py"]
 )

@@ -8,6 +8,10 @@ tsograph `src/schema/sql-relations.ts`(dartograph `sql_relations.dart`·kartogra
 
 포트 원본은 키워드마다 같은 문장의 앞뒤 토큰과 짝 괄호까지 다시 훑는다. 판정은 그대로 두되 그 답(문장 구간마다
 판정 단어의 위치, 괄호 짝)을 처음 쓸 때 한 번 색인해, 세미콜론 없는 긴 문장에서도 토큰 수에 선형으로 읽는다.
+
+관계 이름이 아닌 세 경우는 persistence 생산자 계열 공통 규칙대로 내지 않는다. 함수 인자 괄호 안의 FROM(R1,
+`EXTRACT(YEAR FROM created_at)`), 같은 문장이 정의한 CTE 이름인 한정자 없는 피연산자(R2), `IS [NOT] DISTINCT FROM`의
+피연산자(R3)다. 이 이름을 relation-use로 내면 isthmus가 선언과 잇지 못해 거짓 `relation-use-without-decl` error를 낸다.
 """
 
 from __future__ import annotations
@@ -84,6 +88,9 @@ _CLAUSE_WORDS = frozenset(
         "restrict", "privileges", "the", "an",
     }
 )  # fmt: skip
+
+#: 괄호 그룹을 하위 질의로 만드는 첫 단어다(R1). 이 단어로 시작하는 그룹 안의 FROM은 함수 이름 뒤에서도 관계를 연다.
+_SUBQUERY_HEADS = frozenset({"select", "with", "values"})
 
 
 @dataclass(frozen=True)
@@ -306,7 +313,11 @@ class _RelationScan:
 
     원본이 키워드마다 문장 앞뒤와 짝 괄호를 다시 훑던 세 판정(`_preceded_by`·`_segment_after_has_set`·
     `_skip_parens`)만 처음 쓸 때 한 번 만든 색인(`segment_of`·`segments`·`paren_ends`)으로 답한다. 답은 원본과 같다.
-    그 판정을 부르지 않는 흔한 문장(`SELECT … FROM t WHERE …`)은 색인을 만들지 않는다.
+    그 판정을 부르지 않는 문장은 그 색인을 만들지 않는다.
+
+    계열 공통 규칙 R1·R2가 보는 문장 문맥(`statement_of`·`cte_keys`·`function_arguments`)도 FROM 판정이나 피연산자
+    방출에서 처음 쓸 때 한 번 만든다. FROM마다 감싼 괄호를, 피연산자마다 문장의 CTE 정의를 다시 훑으면 토큰 수의
+    제곱이 되기 때문이다.
     """
 
     tokens: list[SqlToken]
@@ -317,6 +328,9 @@ class _RelationScan:
     segment_of: list[int] = field(default_factory=list)
     segments: list[_Segment] = field(default_factory=list)
     paren_ends: list[int | None] = field(default_factory=list)
+    statement_of: list[int] = field(default_factory=list)
+    cte_keys: dict[int, set[str]] = field(default_factory=dict)
+    function_arguments: list[bool] = field(default_factory=list)
     seen: set[tuple[int, str]] = field(default_factory=set)
     out: list[SqlRelation] = field(default_factory=list)
     unresolved: int = 0
@@ -350,6 +364,24 @@ class _RelationScan:
             같으면 True.
         """
         return 0 <= index < len(self.tokens) and not self.tokens[index].quoted and self.tokens[index].text == symbol
+
+    def _is_word(self, index: int, word: str) -> bool:
+        """위치의 토큰이 비인용 단어 `word`인지 대소문자 없이 본다.
+
+        R1~R3이 알아보는 단어용이라 strict 게이트를 걸지 않는다. 세 규칙은 관계를 빼기만 하고, strict 게이트는 관계
+        자리를 여는 키워드·동사에만 건다.
+
+        Args:
+            index: 토큰 위치(범위 밖이면 거짓).
+            word: 소문자 단어.
+
+        Returns:
+            같으면 True.
+        """
+        if not 0 <= index < len(self.tokens):
+            return False
+        token = self.tokens[index]
+        return not token.quoted and token.text.lower() == word
 
     def _mark_statements(self) -> None:
         """문장 머리와 동사를 표시한다.
@@ -461,6 +493,167 @@ class _RelationScan:
         first = self._segment(index).first.get(words)
         return first is not None and first < index
 
+    def _index_statement_context(self) -> None:
+        """R1·R2가 보는 문장 문맥(문장 번호, 문장별 CTE 이름, 함수 인자 괄호)이 없으면 한 번 만든다.
+
+        토큰이 있으면 만든 뒤 `statement_of`가 비지 않으므로 다시 만들지 않는다.
+        """
+        if not self.statement_of:
+            self._number_statements()
+            self._mark_function_arguments(self._collect_ctes())
+
+    def _number_statements(self) -> None:
+        """토큰마다 문장 번호를 매긴다. CTE 이름(R2)과 함수 괄호 문맥(R1)이 유효한 범위다.
+
+        경계는 문장 머리 표시(`_mark_statements`)와 같은 비인용 `;`이고 `;` 자신은 앞 문장에 속한다. 인용 식별자
+        `";"`에서도 끊는 `_index_segments` 구간과는 다르다.
+        """
+        number = 0
+        for token in self.tokens:
+            self.statement_of.append(number)
+            if not token.quoted and token.text == ";":
+                number += 1
+
+    def _collect_ctes(self) -> set[int]:
+        """문장마다 CTE 이름의 비교 키를 모은다(R2).
+
+        꼴은 `WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (`와 `, name [(cols)] AS [NOT] [MATERIALIZED] (`다.
+        열 목록은 미리 구한 괄호 짝으로 건너뛰므로 WITH·쉼표마다 상수 개 토큰만 본다.
+
+        Returns:
+            CTE 본문을 여는 `(` 위치. 이 괄호는 앞 토큰과 무관하게 함수 인자 괄호(R1)가 아니다.
+        """
+        bodies: set[int] = set()
+        for index, token in enumerate(self.tokens):
+            name = self._cte_name_position(index, token)
+            body = None if name is None else self._cte_body(name)
+            if name is not None and body is not None:
+                bodies.add(body)
+                self.cte_keys.setdefault(self.statement_of[name], set()).add(_name_key(self.tokens[name]))
+        return bodies
+
+    def _cte_name_position(self, index: int, token: SqlToken) -> int | None:
+        """`WITH [RECURSIVE]`나 쉼표 뒤의 CTE 이름 후보 위치를 돌려준다.
+
+        Args:
+            index: 토큰 위치.
+            token: 그 위치의 토큰.
+
+        Returns:
+            이름 후보 위치. 토큰이 비인용 WITH·쉼표가 아니면 None.
+        """
+        if token.quoted:
+            return None
+        if token.text == ",":
+            return index + 1
+        if token.text.lower() != "with":
+            return None
+        return index + 2 if self._is_word(index + 1, "recursive") else index + 1
+
+    def _cte_body(self, name: int) -> int | None:
+        """`name` 위치에서 `name [(cols)] AS [NOT] [MATERIALIZED] (`가 시작하면 본문을 여는 `(` 위치를 돌려준다.
+
+        열 목록 괄호가 닫히지 않거나 꼴이 문장 경계를 넘으면 CTE 정의가 아니다.
+
+        Args:
+            name: 이름 후보 위치.
+
+        Returns:
+            본문 `(` 위치. CTE 정의가 아니면 None.
+        """
+        if name >= len(self.tokens) or not _is_cte_name(self.tokens[name]):
+            return None
+        after_columns = self._skip_parens(name + 1) if self._is_symbol(name + 1, "(") else name + 1
+        if after_columns is None or not self._is_word(after_columns, "as"):
+            return None
+        body = after_columns + 1
+        if self._is_word(body, "not"):
+            body += 1
+        if self._is_word(body, "materialized"):
+            body += 1
+        if not self._is_symbol(body, "(") or self.statement_of[body] != self.statement_of[name]:
+            return None
+        return body
+
+    def _mark_function_arguments(self, cte_bodies: set[int]) -> None:
+        """토큰마다 감싼 가장 안쪽 비인용 괄호가 함수 인자 괄호인지 표시한다(R1).
+
+        한 번 훑어 구하므로 FROM마다 감싼 괄호를 거꾸로 찾지 않는다. 괄호 문맥은 비인용 `;`에서 비운다. 닫히지 않은
+        함수 괄호가 다음 문장의 FROM을 가리지 않게 하려는 것이다(R2와 같은 문장 단위).
+
+        Args:
+            cte_bodies: CTE 본문을 여는 `(` 위치.
+        """
+        groups: list[bool] = []
+        for index, token in enumerate(self.tokens):
+            symbol = "" if token.quoted else token.text
+            if symbol == ";":
+                groups.clear()
+            elif symbol == "(":
+                groups.append(index not in cte_bodies and self._opens_function_arguments(index))
+            elif symbol == ")" and groups:
+                groups.pop()
+            self.function_arguments.append(bool(groups) and groups[-1])
+
+    def _opens_function_arguments(self, open_index: int) -> bool:
+        """`(`가 함수 인자 괄호를 여는지 본다(R1).
+
+        바로 앞 토큰이 함수 이름(절 단어가 아닌 비인용 이름)이고 그룹 첫 토큰이 하위 질의 머리(SELECT·WITH·VALUES)가
+        아니어야 한다. 연산자는 토큰이 아니어서 `x = (SELECT …)`의 `x`도 바로 앞 이름이 되므로 머리 판정이 필요하다.
+
+        Args:
+            open_index: 비인용 `(` 위치.
+
+        Returns:
+            함수 인자 괄호면 True.
+        """
+        callee = self.tokens[open_index - 1] if open_index > 0 else None
+        if callee is None or not _is_name_token(callee) or callee.text.lower() in _CLAUSE_WORDS:
+            return False
+        head = self.tokens[open_index + 1] if open_index + 1 < len(self.tokens) else None
+        return head is None or head.quoted or head.text.lower() not in _SUBQUERY_HEADS
+
+    def _in_function_arguments(self, index: int) -> bool:
+        """토큰을 감싼 가장 안쪽 괄호가 함수 인자 괄호인지 본다(R1, `EXTRACT(YEAR FROM ts)`의 FROM).
+
+        Args:
+            index: 토큰 위치.
+
+        Returns:
+            함수 인자 괄호 안이면 True.
+        """
+        self._index_statement_context()
+        return self.function_arguments[index]
+
+    def _names_cte(self, index: int, after_name: int) -> bool:
+        """한정자 없는 피연산자가 같은 문장이 정의한 CTE 이름인지 본다(R2). 한정 이름(`s.recent`)은 CTE가 아니다.
+
+        Args:
+            index: 피연산자 첫 토큰 위치.
+            after_name: 피연산자 이름 다음 위치.
+
+        Returns:
+            CTE 이름이면 True.
+        """
+        if after_name != index + 1:
+            return False
+        self._index_statement_context()
+        keys = self.cte_keys.get(self.statement_of[index])
+        return keys is not None and _name_key(self.tokens[index]) in keys
+
+    def _is_distinct_from(self, index: int) -> bool:
+        """FROM이 비교 연산자 `IS [NOT] DISTINCT FROM`의 일부인지 본다(R3). 앞 토큰들은 비인용이어야 한다.
+
+        Args:
+            index: FROM 위치.
+
+        Returns:
+            연산자의 일부면 True.
+        """
+        if not self._is_word(index - 1, "distinct"):
+            return False
+        return self._is_word(index - 2, "is") or (self._is_word(index - 2, "not") and self._is_word(index - 3, "is"))
+
     def _fires(self, index: int, word: str, grant_statement: bool) -> bool:
         """키워드 토큰이 현재 문맥에서 관계 자리를 여는지 판정한다.
 
@@ -485,7 +678,11 @@ class _RelationScan:
         if word == "on":
             return self._on_fires(index, grant_statement)
         # from·join: grant·revoke의 FROM은 권한 주체 자리다.
-        return not grant_statement
+        if grant_statement:
+            return False
+        # 함수 인자 안의 FROM(R1)과 `IS [NOT] DISTINCT FROM`(R3)은 관계 자리가 아니어서 미해석으로도 세지 않는다.
+        # 규칙이 FROM만 정하므로 JOIN에는 걸지 않는다.
+        return word == "join" or not (self._is_distinct_from(index) or self._in_function_arguments(index))
 
     def _on_fires(self, index: int, grant_statement: bool) -> bool:
         """`ON`은 `GRANT .. ON t`와 `CREATE INDEX/TRIGGER/POLICY .. ON t`만 관계 자리다.
@@ -669,10 +866,13 @@ class _RelationScan:
             for consumed in range(index, after_name):
                 self.consumed[consumed] = True
             return self._skip_parens(after_name)
-        if buffer is None:
-            self._emit(name, keyword)
-        else:
-            buffer.append(name)
+        # 같은 문장의 CTE 이름(R2)은 관계가 아니다(내지도 미해석으로 세지도 않는다). 소비·별칭·쉼표 목록 진행은
+        # 그대로 해 뒤의 스캔을 바꾸지 않는다.
+        if not self._names_cte(index, after_name):
+            if buffer is None:
+                self._emit(name, keyword)
+            else:
+                buffer.append(name)
         for consumed in range(index, after_name):
             self.consumed[consumed] = True
         return after_name
@@ -780,6 +980,33 @@ def _is_segment(token: SqlToken) -> bool:
     if token.quoted:
         return len(token.text) > 0
     return _is_name_token(token) and token.text.lower() not in _CLAUSE_WORDS
+
+
+def _is_cte_name(token: SqlToken) -> bool:
+    """CTE 이름이 될 수 있는 토큰인지 본다(비인용 식별자이거나 빈 것이 아닌 인용 식별자).
+
+    Args:
+        token: 토큰.
+
+    Returns:
+        이름이 될 수 있으면 True.
+    """
+    return len(token.text) > 0 if token.quoted else _is_name_token(token)
+
+
+def _name_key(token: SqlToken) -> str:
+    """CTE 이름과 한정자 없는 피연산자의 비교 키다(R2).
+
+    비인용 이름은 소문자로 접고 인용 이름은 그대로 둔다. SQL 표준·PostgreSQL의 식별자 접기 규칙이고 계열 생산자와 같은
+    선택이다(`"recent"`는 `recent`와 같고 `"Recent"`와는 다르다).
+
+    Args:
+        token: 이름 토큰.
+
+    Returns:
+        비교 키.
+    """
+    return token.text if token.quoted else token.text.lower()
 
 
 def _escape_segment(token: SqlToken) -> str:

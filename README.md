@@ -13,8 +13,10 @@ Go, rustograph for Rust, schemagraph for SQL). Each tool reports only what it ob
 isthmus joins the documents.
 
 The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
-and pythograph has no runtime dependencies and uses no network (`graph`, `reach`, and `impact` run only the project
-root's git to read `revision`).
+and pythograph has no runtime dependencies and uses no network. The only program it starts is git at the project root,
+to read `revision` for `graph`, `reach`, and `impact`; git runs without the filter commands that the repository's git
+configuration defines, never fetches the objects that a partial clone lacks, and never runs inside submodules (see
+[Security](#security)).
 
 ## Status
 
@@ -164,7 +166,14 @@ templates; unresolved includes and third-party URL modules are scoped to their i
 `static()`, `django.contrib.staticfiles`, and Flask static files are `framework-provided-routes:` with prefix
 scopes (Flask static also with `GET`/`HEAD`); `FORCE_SCRIPT_NAME`, `i18n_patterns`, and blueprints whose
 registration is not visible use a `base` anchor with `unresolved-route-prefix:`; a project that does not pin
-Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`.
+Django 5, DRF 3, or Flask 3 gets `route-framework-version-unknown:`. A module constant or setting that is not
+provable (see [Bounded source scanning](#bounded-source-scanning): bound twice, `+=`, assigned inside an `if`, loop,
+`try`, `with`, or `match` block, rebound through `global`, or changed in place such as `INSTALLED_APPS.append(...)`)
+is unknown: a route string built from it is `dynamic`, a method list from it leaves the view with its known methods
+or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
+`INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation. A Flask app or blueprint
+bound to such a name may be a different object at run time, so the rules and blueprint registrations that go through
+that name get the `base` anchor with `unresolved-route-prefix:`.
 
 ### Decisions
 
@@ -242,12 +251,21 @@ facts), and one `relation-use` fact per observed relation or column reference. i
   `delete`, `session.query`, `session.get`, `join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`,
   constructors, `table.c.name`, and `text()`.
 - **SQL text**: the family's shared lexical extractor (the same vectors as tsograph, dartograph, cartograph, and
-  kartograph) for explicit SQL arguments, and uppercase SQL literals elsewhere (docstrings are skipped).
+  kartograph) for explicit SQL arguments, and uppercase SQL literals elsewhere (docstrings are skipped). Following the
+  rules shared by the persistence producers, an unqualified name that is a CTE of the same `;`-separated statement, the
+  operand of a `FROM` inside function arguments (`EXTRACT(YEAR FROM created_at)`, `TRIM`, `SUBSTRING`; a subquery there
+  still counts), and the operand of `IS [NOT] DISTINCT FROM` are not relation uses. The rules apply as written: a CTE
+  named like a real table also hides that table in the same statement (the `users` read by
+  `WITH users AS (SELECT * FROM users …)`, an `INSERT INTO users` target), and a DML `FROM` in parentheses after a word
+  that is not a clause keyword (`COPY (DELETE FROM t …)`) reads as a function argument.
 - **channel** is the relation name as written or mapped (`schema.table` only when qualified; no default schema is
   guessed), **method** is the column, and **symbol.usr** is the enclosing function, method, or model class with the
   same ids as `routes`. A name that depends on an unknown backend, app label, or Flask-SQLAlchemy version, an
-  unresolved model or lookup, and SQL built at runtime become `dynamic` facts with a `dynamic-relation-names:`
-  limitation instead of guesses.
+  unresolved model or lookup, a module constant that is not provable (`db_table = TABLE` after `TABLE += ...`, a
+  `__tablename__` built from a conditionally reassigned prefix), a Core `Table` object reached through a name that is
+  not provable (`select(users)`, `__table__ = users`, or `secondary=users` when `users` is reassigned), and SQL built
+  at runtime become `dynamic` facts with a `dynamic-relation-names:` limitation instead of guesses; such a constant
+  passed to `execute()` is counted under `unresolved-sql-arguments:`.
 - Test sources (unless `--include-tests`) and migrations (Django `migrations/`, Alembic `versions/`) are not scanned;
   migrations describe past schemas.
 
@@ -300,8 +318,11 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
 - **Traversal documents**: a `dispatch` declaration, per-root lower-bound `evidence`, `unresolvedCalls`, one
   multi-root pass (compared with a per-root oracle on random graphs), `--max-depth`/`--max-reached` truncation, and
   `rootsTruncated`. Roots that are not graph nodes are listed without `symbol`; the document is written and the
-  command exits `64`. `revision` is `--revision` or git `HEAD` when the work tree is clean; `graphRevision` is a
-  SHA-256 of the graph content.
+  command exits `64`. `revision` is `--revision` or git `HEAD` when the work tree is clean (omitted, with a
+  `revision-unverified:` limitation in the snapshot and the traversal documents, when a clean tree cannot be checked
+  without running the repository's git configuration: a work tree with submodules, or a partial clone that lacks
+  objects the check reads, see [Security](#security));
+  `graphRevision` is a SHA-256 of the graph content.
 
 ## Validation
 
@@ -375,6 +396,14 @@ U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:
 `route-call-coverage:` for routes, `unreadable-sources:` for schema) rather than producing a document that isthmus
 rejects as a whole.
 
+Directories that contain `manage.py` are module roots, because Django puts them on `sys.path`: imports resolve against
+them (shallowest first), then the project root, then `src/`, and a module is named from the deepest of these roots
+that contains it. At most 256 `manage.py` directories, the shallowest by depth and then path, become module roots.
+Imports that only the remaining directories would resolve are treated as external, so those directories are counted in
+limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:`
+for schema) and prevent closed-world `bound` proofs; pass a narrower `--project` to analyze them. Each module root's
+entries are read once, so resolving a name touches the filesystem only under roots that contain its first component.
+
 Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
 and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
 long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit
@@ -388,6 +417,25 @@ annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) ar
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation.
 
+One run parses at most 64 MiB of Python source in total, counting only the modules it parses successfully. A module
+that would push the total past this budget is not parsed and is reported like a file that fails to parse
+(`unparsed-files:` in graph output, `route-coverage:` or `route-call-coverage:` for routes, `unreadable-sources:` for
+schema) with the reason "the run's total parsed source would exceed its 64 MiB budget; pass a narrower --project";
+the command still succeeds with the other modules. Each command parses in a fixed order (path order, with modules
+reached through imports parsed when first needed), so the same input skips the same modules on every run. Parsed syntax
+trees stay in memory until the command ends, because name resolution can return to any module: ordinary code peaks
+at about 30–55 bytes of memory per source byte (`graph` on sympy, 26 MB of source in 1,532 files, takes about 1 GB),
+so a run at the budget needs about 2–4 GB. A module whose syntax tree has more than 1,000,000 nodes (counting context
+and operator leaves) is not kept either: it is reported the same way with the reason "syntax tree larger than
+1,000,000 nodes". Among the large files measured in installed packages (sympy, torch, NumPy, SciPy, faker, and
+others) and the standard library, the largest real module has about 200,000 nodes, while a 4 MiB module of `x = 1`
+lines has about 2.8 million and kept about 0.9 GB. So one module keeps at most about 0.45 GB, and parsing one module
+peaks at about 2–3 GB, bounded by the 4 MiB file limit. Literal-heavy modules below the node limit (large list
+literals, generated tables, thousands of `x = 1` lines) still keep about 220–350 bytes per source byte, so a crafted
+repository that spreads such data over many modules can still use 15–25 GB within the budget; pythograph does not
+bound that case yet. Analyze untrusted repositories under an operating-system memory limit (a cgroup or container
+memory limit, or `ulimit -v` on Linux).
+
 Constant evaluation follows f-strings, `+`, list literals, and module constants for route strings, settings, SQL text,
 and client URLs. A short chain that references the same constant many times (`B = f"{A}{A}…"`, `C = f"{B}{B}…"`)
 would otherwise grow exponentially, so repeated references are expanded once, values built this way are capped at
@@ -399,6 +447,15 @@ longer than 8 KiB (4 times the 2,048-character template limit; Flask rules after
 converters, outside Django `path()` converters, outside `re_path` groups) exceed the template limit, are not converted
 and become dynamic facts like any over-long template.
 
+Route strings, settings, SQL text, and schema names follow only provable module constants, by the same binding rule as
+the call graph's stable globals and `routes --role client`: a name bound more than once at module level (`+=`, a second
+assignment, a loop variable, an import), bound inside an `if`/`try`/`for`/`while`/`with`/`match` block, declared
+`global` in a function, or defined in a module that calls `globals()` (or module-level `vars()`/`locals()`) is unknown
+even when it also has an unconditional assignment. They also treat a name changed in place anywhere in its module
+(`NAME.append(...)`, `NAME[k] = ...`) as unknown and check every module on an import, star-import, or module-alias
+chain, so a settings module that changes a star-imported setting (`from .base import *` followed by
+`INSTALLED_APPS += [...]`) makes that setting unknown.
+
 Class hierarchies (view classes for routes and graph, SQLAlchemy mappings for schema) are followed at most 32 levels
 deep, and each class is analyzed once per depth, so a diamond-shaped hierarchy costs time proportional to its classes
 rather than to its exponentially many paths. A static inheritance cycle, which Python itself cannot build, makes the
@@ -407,6 +464,12 @@ bases are treated as unknown. Flask blueprint registrations that close a cycle (
 followed and count as `route-coverage:`. Registering the same blueprints along many paths is expanded per path as
 Flask does, up to 200,000 nested registrations (`route-coverage:` beyond that); the expansion stops early once more
 than 100,000 route-decl facts make the document impossible, ending with the usual fact-limit error (exit code 2).
+
+Flask-SQLAlchemy 2's automatic table name rule (`([A-Z]+)(?=[a-z0-9])`, kept exactly as Flask-SQLAlchemy writes it)
+backtracks over a long run of capitals in time quadratic in the class name's length, so it is not applied to class
+names longer than 1,000 characters. When major version 2 is a candidate (declared, or the version is not limited to one
+major), such a class's automatic table name becomes a `dynamic` fact with a `flask-sqlalchemy-naming-unverified:`
+limitation; set `__tablename__` to name it. The linear Flask-SQLAlchemy 3 rule applies at any length.
 
 Every project-relative path component is checked for symbolic links, including module/package resolution and dependency
 manifests. Links to locations inside the project are rejected too; the skipped-link count counts each encountered path
@@ -420,6 +483,50 @@ On systems supporting descriptor-relative `O_NOFOLLOW`, directory scans and sour
 without following links, and verify the opened file before reading. Other systems recheck components and file identity
 before reading, but those checks are not atomic. Analyze a stable project tree; this is not a filesystem snapshot or a
 sandbox against concurrent changes to the filesystem. The analyzed Python code is never imported or executed.
+
+## Security
+
+pythograph starts one external program: `git`, only to read the `revision` of `graph`, `reach`, and `impact` when
+`--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`, and
+`git rev-parse`, run at the project root). It runs the first `git` in an absolute `PATH` entry and skips one that
+lives inside the project or directly in the current directory. A `.git` directory that arrives with an archive or a
+copy can define commands that git runs while it reads the work tree (see "SECURITY" in git(1)). pythograph closes the
+ways it knows these git calls can reach such commands:
+
+- Right before each call, pythograph lists the filter drivers and promisor settings git sees
+  (`git config -z --includes --get-regexp` for `filter.<driver>.clean`, `smudge`, and `process`,
+  `extensions.partialClone`, and `remote.<name>.promisor` and `partialCloneFilter`, which covers the repository, its
+  includes, your own configuration, and the system configuration) and overrides each driver with empty `clean`,
+  `smudge`, and `process` commands and `required=false`, so git runs none of them. This holds for drivers named in
+  `.gitattributes` and in `.git/info/attributes`.
+- It never lets git fetch missing objects. A partial clone (a repository with a promisor remote) fetches objects it
+  lacks on demand, and that fetch follows the remote's configuration (`remote.<name>.uploadpack`, `core.sshCommand`,
+  and so on). Every call sets `GIT_NO_LAZY_FETCH=1`, and when the listing shows a promisor setting, every call except
+  the listing itself also passes `--no-lazy-fetch`. Both need git 2.45 or later: an older git ignores the variable
+  but rejects the option before it starts, so it reads no partial clone.
+- It turns off `core.fsmonitor`, the untracked cache, `log.showSignature`, and optional locks
+  (`GIT_OPTIONAL_LOCKS=0`, so the index is never rewritten). pythograph runs no `git diff` or `git log`.
+- It never starts git inside a submodule: `git status` runs with `--ignore-submodules=all`, and does not run at all
+  when the index has a submodule.
+- When these settings cannot be listed, or a driver name contains `=`, a control character, or bytes that are not
+  UTF-8 (git's `-c` splits at the first `=`, so such a driver cannot be overridden), no other git command runs.
+
+What this changes:
+
+- A file that a filter normalizes (git-lfs and the like) is compared as raw content. When git's stat cache is stale
+  for it (a copied or extracted tree, a touched file), the work tree counts as changed and no `revision` is recorded,
+  rather than claiming a clean `HEAD` that could not be verified. In a checkout you trust, run `git status` first to
+  refresh git's stat cache.
+- A work tree with submodules gets no automatic `revision`: pythograph also analyzes the sources inside them, and git
+  cannot tell whether they are clean without following each submodule's own configuration. A driver name that cannot
+  be overridden stops git altogether. Both cases add a `revision-unverified:` limitation to the `graph` snapshot and
+  to the `reach` and `impact` documents.
+- A partial clone is read only from the objects it already has. When git needs a missing object to check the work
+  tree, or is older than 2.45, no `revision` is recorded and the same `revision-unverified:` limitation says why. A
+  partial clone that has every object the check reads keeps its `revision` with git 2.45 or later.
+- The rest of the git configuration still decides what git reports (for example `core.worktree`), and pythograph
+  trusts every setting outside the paths above, so an automatic `revision` is only as trustworthy as the `.git`
+  directory. For a tree whose `.git` you do not trust, pass `--revision <id>`: git then does not run at all.
 
 ## Development
 

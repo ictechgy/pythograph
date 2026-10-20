@@ -58,12 +58,15 @@ class GraphHeader:
         generated_at: 생성 시각(UTC).
         project: 프로젝트 POSIX realpath.
         revision: 소스 revision(없으면 None).
+        revision_limitation: 작업 트리를 일부러 확인하지 않아 revision을 싣지 못한 이유(`revision-unverified:` 문구,
+            서브모듈·덮을 수 없는 filter 드라이버 이름). 스냅샷과 순회 문서의 한계 끝에 싣는다. 없으면 None.
     """
 
     tool_version: str
     generated_at: datetime
     project: str
     revision: str | None
+    revision_limitation: str | None = None
 
 
 def graph_revision(graph: CallGraph) -> str:
@@ -126,11 +129,23 @@ def build_graph_document(header: GraphHeader, graph: CallGraph) -> dict[str, obj
             for edge in graph.edges
         ],
         "statistics": graph.statistics,
-        "limitations": graph.limitations["direct"],
+        "limitations": [*graph.limitations["direct"], *_revision_limitations(header)],
     }
     if header.revision is not None:
         document["revision"] = header.revision
     return document
+
+
+def _revision_limitations(header: GraphHeader) -> list[str]:
+    """revision을 일부러 확인하지 않았을 때의 문서 한계다.
+
+    Args:
+        header: 머리 필드.
+
+    Returns:
+        문구 목록(없으면 빈 목록).
+    """
+    return [] if header.revision_limitation is None else [header.revision_limitation]
 
 
 def _node_json(node: GraphNode) -> dict[str, object]:
@@ -267,7 +282,7 @@ def _reached_json(entry: ReachedSymbol, node: GraphNode, dispatch: str) -> dict[
 
 
 def _traversal_limitations(data: TraversalInput, nodes: dict[str, GraphNode]) -> list[str]:
-    """순회 문서 한계다: 모드의 그래프 한계, 정점이 아닌 root, 등급 근사, 미해석 수 상한.
+    """순회 문서 한계다: 모드의 그래프 한계, 정점이 아닌 root, 등급 근사, 미해석 수 상한, 확인하지 않은 revision.
 
     Args:
         data: 조립 입력.
@@ -295,4 +310,5 @@ def _traversal_limitations(data: TraversalInput, nodes: dict[str, GraphNode]) ->
             f"unresolved-calls-capped: {capped} symbol(s) have more than {MAX_UNRESOLVED_CALLS} unresolved call "
             f"sites; unresolvedCalls reports {MAX_UNRESOLVED_CALLS} for them"
         )
+    lines.extend(_revision_limitations(data.header))
     return lines

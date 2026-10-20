@@ -37,6 +37,17 @@ pythograph schema --project <root> [--include-tests] [--settings <module>] [--ge
 `migrations/`, Alembic·Flask-Migrate `alembic/versions/`·`migrations/versions/`, `skipped-migration-sources:`로 셈).
 마이그레이션은 과거 스키마를 기술하므로 지금 카탈로그와 조인하면 거짓 `relation-use-without-decl`이 된다.
 
+모듈 상수: 이름 규칙(`Meta.db_table`·`db_column`·`__tablename__`·`Table(...)` 이름·스키마), SQL 인자, 설정값
+(`AUTH_USER_MODEL`)은 증명한 모듈 상수만 쓴다(routes·graph·client와 같은 기준,
+[README 소스 읽기 상한](../README.ko.md#소스-읽기-상한)). 모듈 수준에서 두 번 이상 묶이거나(`+=` 포함),
+`if`·반복문·`try`·`with`·`match` 블록 안에서 묶이거나, 함수가 `global`로 다시 묶거나, 모듈 어디서든 제자리에서
+바뀌거나(`NAME.append(…)`·`NAME[k] = …`), `globals()`를 부르는 모듈의 이름은 무조건 대입이 있어도 모르는 값이다.
+그 이름으로 만든 테이블은 dynamic 사실, SQL 인자는 읽지 못한 인자다. 그런 이름이 가리키는 Core `Table` 객체도 테이블로
+풀지 않는다(`users = Table(…)` 뒤 `if …: users = Table(…)`): 쿼리 엔터티(`select(users)`)는 풀지 못한 엔터티,
+`__table__ = users`는 계산된 테이블 이름, `secondary=users`는 리터럴이 아닌 연결 테이블과 같은 dynamic 사실이다.
+다시 묶은 이름이 가리키는 `MetaData`·declarative 기반·`SQLAlchemy()` 객체의 스키마 인자(`MetaData(schema=…)`)는 아직
+이 판정을 거치지 않는다.
+
 ## Django
 
 ### 이름 규칙
@@ -110,7 +121,7 @@ dynamic이고 `django-app-label-unresolved:`로 센다. 명시 `db_table`은 라
 | 스키마: `__table_args__`(사전 또는 끝이 사전인 튜플)의 `schema`, 없으면 기반 `MetaData(schema=)`. Core `Table`은 `schema=`, 없으면 MetaData 스키마(Flask-SQLAlchemy `db.Table`은 `SQLAlchemy(metadata=)`) | `sql/schema.py` `Table`·`MetaData`(스크래치에서 실측) |
 | Flask-SQLAlchemy 자동 이름: `camel_to_snake_case(클래스 이름)` = `re.sub(r"((?<=[a-z0-9])[A-Z]\|(?!^)[A-Z](?=[a-z]))", r"_\1", name).lower().lstrip("_")`. 이름이 어디에도 없을 때, 또는 매핑된 부모에만 있을 때 붙인다. 매핑된 부모가 있으면 자기 기본 키 컬럼이 있을 때만 조인 테이블이고 없으면 단일 테이블 상속(부모 테이블) | Flask-SQLAlchemy 3.1.1 `model.py` `camel_to_snake_case`·`should_set_tablename`·`NameMixin.__table_cls__`(3.0.5 동일) |
 | `disable_autonaming=True`거나 `model_class`가 이미 만든 declarative 클래스면 자동 이름이 없다 | `extension.py` `_make_declarative_base` |
-| Flask-SQLAlchemy 2.x는 `([A-Z]+)(?=[a-z0-9])` 규칙이다(`User2FA` → 3.x `user2_fa`, 2.x `user2FA`). 버전을 한 메이저로 선언하지 않으면 두 규칙이 같은 이름만 정적이고 나머지는 dynamic과 `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2.5.1 `model.py` `camelcase_re`·`camel_to_snake_case` |
+| Flask-SQLAlchemy 2.x는 `([A-Z]+)(?=[a-z0-9])` 규칙이다(`User2FA` → 3.x `user2_fa`, 2.x `user2FA`). 버전을 한 메이저로 선언하지 않으면 두 규칙이 같은 이름만 정적이고 나머지는 dynamic과 `flask-sqlalchemy-naming-unverified:`. 이 정규식은 소문자·숫자가 뒤따르지 않는 대문자 연속에서 이름 길이의 제곱 시간이 들어(`"A"`×32,000이 5초) 1,000자를 넘는 클래스 이름에는 적용하지 않는다(정규식은 그대로 둔다). 2.x가 후보면(2로 선언했거나 한 메이저로 선언하지 않았으면) 그런 클래스의 자동 이름은 dynamic과 `flask-sqlalchemy-naming-unverified:`이고, 3.x만 후보면 선형인 3.x 규칙으로 길이와 관계없이 짓는다 | Flask-SQLAlchemy 2.5.1 `model.py` `camelcase_re`·`camel_to_snake_case` |
 
 ### 사용 규칙
 
@@ -142,7 +153,8 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   `MySQLdb`·`mysql`·`cx_Oracle`·`oracledb`·`asyncpg`·`aiosqlite`·`aiomysql`·`pyodbc`·`django`·`sqlalchemy`·
   `flask_sqlalchemy` — 를 import한 모듈의 `execute`·`executemany`·`executescript`)는 소문자 SQL도 읽는다.
 - 인자는 리터럴, 모듈 상수, 같은 함수의 유일한 대입, f-string, `+`, `%`, `.format()`으로 만든 문자열까지 읽고, 알
-  수 없는 조각은 `{}` 플레이스홀더다. 관계 자리의 플레이스홀더는 dynamic 사실 하나다.
+  수 없는 조각은 `{}` 플레이스홀더다. 관계 자리의 플레이스홀더는 dynamic 사실 하나다. 모듈 상수는 증명한 이름만 읽는다
+  (`QUERY += " JOIN …"`처럼 다시 묶은 이름은 모르는 조각이고, 그 값 식의 대문자 SQL은 아래 리터럴 규칙으로 읽는다).
 - DB-API 파라미터 표기(`%s`, `%(name)s`)는 값 자리라 `?`로 바꾼다(그대로 두면 `FROM %s`의 `s`가 관계로 읽힌다).
   문자열 보간 `"… %s" % x`의 `%s`는 SQL 조각이라 `{}`로 바꾼다. 파이썬 전용 전처리다.
 - 명시 ORM sink의 읽지 못한 인자는 dynamic 사실, 일반 `execute`의 읽지 못한 이름 인자는
@@ -154,6 +166,27 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 길이를 단계마다 곱으로 늘리기 때문이다. 같은 상수는 한 번만
   펼치고, 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 
+관계 이름이 아닌 세 경우는 persistence 생산자 계열 공통 규칙대로 relation-use로 내지 않는다. 이 이름을 내면 isthmus가
+선언과 잇지 못해 완전한 카탈로그와 맞출 때 거짓 `relation-use-without-decl` error를 낸다. 계열 공통 사례 14개를
+`tests/test_sql_relations.py`가 SQL·기대값 그대로 확인한다.
+
+- 함수 인자 안의 FROM(R1): FROM을 감싼 가장 안쪽 괄호 바로 앞이 함수 이름(절 단어가 아닌 비인용 이름)이고 그 괄호의
+  첫 토큰이 `SELECT`·`WITH`·`VALUES`가 아니면 그 FROM은 관계를 열지 않는다(`EXTRACT(YEAR FROM created_at)`,
+  `TRIM(BOTH ' ' FROM name)`, `SUBSTRING(name FROM 2 FOR 3)`). 하위 질의(`FROM (SELECT …)`, `IN (SELECT …)`,
+  `(SELECT … FROM users)`, 함수 인자 안의 하위 질의)와 CTE 본문(`AS [NOT] [MATERIALIZED] (DELETE FROM t …)`) 안의 FROM은
+  그대로 관계다. 괄호 문맥은 비인용 `;`에서 끝나고, JOIN에는 이 규칙을 걸지 않는다. 규칙 문구대로 절 단어가 아닌 이름
+  뒤 괄호 속 DML의 FROM(`COPY (DELETE FROM t RETURNING *)`)도 함수 인자로 읽어 관계를 내지 않는다(계열 공통의 알려진
+  손실).
+- CTE 이름(R2): 비인용 `;`로 나뉜 문장마다 `WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (`와 쉼표 뒤 같은
+  꼴(`, name …`)의 이름을 모아, 같은 문장의 한정자 없는 피연산자가 그 이름이면 내지 않는다. 비인용 이름끼리는 대소문자를
+  무시하고 인용 이름은 쓴 그대로 비교한다(`"recent"`는 `recent`와 같고 `"Recent"`와는 다르다). 한정 이름(`s.recent`)과
+  다른 문장에는 영향이 없다. 문장 단위라 실제 테이블과 이름이 같은 CTE는 같은 문장의 그 테이블 사용도 내지 않는다
+  (`WITH users AS (SELECT * FROM users …)`의 본문이 읽는 `users`, `INSERT INTO users` 대상, 계열 공통의 알려진 손실).
+- `IS [NOT] DISTINCT FROM`(R3): FROM 바로 앞 비인용 토큰이 `distinct`이고 그 앞이 `is`나 `is not`이면 비교 연산자다.
+- 세 경우는 관계 자리가 아니라서 그 자리의 플레이스홀더(`IS DISTINCT FROM %s`, `EXTRACT(EPOCH FROM ?)`)도 dynamic 사실로
+  세지 않는다. 세 규칙이 알아보는 단어(`WITH`·`RECURSIVE`·`AS`·`NOT`·`MATERIALIZED`·`IS`·`DISTINCT`와 하위 질의
+  머리)는 strict 모드에서도 대소문자를 가리지 않는다. 규칙이 관계를 빼기만 하기 때문이다.
+
 ## 한계 접두사
 
 모두 호출 측 한계다. isthmus는 이 문구로 심각도를 바꾸지 않고, dynamic 사실은 직접 센다.
@@ -163,7 +196,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `dynamic-relation-names:` | 이유별 dynamic 사실 수(매니저 수신자, 조회식, 백엔드·라벨에 따라 다른 이름, SQL 플레이스홀더 등) |
 | `django-app-label-unresolved:` | 앱 라벨을 확정하지 못한 모델 수 |
 | `django-database-backend-unknown:` | `DATABASES` ENGINE을 읽지 못해 모든 내장 백엔드가 같은 이름만 정적 |
-| `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2·3 규칙이 다른 자동 이름 수 |
+| `flask-sqlalchemy-naming-unverified:` | Flask-SQLAlchemy 2·3 규칙이 다른 자동 이름 수, 2.x 규칙을 적용하지 않은 1,000자 초과 클래스 이름 수 |
 | `persistence-framework-version-unknown:` | Django 5·SQLAlchemy 2로 선언하지 않음(확인한 버전 밖) |
 | `unmodeled-orm-mappings:` | 모르는 외부 기반 클래스를 상속해 필드 목록이 불완전한 Django 모델 |
 | `unresolved-django-lookups:` | 모델에 귀속하지 못한 `OuterRef` |
@@ -174,7 +207,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `missing-relation-usrs:` | symbol이 없는(모듈 수준) 사실 수 |
 | `unsupported-db-packages:`, `non-relational-stores:` | 해석하지 않는 ORM·저장소를 import한 파일 수 |
 | `skipped-migration-sources:`, `test-sources-excluded:` | 읽지 않은 마이그레이션·테스트 파일 수 |
-| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 256단 초과 포함)·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·소스를 가릴 수 있는 심볼릭 링크·순회 상한 |
+| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 256단 초과·구문 트리 노드 1,000,000개 초과·실행당 파싱 총량 64 MiB 초과 포함)·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·소스를 가릴 수 있는 심볼릭 링크·순회 상한·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(`scan-truncated:`, 얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다) |
 
 ## 명명 벡터
 

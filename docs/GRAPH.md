@@ -13,7 +13,8 @@ pythograph impact (reach와 같은 옵션)
 
 - `graph`: pythograph 자체 형식 `pythograph-graph` v1 스냅샷(isthmus 입력이 아니다). 정점(`id`·`kind`·`location`,
   미해석 호출이 있으면 모드별 `unresolvedCalls`와 이유별 `unresolvedReasons`), 간선(`from`·`to`·`kinds`·`evidence`),
-  `statistics`, `direct` 모드 `limitations`, `graphRevision`, `revision`.
+  `statistics`, `direct` 모드 `limitations`(revision을 확인하지 않았으면 끝에 `revision-unverified:`), `graphRevision`,
+  `revision`.
 - `reach`: root가 기대는 정점(`direction: "dependencies"`), `impact`: root에 기대는 정점(`"dependents"`).
 - 종료 코드: 0 성공, 2 읽을 수 없는 프로젝트·출력 상한 초과(부분 문서 없음 — `graph` 스냅샷 256 Mi 문자, `reach`·
   `impact` 16 Mi 문자), 64 사용법 오류(표준 출력 비어 있음) 또는 root-not-found(문서를 쓴 뒤 64). 1은 예약이다.
@@ -202,7 +203,7 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 | `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `object.__setattr__`·`x.__setattr__`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
 | `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(색인은 첫 정의만 본다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
 | `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
-| `scan-incomplete` | 파싱하지 못한 파일·교환 형식이 쓸 수 없는 이름(UTF-8 아님·제어 문자·U+2028/2029)의 파일·소스를 가릴 수 있는 심볼릭 링크·파일 수 상한: 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
+| `scan-incomplete` | 파싱하지 못한 파일·교환 형식이 쓸 수 없는 이름(UTF-8 아님·제어 문자·U+2028/2029)의 파일·소스를 가릴 수 있는 심볼릭 링크·파일 수 상한·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다): 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
 | `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |
 | `call-result`·`class-attribute`·`not-instance`·`dynamic-expression` 등 | 흐름이 프로젝트 인스턴스로 끝나지 않는다(외부 호출 결과·클래스 객체 속성·함수 값·첨자) |
 
@@ -267,16 +268,43 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   git 실행 파일은 `PATH`의 절대 경로 항목에서만 찾아(빈·상대 항목은 건너뛴다, Windows는 `git.exe`만) 그 절대 경로로 실행하고,
   실제 위치가 프로젝트 안이거나 현재 디렉터리에 바로 있는 것은 쓰지 않는다(디렉터리는 경로 문자열이 아니라 파일 신원으로 비교해
   대소문자·유니코드 정규화만 다른 철자도 같은 디렉터리로 본다). 찾지 못하면 revision을 싣지 않는다.
-  분석 대상 코드는 실행하지 않는다.
+  분석 대상 코드와, 분석 대상 `.git`(과 사용자·시스템) 설정이 정한 명령은 실행하지 않는다([README 보안](../README.ko.md#보안)).
+  - git 호출(`ls-files --stage`·`status`·`rev-parse`)마다 바로 앞에서 `git config -z --includes --get-regexp
+    '^(filter\..*\.(clean|smudge|process)|extensions\.partialclone|remote\.(.*\.)?(promisor|partialclonefilter))$'`로
+    filter 드라이버 이름(`filter.`과 마지막 `.<키>` 사이 전체, 대소문자 보존)과 promisor 키를 모은다. 이름마다
+    `-c filter.<이름>.clean=`·`smudge=`·`process=`·`required=false`로 덮고, 공통으로 `log.showSignature=false`를 붙인다.
+    조회의 종료 1(출력 없음)은 드라이버·promisor 없음이고, 그 밖의 실패나 형식이 다른 출력이면 그 호출을 하지 않는다.
+    status는 `--ignore-submodules=all`로 돈다. diff·log 계열 호출은 없다.
+  - 부분 clone의 지연 fetch(빠진 객체를 원격에서 받아 오며 `remote.<이름>.uploadpack`·`core.sshCommand` 같은 원격 설정을
+    따른다)를 띄우지 않는다. 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 모은 키에 promisor 키(`extensions.partialclone`,
+    `remote.<이름>.promisor`·`partialclonefilter`, 이름 없는 `remote.promisor`, 값은 보지 않는다)가 있으면 설정 조회가
+    아닌 호출의 하위 명령 앞에 `--no-lazy-fetch`도 붙인다. 둘 다 git 2.45부터다. 옛 git은 변수를 무시하지만 옵션은 시작
+    전에 거부(129)하므로 promisor 저장소에서는 아무것도 읽지 않는다. promisor 저장소에서 이렇게 붙인 호출이 실패하면(빠진
+    객체, 옛 git) revision을 싣지 않고 `revision-unverified:` 한계를 단다. promisor 키가 없는 저장소는 옵션을 붙이지 않아
+    어느 git에서나 그대로다.
+  - git-lfs처럼 filter로 정규화되던 파일은 stat 캐시가 낡으면 원문이 기록된 blob과 달라 바뀐 것으로 보이므로 revision을
+    싣지 않는다(fail-safe).
+  - 인덱스에 서브모듈(gitlink, mode 160000)이 있으면 status를 실행하지 않는다. 서브모듈 작업 트리가 깨끗한지는 그 저장소
+    자신의 설정을 따라야만 알 수 있고, 그래프는 서브모듈 디렉터리의 소스도 분석하기 때문이다. revision을 싣지 않고
+    `revision-unverified:` 한계(센 서브모듈 수)를 단다.
+  - 드라이버 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있으면 `-c`로 덮을 수 없어(git은 `-c`를 첫 `=`에서 나눈다) git
+    명령을 더 실행하지 않고 같은 접두사의 한계를 단다(이름 원문은 싣지 않는다). `GIT_CONFIG_COUNT` 환경 변수로 넘기는 대안은
+    옛 git이 조용히 무시해 드라이버가 실행되므로 쓰지 않는다.
+  - git이 없거나, promisor 저장소가 아닌데 git이 실패했거나, 더러운 트리는 지금처럼 한계 없이 revision만 생략한다(isthmus가
+    `analysis-revision-unknown`으로 드러낸다). 나머지 설정(`core.worktree` 등)은 git이 무엇을 보고할지를 정하고 위에서 막은
+    경로 밖의 설정은 그대로 믿으므로, 신뢰하지 않는 `.git`이면 `--revision`을 준다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
 - `limitations`: 모드의 그래프 한계(`unresolved-calls:`, `overridden-methods:`/`candidate-dispatch:`, `bound-dispatch:`·
   `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
-  문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`).
-- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과). 깊은
-  모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지 않도록 그 모듈만 뺀다. 빠진 파일에는 정점이 없고
-  `bound`는 `scan-incomplete`로 연다.
+  문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`, 끝에 `revision-unverified:`).
+- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과, 구문
+  트리 노드 1,000,000개 초과, 실행당 파싱 총량 64 MiB 초과). 깊은 모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령
+  전체를 끝내지 않도록, 노드가 많은 모듈 하나가 구문 트리를 명령 끝까지 메모리에 남기지 않도록 그 모듈만 뺀다.
+  파싱 총량 때문에 빠진 파일은 같은 접두사의 줄 하나에 수와 이유("could not be analyzed: the run's total parsed source
+  would exceed its 64 MiB budget; pass a narrower --project")를 따로 싣는다. 빠진 파일에는 정점이 없고 `bound`는
+  `scan-incomplete`로 연다.
 - 같은 입력이면 같은 바이트다(`--generated-at`으로 시각 고정).
 
 ## 검증

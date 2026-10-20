@@ -1,11 +1,11 @@
-"""분석 대상 소스를 `ast`로 읽을 때의 중첩 상한.
+"""분석 대상 소스를 `ast`로 읽을 때의 중첩 상한과 트리 크기 측정.
 
 파싱한 트리는 여러 분석기가 재귀로 내려간다(`ast.NodeVisitor` 방문자, 이름·값 해석, URLconf·설정 해석). 트리가 너무
 깊으면 파이썬 재귀 한도(기본 1000프레임)를 넘어 명령 전체가 내부 오류로 끝나므로, 상한보다 깊은 소스는 파싱 단계에서
 읽지 못한 소스로 돌려 기존 한계(unparsed-files·route-coverage·unreadable-sources)로 보고한다. 명령마다 재귀가 쓰는
 프레임이 달라 상한도 다르다(graph 계열 `MAX_AST_DEPTH`, routes·schema `MAX_EXTRACTION_AST_DEPTH`). 분석 도중
 RecursionError를 잡아 계속하지 않는 것은 그때까지 채운 메모(별표 import 캐시의 자리표시, 해석기 메모)가 틀린 사실을
-낼 수 있어서다.
+낼 수 있어서다. 같은 순회가 노드 수도 센다(`tree_overflow`, 상한은 `source.project.MAX_MODULE_SYNTAX_NODES`).
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import ast
 import io
 import sys
 import tokenize
+from typing import Literal
 
 #: 실행 중인 파서가 깊은 왼쪽 결합 사슬(`a + a + …`, `x.a.a…`, `f()()…`, `x[0][0]…`)에서 C 스택을 넘기는지다.
 #: 3.10의 `ast.parse`는 그런 트리를 파이썬 객체로 바꾸다 프로세스가 신호로 죽고(종료 코드 139), 3.11부터는
@@ -54,10 +55,7 @@ MAX_EXTRACTION_AST_DEPTH = 256
 
 
 def exceeds_depth(tree: ast.AST, limit: int = MAX_AST_DEPTH) -> bool:
-    """구문 트리의 중첩이 상한을 넘는지 재귀 없이 잰다.
-
-    한 층씩 내려가며 다음 층 노드를 모으고, 상한 층을 넘어 노드가 남으면 바로 멈춘다. 모든 모듈을 한 번씩 더 도는
-    비용이라 `ast.iter_child_nodes` 생성기 대신 필드를 직접 읽고 지역 이름에 묶는다(Django 907파일에서 0.19초 → 0.10초).
+    """구문 트리의 중첩이 상한을 넘는지 재귀 없이 잰다(노드 수는 보지 않는다).
 
     Args:
         tree: 구문 트리.
@@ -66,24 +64,61 @@ def exceeds_depth(tree: ast.AST, limit: int = MAX_AST_DEPTH) -> bool:
     Returns:
         상한보다 깊으면 True.
     """
-    node_type = ast.AST
+    return tree_overflow(tree, limit, sys.maxsize) == "depth"
+
+
+def tree_overflow(tree: ast.AST, depth_limit: int, node_limit: int) -> Literal["depth", "nodes"] | None:
+    """구문 트리가 중첩 상한이나 노드 수 상한을 넘는지 재귀 없이 한 번에 잰다.
+
+    한 층씩 내려가며 다음 층 노드를 모으고 지금까지의 노드 수를 더한다. 노드 수가 상한을 넘거나 상한 층을 넘어 노드가
+    남으면 바로 멈춘다. 모듈마다 한 번 도는 순회 하나로 두 상한을 함께 본다(노드 수를 따로 세면 모든 모듈을 한 번 더
+    돈다).
+
+    Args:
+        tree: 구문 트리.
+        depth_limit: 허용하는 최대 깊이(뿌리가 1).
+        node_limit: 허용하는 최대 노드 수(문맥·연산자 잎 노드 포함).
+
+    Returns:
+        노드 수 상한을 넘으면 `"nodes"`, 중첩 상한을 넘으면 `"depth"`, 둘 다 아니면 None.
+    """
     level: list[ast.AST] = [tree]
-    for _ in range(limit):
-        following: list[ast.AST] = []
-        append = following.append
-        for node in level:
-            for name in node._fields:
-                value = getattr(node, name, None)
-                if isinstance(value, node_type):
-                    append(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, node_type):
-                            append(item)
-        if not following:
-            return False
-        level = following
-    return True
+    nodes = 1
+    for _ in range(depth_limit):
+        level = _next_level(level)
+        if not level:
+            return None
+        nodes += len(level)
+        if nodes > node_limit:
+            return "nodes"
+    return "depth"
+
+
+def _next_level(level: list[ast.AST]) -> list[ast.AST]:
+    """한 층 노드의 자식을 모두 모은다.
+
+    모든 모듈을 한 번씩 도는 비용이라 `ast.iter_child_nodes` 생성기 대신 필드를 직접 읽고 지역 이름에 묶는다(Django
+    907파일에서 0.19초 → 0.10초).
+
+    Args:
+        level: 한 층의 노드.
+
+    Returns:
+        다음 층의 노드.
+    """
+    node_type = ast.AST
+    following: list[ast.AST] = []
+    append = following.append
+    for node in level:
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, node_type):
+                append(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, node_type):
+                        append(item)
+    return following
 
 
 def parse_annotation(text: str) -> ast.expr | None:
