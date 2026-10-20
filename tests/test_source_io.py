@@ -17,7 +17,7 @@ import pytest
 
 from pythograph.graph.build import build_graph
 from pythograph.source import project as project_module
-from pythograph.source.project import Project, ReadFailure, SourceModule, source_budget_reason
+from pythograph.source.project import Project, ReadFailure, SourceModule, source_budget_reason, syntax_nodes_reason
 from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
 
 MakeProject = Callable[[dict[str, str]], Path]
@@ -333,6 +333,72 @@ def test_source_budget_is_checked_before_the_chain_guard(
         source_budget_reason(),
     ]
     assert (project.parsed_source_bytes, project.budget_skipped_modules) == (6, 1)
+
+
+def test_module_over_the_syntax_node_limit_keeps_no_tree_and_spends_no_budget(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """구문 트리 노드가 상한보다 많은 모듈은 트리를 버리고 읽지 못한 소스로 남기며 예산을 쓰지 않는다. 상한과 같으면
+    읽는다.
+
+    파일당 바이트 상한(4 MiB)만으로는 리터럴만 빽빽한 모듈 하나가 약 280만 노드(약 0.9 GB)를 남겨, 그런 파일 몇 개로
+    메모리가 고갈됐다.
+    """
+    sources = {"a.py": b"A = 1\n", "b.py": b"B = [1, 2, 3, 4, 5]\n", "c.py": b"C = [1, 2, 3, 4, 5, 6]\n"}
+    nodes = {path: len(list(ast.walk(ast.parse(text)))) for path, text in sources.items()}
+    root = make_project({})
+    _write_sources(root, sources)
+    monkeypatch.setattr(project_module, "MAX_MODULE_SYNTAX_NODES", nodes["b.py"])
+    project = Project.open(root)
+    outcomes = {path: project.module(path) for path in sources}
+    assert isinstance(outcomes["a.py"], SourceModule) and isinstance(outcomes["b.py"], SourceModule)
+    failure = outcomes["c.py"]
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == syntax_nodes_reason() == f"syntax tree larger than {nodes['b.py']:,} nodes"
+    assert project.parsed_source_bytes == len(sources["a.py"]) + len(sources["b.py"])
+    assert project.budget_skipped_modules == 0
+
+
+def test_syntax_node_limit_reason_names_the_default_limit() -> None:
+    """기본 상한은 README의 1,000,000 노드다(실측한 가장 큰 실제 모듈의 약 5배)."""
+    assert project_module.MAX_MODULE_SYNTAX_NODES == 1_000_000
+    assert syntax_nodes_reason() == "syntax tree larger than 1,000,000 nodes"
+
+
+@pytest.mark.parametrize(
+    ("command", "prefix"),
+    [
+        (["graph"], "unparsed-files:"),
+        (["schema"], "unreadable-sources:"),
+        (["routes", "--role", "server"], "route-coverage:"),
+        (["routes", "--role", "client"], "route-call-coverage:"),
+    ],
+)
+def test_syntax_node_limit_is_reported_by_every_producer(
+    make_project: MakeProject, monkeypatch: pytest.MonkeyPatch, command: list[str], prefix: str
+) -> None:
+    """노드 상한을 넘는 모듈은 명령마다 읽지 못한 소스 한계로 남고 명령은 성공한다. graph는 파싱하지 못한 파일 수에
+    넣고(다른 파싱 실패처럼 이유 줄은 없다) 닫힌 세계 `bound` 증명을 연다. 경로·절대 경로는 싣지 않는다."""
+    root = make_project(
+        {
+            "app.py": "def main():\n    return 1\n",
+            "pkg/__init__.py": "",
+            "pkg/data.py": "DATA = [" + "1, " * 100 + "]\n",
+        }
+    )
+    monkeypatch.setattr(project_module, "MAX_MODULE_SYNTAX_NODES", 50)
+    code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
+    assert code == 0, err
+    document = json.loads(out)
+    limitations = document["limitations"]
+    if command == ["graph"]:
+        assert f"{prefix} 1 Python files could not be read or parsed and have no symbols" in limitations
+        assert document["statistics"]["unparsedFiles"] == 1
+        assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
+    else:
+        assert f"{prefix} 1 Python files could not be analyzed: {syntax_nodes_reason()}" in limitations
+    text = json.dumps(limitations)
+    assert str(root) not in text and "pkg/data.py" not in text
 
 
 def test_source_budget_reason_names_the_budget_and_the_way_out(monkeypatch: pytest.MonkeyPatch) -> None:

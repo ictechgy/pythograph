@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, exceeds_depth
+from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, tree_overflow
 from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
@@ -37,6 +37,16 @@ MAX_SOURCE_BYTES = 4 * 1024 * 1024
 #: 바이트당 약 220~350 B라 예산을 채우면 15~25 GB가 될 수 있으므로, 그런 입력의 메모리 상한은 OS 제한이
 #: 맡는다(README). 넘게 할 모듈은 파싱하지 않고 읽지 못한 소스로 남긴다(`source_budget_reason`).
 MAX_TOTAL_SOURCE_BYTES = 64 * 1024 * 1024
+
+#: 모듈 하나의 구문 트리가 가질 수 있는 최대 노드 수다(문맥·연산자 잎 노드 포함). 파싱한 트리는 명령이 끝날 때까지
+#: 남고 노드 하나가 트리와 부모 사전에 약 440 B를 쓰므로, 바이트 예산 안에서도 리터럴만 빽빽한 모듈은 트리가 원문의
+#: 수백 배가 된다(`x = 1` 반복은 바이트당 약 0.7 노드라 4 MiB 파일 하나가 약 280만 노드·약 0.9 GB를 남긴다). 실측
+#: (CPython 3.13, 설치본의 150 KB·표준 라이브러리의 100 KB가 넘는 파일 551개): 가장 큰 실제 모듈이 약 20만 노드다(sympy
+#: `polys/benchmarks/bench_solvers.py` 446 KB. torch `testing/_internal/common_methods_invocations.py` 1.3 MB는 16만,
+#: faker 주소 데이터 모듈 8.8만). 100만은 그 5배라 실제 모듈은 걸리지 않고, 넘는 모듈은 트리를 버리고 읽지 못한 소스로
+#: 남긴다(`syntax_nodes_reason`). 그래서 모듈 하나가 남기는 트리는 약 0.45 GB까지다. 파싱하는 동안의 봉우리는 파일 크기
+#: 상한(4 MiB)이 묶고, 상한 아래 모듈을 여러 개로 나눈 입력은 바이트 예산만 묶는다(README).
+MAX_MODULE_SYNTAX_NODES = 1_000_000
 
 #: 순회할 최대 디렉터리 항목 수다.
 MAX_SCANNED_ENTRIES = 200_000
@@ -350,8 +360,9 @@ class Project:
 
         파싱에 성공한 모듈의 바이트 합이 `MAX_TOTAL_SOURCE_BYTES`를 넘게 할 모듈은 파서를 부르지 않고 실패로 남긴다.
         조밀한 소스는 파싱하는 동안 메모리를 쓰므로 파싱 전에 보고, 3.10만 하는 사슬 판정보다 먼저 보므로 예산을 넘는
-        모듈의 이유는 버전과 무관하다. 트리를 남기지 않는 실패(문법 오류·깊은 중첩)는 예산을 쓰지 않는다. 파싱 순서는
-        명령마다 정해져 있어(경로 순, import로 먼저 닿은 모듈) 같은 입력이면 같은 모듈이 빠진다.
+        모듈의 이유는 버전과 무관하다. 트리를 남기지 않는 실패(문법 오류·깊은 중첩·노드 수 초과)는 예산을 쓰지 않는다.
+        파싱 순서는 명령마다 정해져 있어(경로 순, import로 먼저 닿은 모듈) 같은 입력이면 같은 모듈이 빠진다. 노드가
+        `MAX_MODULE_SYNTAX_NODES`보다 많은 트리는 깊이를 재는 같은 순회에서 세어 버린다(남기지 않는다).
 
         Args:
             relative: 프로젝트 상대 경로.
@@ -380,8 +391,11 @@ class Project:
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
             return ReadFailure(relative, "source nesting too deep to parse")
-        if exceeds_depth(tree, self.max_depth):
+        overflow = tree_overflow(tree, self.max_depth, MAX_MODULE_SYNTAX_NODES)
+        if overflow == "depth":
             return ReadFailure(relative, "source nesting too deep to parse")
+        if overflow == "nodes":
+            return ReadFailure(relative, syntax_nodes_reason())
         self.parsed_source_bytes += len(data)
         return SourceModule(
             path=relative,
@@ -632,6 +646,17 @@ def source_budget_reason() -> str:
         f"the run's total parsed source would exceed its {_size_text(MAX_TOTAL_SOURCE_BYTES)} budget; "
         "pass a narrower --project"
     )
+
+
+def syntax_nodes_reason() -> str:
+    """구문 트리 노드가 상한보다 많아 분석하지 않은 모듈의 실패 이유다(명령마다 "could not be analyzed: " 뒤에 싣는다).
+
+    파일 크기 상한의 이유("file larger than 4 MiB")와 같은 꼴로 원인(상한)을 싣는다. 상한은 부르는 시점의 값을 쓴다.
+
+    Returns:
+        실패 이유 문구.
+    """
+    return f"syntax tree larger than {MAX_MODULE_SYNTAX_NODES:,} nodes"
 
 
 def _size_text(size: int) -> str:

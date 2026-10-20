@@ -37,6 +37,7 @@ from pythograph.source.syntax import (
     MAX_EXTRACTION_AST_DEPTH,
     exceeds_depth,
     parse_annotation,
+    tree_overflow,
 )
 from pythograph.source.text import is_contract_safe
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
@@ -708,6 +709,19 @@ def test_nesting_limit_boundary(make_project: Callable[[dict[str, str]], Path]) 
     tree = ast.parse(edge)
     assert not exceeds_depth(tree) and exceeds_depth(tree, MAX_AST_DEPTH - 1)
     assert not exceeds_depth(ast.parse(""), 1)
+
+
+def test_tree_overflow_counts_every_node_and_keeps_the_depth_rule() -> None:
+    """노드 수는 `ast.walk`가 내는 모든 노드(문맥 잎 포함)이고 상한과 같으면 넘지 않는다. 중첩 판정은 `exceeds_depth`와
+    같고, 상한 층에 닿기 전에 노드 수가 넘으면 노드 쪽으로 멈춘다."""
+    tree = ast.parse("DATA = [1, 2, 3, 4, 5]\nNAME = DATA\n")
+    nodes = len(list(ast.walk(tree)))
+    assert tree_overflow(tree, MAX_AST_DEPTH, nodes) is None
+    assert tree_overflow(tree, MAX_AST_DEPTH, nodes - 1) == "nodes"
+    deep = ast.parse("VALUE = " + " + ".join(["1"] * (MAX_AST_DEPTH - 1)) + "\n")
+    assert tree_overflow(deep, MAX_AST_DEPTH, 10**9) == "depth"
+    assert tree_overflow(deep, MAX_AST_DEPTH, 10) == "nodes"
+    assert tree_overflow(ast.parse(""), 1, 1) is None
 
 
 def test_extraction_commands_use_a_higher_nesting_limit(make_project: Callable[[dict[str, str]], Path]) -> None:

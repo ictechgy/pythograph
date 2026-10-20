@@ -423,9 +423,15 @@ the command still succeeds with the other modules. Each command parses in a fixe
 reached through imports parsed when first needed), so the same input skips the same modules on every run. Parsed syntax
 trees stay in memory until the command ends, because name resolution can return to any module: ordinary code peaks
 at about 30–55 bytes of memory per source byte (`graph` on sympy, 26 MB of source in 1,532 files, takes about 1 GB),
-so a run at the budget needs about 2–4 GB. Literal-heavy modules (large list literals, generated tables, thousands
-of `x = 1` lines) keep about 220–350 bytes per source byte, so a crafted repository can still use 15–25 GB
-within the budget. Analyze untrusted repositories under an operating-system memory limit (a cgroup or container
+so a run at the budget needs about 2–4 GB. A module whose syntax tree has more than 1,000,000 nodes (counting context
+and operator leaves) is not kept either: it is reported the same way with the reason "syntax tree larger than
+1,000,000 nodes". Among the large files measured in installed packages (sympy, torch, NumPy, SciPy, faker, and
+others) and the standard library, the largest real module has about 200,000 nodes, while a 4 MiB module of `x = 1`
+lines has about 2.8 million and kept about 0.9 GB. So one module keeps at most about 0.45 GB, and parsing one module
+peaks at about 2–3 GB, bounded by the 4 MiB file limit. Literal-heavy modules below the node limit (large list
+literals, generated tables, thousands of `x = 1` lines) still keep about 220–350 bytes per source byte, so a crafted
+repository that spreads such data over many modules can still use 15–25 GB within the budget; pythograph does not
+bound that case yet. Analyze untrusted repositories under an operating-system memory limit (a cgroup or container
 memory limit, or `ulimit -v` on Linux).
 
 Constant evaluation follows f-strings, `+`, list literals, and module constants for route strings, settings, SQL text,

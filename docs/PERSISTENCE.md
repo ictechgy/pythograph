@@ -207,7 +207,7 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
 | `missing-relation-usrs:` | symbol이 없는(모듈 수준) 사실 수 |
 | `unsupported-db-packages:`, `non-relational-stores:` | 해석하지 않는 ORM·저장소를 import한 파일 수 |
 | `skipped-migration-sources:`, `test-sources-excluded:` | 읽지 않은 마이그레이션·테스트 파일 수 |
-| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 256단 초과·실행당 파싱 총량 64 MiB 초과 포함)·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·소스를 가릴 수 있는 심볼릭 링크·순회 상한·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(`scan-truncated:`, 얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다) |
+| `unreadable-sources:`, `skipped-symlinks:`, `scan-truncated:` | 파싱 실패(구문 트리 중첩 256단 초과·구문 트리 노드 1,000,000개 초과·실행당 파싱 총량 64 MiB 초과 포함)·교환 형식이 쓸 수 없는 파일 이름(UTF-8 아님·제어 문자·U+2028/2029)·소스를 가릴 수 있는 심볼릭 링크·순회 상한·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(`scan-truncated:`, 얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다) |
 
 ## 명명 벡터
 
