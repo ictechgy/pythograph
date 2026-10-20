@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import cast
 
 from pythograph.graph.model import DISPATCH_MODES
-from pythograph.source.project import Project
+from pythograph.source.project import Project, skipped_roots_reason
 
 #: 프레임워크 표를 만든 설치본 버전이다.
 FRAMEWORK_VERSIONS = "Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3"
@@ -183,4 +183,6 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
             f"scan-incomplete: {project.scan_errors} directory entries could not be read; "
             "symbols in those paths may be missing"
         )
+    if project.skipped_module_roots:
+        lines.append(f"scan-incomplete: {skipped_roots_reason(project.skipped_module_roots)}")
     return lines

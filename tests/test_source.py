@@ -6,11 +6,13 @@ import ast
 import os
 import subprocess
 import sys
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable, Iterator
+from pathlib import Path, PurePosixPath
 
 import pytest
 
+from pythograph.graph import exposure
+from pythograph.graph.build import scan_modules
 from pythograph.graph.index import DefinitionIndex
 from pythograph.graph.scope import Resolver
 from pythograph.graph.values import ClassValue
@@ -445,6 +447,164 @@ def test_module_resolution_is_remembered_per_module_roots(
     assert project.resolve_module("app") == "lib/app.py"
     assert project.resolve_module("pkg.mod") == "pkg/mod.py"
     assert len(checked) > first
+
+
+def _count_checked_stats(project: Project, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """프로젝트의 성분별 lstat 검사(`_checked_stat`) 호출을 인자 경로 순서대로 모은다.
+
+    Args:
+        project: 프로젝트.
+        monkeypatch: pytest monkeypatch.
+
+    Returns:
+        호출마다 인자 경로가 쌓이는 목록.
+    """
+    checked: list[str] = []
+    checked_stat = project._checked_stat
+
+    def counting(relative: str) -> os.stat_result:
+        checked.append(relative)
+        return checked_stat(relative)
+
+    monkeypatch.setattr(project, "_checked_stat", counting)
+    return checked
+
+
+def test_unique_names_do_not_recheck_every_module_root(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """고유 이름마다 모든 모듈 루트를 다시 lstat하지 않는다. 루트 항목은 처음 닿을 때 한 번만 읽는다.
+
+    빈 `manage.py`를 수천 개 두면 고유 외부 이름 하나마다 모듈 루트 수 × 후보 2개의 성분별 lstat을 해, graph·reach·
+    impact가 루트 수에 비례해 느려지던 문제다(루트 4,096개에서 고유 이름 400개를 푸는 graph가 66.8초).
+    """
+    files = {f"sites/s{index}/manage.py": "" for index in range(1000)}
+    files["app/__init__.py"] = ""
+    project = Project.open(make_project(files))
+    checked = _count_checked_stats(project, monkeypatch)
+    assert project.resolve_module("ext0.sub") is None
+    first = len(checked)
+    assert first <= len(project.module_roots)
+    for number in range(1, 200):
+        assert project.resolve_module(f"ext{number}.sub") is None
+    assert len(checked) == first
+    assert project.resolve_module("app") == "app/__init__.py"
+
+
+class _CountingRoots(list[str]):
+    """모듈 루트 목록을 훑은 횟수를 센다(`for`·`list()`·`any()`가 부르는 `__iter__`)."""
+
+    def __init__(self, roots: list[str]) -> None:
+        """목록을 감싼다.
+
+        Args:
+            roots: 모듈 루트.
+        """
+        super().__init__(roots)
+        self.scans = 0
+
+    def __iter__(self) -> Iterator[str]:
+        """훑을 때마다 센다.
+
+        Returns:
+            원소 반복자.
+        """
+        self.scans += 1
+        return super().__iter__()
+
+
+def _reference_module_name(roots: list[str], relative: str) -> str:
+    """파일마다 모든 모듈 루트와 비교하던 옛 모듈 이름 규칙이다(파일을 담은 가장 긴 루트 기준, 결과 대조용).
+
+    Args:
+        roots: 모듈 루트.
+        relative: 프로젝트 상대 `.py` 경로.
+
+    Returns:
+        점으로 이은 모듈 이름.
+    """
+    path = PurePosixPath(relative)
+    best = ""
+    for root in roots:
+        if root and relative.startswith(root + "/") and len(root) > len(best):
+            best = root
+    inner = path.relative_to(best) if best else path
+    parts = list(inner.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def test_module_names_do_not_scan_every_module_root(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """모듈 이름은 파일을 담은 가장 긴 모듈 루트 기준 그대로이고, 파일마다 모듈 루트 전부를 훑지 않는다.
+
+    파싱한 파일마다 모든 루트와 문자열을 비교해, `manage.py`가 수천 개인 저장소에서 파일 수 × 루트 수가 들었다.
+    """
+    project = Project.open(make_project({"app.py": ""}))
+    roots = ["a", "a/b", "", "src", "a/b/", "x//y", *(f"sites/s{index}" for index in range(500))]
+    paths = [
+        "a/b/c/d.py",
+        "a/b.py",
+        "a/b/__init__.py",
+        "a/b/c/__init__.py",
+        "a//b.py",
+        "x//y/z.py",
+        "./a/b.py",
+        "src/pkg/mod.py",
+        "sites/s499/app/models.py",
+        "sites/s4990/app.py",
+        "top.py",
+        "__init__.py",
+    ]
+    counting = _CountingRoots(roots)
+    project.module_roots = counting
+    names = {path: project.module_name(path) for path in paths * 20}
+    assert names == {path: _reference_module_name(roots, path) for path in paths}
+    assert counting.scans <= 1
+
+
+def test_test_import_judgment_checks_module_roots_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """테스트 소스 import 판정은 모듈 루트가 테스트 디렉터리 아래인지를 import 이름마다가 아니라 한 번만 본다."""
+    files = {f"sites/s{index}/manage.py": "" for index in range(50)}
+    files["tests/test_app.py"] = ""
+    files["app.py"] = "".join(f"import ext{number}\n" for number in range(100))
+    project = Project.open(make_project(files))
+    imports = scan_modules(DefinitionIndex(project, SymbolTable(project), False)).imports
+    calls: list[str] = []
+    is_test = exposure.is_test_path
+
+    def counting(relative: str) -> bool:
+        calls.append(relative)
+        return is_test(relative)
+
+    monkeypatch.setattr(exposure, "is_test_path", counting)
+    # `tests_joined`를 테스트 모듈로 가져오면 pytest가 테스트로 수집하므로 모듈을 거쳐 부른다.
+    assert not exposure.tests_joined(project, imports)
+    assert len(imports) == 100
+    assert len(calls) < 2 * (len(project.python_files()) + len(imports) + len(project.module_roots))
+
+
+@pytest.mark.parametrize("count", [255, 256])
+def test_only_the_shallowest_manage_directories_become_module_roots(
+    make_project: Callable[[dict[str, str]], Path], count: int
+) -> None:
+    """`manage.py` 디렉터리는 (깊이, 경로) 순으로 앞 256개만 모듈 루트로 쓰고, 나머지 수를 센다.
+
+    루트 항목 색인 뒤에도 모든 루트에 같은 첫 성분(`pkg/`)을 두면 이름 하나마다 모든 루트를 봐야 해서, 루트 수에
+    비례하는 비용이 남는다(루트 4,096개에서 82.2초). 그래서 루트 수 자체에 상한을 둔다.
+    """
+    files = {f"sites/s{index:03d}/manage.py": "" for index in range(count)}
+    files.update({f"sites/s{index:03d}/pkg/__init__.py": "" for index in range(count)})
+    files["manage.py"] = ""
+    files["src/app.py"] = ""
+    project = Project.open(make_project(files))
+    kept = ["", *(f"sites/s{index:03d}" for index in range(count))][: project_module.MAX_MODULE_ROOTS]
+    assert project.module_roots == [*kept, "src"]
+    assert project.skipped_module_roots == count + 1 - len(kept)
+    # 상한 값 자체를 고정한다: 루트의 manage.py까지 256개면 모두 쓰고, 257개면 하나를 뺀다.
+    assert project.skipped_module_roots == (1 if count == 256 else 0)
 
 
 def test_star_import_resolution(make_project: Callable[[dict[str, str]], Path]) -> None:

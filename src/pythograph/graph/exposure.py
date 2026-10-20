@@ -351,10 +351,12 @@ def collect_program(project: Project, index: DefinitionIndex, resolver: Resolver
         or project.unencodable_names
         or project.forbidden_names
         or project.scan_errors
+        or project.skipped_module_roots
         or index.unparsed
     ):
         facts.incomplete = (
-            "the scan is incomplete (unreadable entries, unparsed files, skipped links, or the file limit)"
+            "the scan is incomplete (unreadable entries, unparsed files, skipped links, the file limit, "
+            "or the module root limit)"
         )
     names = _definition_names(index, whole)
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
@@ -375,18 +377,38 @@ def tests_joined(project: Project, imports: list[tuple[Definition, ast.Import | 
     """
     if not any(is_test_path(path) for path in project.python_files()):
         return False
+    test_root = _module_root_in_tests(project)
     return any(
-        not is_test_path(module.path) and _imports_test_source(project, module, node) for module, node in imports
+        not is_test_path(module.path) and _imports_test_source(project, module, node, test_root)
+        for module, node in imports
     )
 
 
-def _imports_test_source(project: Project, module: Definition, node: ast.Import | ast.ImportFrom) -> bool:
+def _module_root_in_tests(project: Project) -> bool:
+    """모듈 루트 하나라도 테스트 디렉터리(`tests`·`test`) 아래인지 본다.
+
+    그런 루트가 있으면 어떤 점 경로든 테스트 소스로 풀릴 수 있다. import 이름마다 모든 루트를 다시 보면 `manage.py`가
+    많은 저장소에서 import 수 × 루트 수가 들므로 한 번만 계산한다.
+
+    Args:
+        project: 분석 대상 프로젝트.
+
+    Returns:
+        그렇다면 True.
+    """
+    return any(is_test_path(f"{root}/x.py") for root in project.module_roots if root)
+
+
+def _imports_test_source(
+    project: Project, module: Definition, node: ast.Import | ast.ImportFrom, test_root: bool
+) -> bool:
     """import 문 하나가 프로젝트의 테스트 소스를 가리키는지 본다.
 
     Args:
         project: 분석 대상 프로젝트.
         module: import가 있는 모듈 정의.
         node: import 문.
+        test_root: 모듈 루트가 테스트 디렉터리 아래에 있는지(`_module_root_in_tests`).
 
     Returns:
         그렇다면 True.
@@ -397,29 +419,28 @@ def _imports_test_source(project: Project, module: Definition, node: ast.Import 
         base = absolute_module(module.module.module, node.module, node.level)
         names = [] if base is None else [base, *(f"{base}.{alias.name}" for alias in node.names)]
     for name in names:
-        if _maybe_test_module(project, name):
+        if _maybe_test_module(name) or test_root:
             path = project.resolve_module(name)
             if path is not None and is_test_path(path):
                 return True
     return False
 
 
-def _maybe_test_module(project: Project, name: str) -> bool:
-    """점 경로가 테스트 소스로 풀릴 수 있는지 싸게 거른다(`is_test_path` 규칙의 이름 조각, 모듈 루트의 테스트 디렉터리).
+def _maybe_test_module(name: str) -> bool:
+    """점 경로가 테스트 소스로 풀릴 수 있는지 이름 조각(`is_test_path` 규칙)으로 싸게 거른다.
+
+    모듈 루트의 테스트 디렉터리 판정은 `_module_root_in_tests`가 한 번만 한다.
 
     Args:
-        project: 분석 대상 프로젝트.
         name: 모듈 점 경로.
 
     Returns:
         테스트 소스일 수 있으면 True.
     """
     parts = name.split(".")
-    if any(
+    return any(
         part in ("tests", "test", "conftest") or part.startswith("test_") or part.endswith("_test") for part in parts
-    ):
-        return True
-    return any(is_test_path(f"{root}/x.py") for root in project.module_roots if root)
+    )
 
 
 @dataclass(frozen=True)

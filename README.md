@@ -391,6 +391,14 @@ U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:
 `route-call-coverage:` for routes, `unreadable-sources:` for schema) rather than producing a document that isthmus
 rejects as a whole.
 
+Directories that contain `manage.py` are module roots, because Django puts them on `sys.path`: imports resolve against
+them (shallowest first), then the project root, then `src/`, and a module is named from the deepest of these roots
+that contains it. At most 256 `manage.py` directories, the shallowest by depth and then path, become module roots.
+Imports that only the remaining directories would resolve are treated as external, so those directories are counted in
+limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:`
+for schema) and prevent closed-world `bound` proofs; pass a narrower `--project` to analyze them. Each module root's
+entries are read once, so resolving a name touches the filesystem only under roots that contain its first component.
+
 Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
 and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
 long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit

@@ -312,6 +312,13 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
 한계로 셉니다.
 
+`manage.py`가 있는 디렉터리는 Django가 `sys.path`에 넣는 곳이라 모듈 루트입니다. import는 이 디렉터리들(얕은 것부터),
+프로젝트 루트, `src/` 순서로 풀고, 모듈 이름은 파일을 담은 가장 깊은 루트를 기준으로 짓습니다. 모듈 루트로 쓰는 `manage.py`
+디렉터리는 (깊이, 경로) 순으로 얕은 256개까지입니다. 나머지 디렉터리에서만 풀리는 import는 외부로 보이므로, 그 디렉터리
+수를 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `scan-truncated:` 한계로 세고 닫힌
+세계 `bound` 증명도 막습니다. 그런 프로젝트는 `--project`를 좁혀 따로 분석하세요. 모듈 루트의 항목은 한 번만 읽으므로,
+이름을 풀 때는 그 이름의 첫 성분이 있는 루트에서만 파일시스템을 봅니다.
+
 구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를
 넘겨 명령 전체를 끝내지 않게 하려는 것입니다. 이런 모듈은 파싱하지 못한 파일처럼

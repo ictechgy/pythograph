@@ -21,7 +21,7 @@ from pythograph.persistence.sqlalchemy.queries import SqlAlchemyQueries
 from pythograph.persistence.sqltext import SqlText
 from pythograph.routes.versions import declared_majors, normalize_name
 from pythograph.source.evaluate import Evaluator
-from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
+from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path, skipped_roots_reason
 from pythograph.source.symbols import SymbolTable
 
 #: `execute` 계열 인자를 SQL로 읽게 하는 DB 패키지(최상위 이름)다.
@@ -293,6 +293,8 @@ def _project_gaps(project: Project, extraction: PersistenceExtraction) -> None:
         )
     if project.skipped_links:
         extraction.add_gap("skipped-symlinks:", f"{project.skipped_links} symbolic links were not followed")
+    if project.skipped_module_roots:
+        extraction.add_gap("scan-truncated:", skipped_roots_reason(project.skipped_module_roots))
     for module in project.parsed_modules().values():
         if isinstance(module, ReadFailure):
             extraction.add_gap("unreadable-sources:", "{count} Python files could not be analyzed: " + module.reason)
