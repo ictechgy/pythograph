@@ -162,6 +162,27 @@ SQLAlchemy 함수(`select` 등) 인자의 풀지 못한 이름(`select(model)`)�
   여러 번 참조하는 사슬(`B = f"{A}{A}…"`)이 짧은 소스로도 길이를 단계마다 곱으로 늘리기 때문이다. 같은 상수는 한 번만
   펼치고, 문자열 리터럴 하나는 파일 크기 상한 안이라 그대로 읽는다.
 
+관계 이름이 아닌 세 경우는 persistence 생산자 계열 공통 규칙대로 relation-use로 내지 않는다. 이 이름을 내면 isthmus가
+선언과 잇지 못해 완전한 카탈로그와 맞출 때 거짓 `relation-use-without-decl` error를 낸다. 계열 공통 사례 14개를
+`tests/test_sql_relations.py`가 SQL·기대값 그대로 확인한다.
+
+- 함수 인자 안의 FROM(R1): FROM을 감싼 가장 안쪽 괄호 바로 앞이 함수 이름(절 단어가 아닌 비인용 이름)이고 그 괄호의
+  첫 토큰이 `SELECT`·`WITH`·`VALUES`가 아니면 그 FROM은 관계를 열지 않는다(`EXTRACT(YEAR FROM created_at)`,
+  `TRIM(BOTH ' ' FROM name)`, `SUBSTRING(name FROM 2 FOR 3)`). 하위 질의(`FROM (SELECT …)`, `IN (SELECT …)`,
+  `(SELECT … FROM users)`, 함수 인자 안의 하위 질의)와 CTE 본문(`AS [NOT] [MATERIALIZED] (DELETE FROM t …)`) 안의 FROM은
+  그대로 관계다. 괄호 문맥은 비인용 `;`에서 끝나고, JOIN에는 이 규칙을 걸지 않는다. 규칙 문구대로 절 단어가 아닌 이름
+  뒤 괄호 속 DML의 FROM(`COPY (DELETE FROM t RETURNING *)`)도 함수 인자로 읽어 관계를 내지 않는다(계열 공통의 알려진
+  손실).
+- CTE 이름(R2): 비인용 `;`로 나뉜 문장마다 `WITH [RECURSIVE] name [(cols)] AS [NOT] [MATERIALIZED] (`와 쉼표 뒤 같은
+  꼴(`, name …`)의 이름을 모아, 같은 문장의 한정자 없는 피연산자가 그 이름이면 내지 않는다. 비인용 이름끼리는 대소문자를
+  무시하고 인용 이름은 쓴 그대로 비교한다(`"recent"`는 `recent`와 같고 `"Recent"`와는 다르다). 한정 이름(`s.recent`)과
+  다른 문장에는 영향이 없다. 문장 단위라 실제 테이블과 이름이 같은 CTE는 같은 문장의 그 테이블 사용도 내지 않는다
+  (`WITH users AS (SELECT * FROM users …)`의 본문이 읽는 `users`, `INSERT INTO users` 대상, 계열 공통의 알려진 손실).
+- `IS [NOT] DISTINCT FROM`(R3): FROM 바로 앞 비인용 토큰이 `distinct`이고 그 앞이 `is`나 `is not`이면 비교 연산자다.
+- 세 경우는 관계 자리가 아니라서 그 자리의 플레이스홀더(`IS DISTINCT FROM %s`, `EXTRACT(EPOCH FROM ?)`)도 dynamic 사실로
+  세지 않는다. 세 규칙이 알아보는 단어(`WITH`·`RECURSIVE`·`AS`·`NOT`·`MATERIALIZED`·`IS`·`DISTINCT`와 하위 질의
+  머리)는 strict 모드에서도 대소문자를 가리지 않는다. 규칙이 관계를 빼기만 하기 때문이다.
+
 ## 한계 접두사
 
 모두 호출 측 한계다. isthmus는 이 문구로 심각도를 바꾸지 않고, dynamic 사실은 직접 센다.

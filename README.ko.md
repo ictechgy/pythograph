@@ -192,7 +192,12 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
   `session.query`·`session.get`·`join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`, 생성자,
   `table.c.name`, `text()`.
 - **SQL 텍스트**: 가족 공유 어휘 추출기(tsograph·dartograph·cartograph·kartograph와 같은 벡터)로 명시 SQL 인자를,
-  그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외).
+  그 밖에는 대문자 SQL 리터럴을 읽는다(docstring 제외). persistence 생산자 계열 공통 규칙대로 `;`로 나뉜 같은 문장의
+  CTE 이름인 한정자 없는 이름, 함수 인자 안 `FROM`의 피연산자(`EXTRACT(YEAR FROM created_at)`·`TRIM`·`SUBSTRING`. 그
+  안의 하위 질의는 그대로 센다), `IS [NOT] DISTINCT FROM`의 피연산자는 relation-use가 아니다. 규칙을 문구 그대로
+  적용하므로 실제 테이블과 이름이 같은 CTE는 같은 문장에서 그 테이블도 가리고(`WITH users AS (SELECT * FROM users …)`의
+  본문이 읽는 `users`, `INSERT INTO users` 대상), 절 단어가 아닌 이름 뒤 괄호 속 DML의 `FROM`
+  (`COPY (DELETE FROM t …)`)은 함수 인자로 읽는다.
 - **channel**은 코드·매핑이 쓴 관계 이름(한정했을 때만 `schema.table`, 기본 스키마는 추측하지 않음), **method**는
   컬럼, **symbol.usr**는 감싸는 함수·메서드·모델 클래스이며 `routes`와 같은 id다. 백엔드·앱 라벨·Flask-SQLAlchemy
   버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 증명하지 못한 모듈 상수(`TABLE += ...` 뒤의 `db_table = TABLE`,

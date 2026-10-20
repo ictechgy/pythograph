@@ -248,7 +248,13 @@ facts), and one `relation-use` fact per observed relation or column reference. i
   `delete`, `session.query`, `session.get`, `join`), `Model.column`, `Model.relationship`, `Model.query`, `filter_by`,
   constructors, `table.c.name`, and `text()`.
 - **SQL text**: the family's shared lexical extractor (the same vectors as tsograph, dartograph, cartograph, and
-  kartograph) for explicit SQL arguments, and uppercase SQL literals elsewhere (docstrings are skipped).
+  kartograph) for explicit SQL arguments, and uppercase SQL literals elsewhere (docstrings are skipped). Following the
+  rules shared by the persistence producers, an unqualified name that is a CTE of the same `;`-separated statement, the
+  operand of a `FROM` inside function arguments (`EXTRACT(YEAR FROM created_at)`, `TRIM`, `SUBSTRING`; a subquery there
+  still counts), and the operand of `IS [NOT] DISTINCT FROM` are not relation uses. The rules apply as written: a CTE
+  named like a real table also hides that table in the same statement (the `users` read by
+  `WITH users AS (SELECT * FROM users …)`, an `INSERT INTO users` target), and a DML `FROM` in parentheses after a word
+  that is not a clause keyword (`COPY (DELETE FROM t …)`) reads as a function argument.
 - **channel** is the relation name as written or mapped (`schema.table` only when qualified; no default schema is
   guessed), **method** is the column, and **symbol.usr** is the enclosing function, method, or model class with the
   same ids as `routes`. A name that depends on an unknown backend, app label, or Flask-SQLAlchemy version, an

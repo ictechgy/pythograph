@@ -196,6 +196,39 @@ def run(connection):
     assert any(item.startswith("unresolved-sql-arguments: 1 ") for item in limitations)
 
 
+def test_sql_text_skips_cte_names_function_from_and_distinct_from(make_project: MakeProject) -> None:
+    """CTE 이름·함수 인자 안의 FROM·`IS [NOT] DISTINCT FROM` 피연산자는 relation-use 사실이 아니다(sink·대문자 리터럴).
+
+    전에는 `recent`·`created_at`·`name`·`$1`을 정적 relation-use로 내 isthmus가 완전한 카탈로그와 맞추면 거짓
+    `relation-use-without-decl` error를 냈다. `IS DISTINCT FROM %s`는 `?`로 바뀌어 관계 자리의 플레이스홀더로 세여
+    dynamic 사실까지 더했다.
+    """
+    root = make_project(
+        {
+            "db.py": """
+import sqlite3
+
+REPORT = "SELECT TRIM(BOTH ' ' FROM name) FROM customers"
+
+
+def run(connection, kind):
+    cursor = connection.cursor()
+    cursor.execute("WITH recent AS (SELECT * FROM orders) SELECT * FROM recent")
+    cursor.execute("select extract(year from created_at) from invoices")
+    cursor.execute("SELECT * FROM events WHERE kind IS DISTINCT FROM %s", [kind])
+    cursor.execute("SELECT * FROM audits WHERE kind IS NOT DISTINCT FROM $1")
+    return REPORT
+""",
+        }
+    )
+    document = schema_document(root)
+    rows = {row[:3] for row in relation_rows(document)}
+    assert rows == {(name, None, False) for name in ("customers", "orders", "invoices", "events", "audits")}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert not any(item.startswith("dynamic-relation-names:") for item in limitations)
+
+
 def test_sql_text_expands_repeated_constants_once(make_project: MakeProject, monkeypatch: pytest.MonkeyPatch) -> None:
     """같은 상수를 여러 번 참조하는 f-string 사슬은 (식, 깊이)마다 한 번만 펼친다.
 
