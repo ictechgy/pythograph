@@ -19,9 +19,16 @@ git 실행 파일은 PATH의 절대 경로 항목에서만 찾아 그 절대 경
   status를 실행하지 않는다. 서브모듈 작업 트리가 깨끗한지는 그 저장소 자신의 설정을 따라야만 알 수 있고, pythograph는
   서브모듈 디렉터리의 소스도 분석하므로 그때는 revision을 싣지 않는다.
 - 덮을 수 없는 드라이버 이름(`=`·제어 문자·UTF-8 아님)이 있으면 다른 git 명령을 실행하지 않는다(fail-closed).
-일부러 보지 않아 revision을 싣지 못한 두 경우는 `revision-unverified:` 한계 문구를 함께 돌려준다(막은 사실을 조용히
-넘기지 않는다). git-lfs처럼 filter로 정규화되던 파일은 stat 캐시가 낡으면 바뀐 것으로 보여 revision을 싣지 않는다
-(fail-safe). 나머지 설정(`core.worktree` 등)은 git이 무엇을 보고할지를 정하므로 revision은 `.git`만큼만 믿을 수 있다.
+- 부분 clone(promisor 원격)의 빠진 객체를 받는 지연 fetch를 띄우지 않는다. 그 fetch는 저장소 설정의 원격 명령
+  (`remote.<이름>.uploadpack`·`core.sshCommand` 등)을 실행한다. 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 같은 설정
+  조회에 promisor 키가 보이면 `--no-lazy-fetch`도 붙인다. 둘 다 git 2.45부터 있고, 옛 git은 환경 변수를 조용히
+  무시하지만 모르는 옵션에는 명령을 시작하지 않고 실패한다(fail-closed). promisor 키가 없는 저장소에는 옵션을 붙이지
+  않으므로 어느 git에서나 지금처럼 읽는다.
+일부러 보지 않거나 막아서 revision을 싣지 못한 세 경우(서브모듈, 덮을 수 없는 드라이버 이름, 지연 fetch 없이 읽지 못한
+부분 clone)는 `revision-unverified:` 한계 문구를 함께 돌려준다(막은 사실을 조용히 넘기지 않는다). git-lfs처럼 filter로
+정규화되던 파일은 stat 캐시가 낡으면 바뀐 것으로 보여 revision을 싣지 않는다(fail-safe). 나머지 설정(`core.worktree`
+등)은 git이 무엇을 보고할지를 정하고 위에서 닫은 경로 밖의 설정은 여전히 믿으므로, revision은 `.git`만큼만 믿을 수
+있다.
 """
 
 from __future__ import annotations
@@ -45,8 +52,20 @@ _OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 #: 같은 설정), log 계열이 서명을 확인하려고 gpg를 실행하지 않게 한다(분석 대상 설정의 명령을 막는 계열 공통 설정).
 _GIT_CONFIG = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "log.showSignature=false")
 
-#: git이 작업 트리 파일을 읽고 쓸 때 실행하는 filter 드라이버 명령 키다.
-_FILTER_COMMAND_KEYS = r"^filter\..*\.(clean|smudge|process)$"
+#: 분석용 git 호출마다 먼저 모으는 설정 키다. git이 작업 트리 파일을 읽고 쓸 때 실행하는 filter 드라이버 명령 키와,
+#: promisor 원격(부분 clone)을 만드는 키다. 섹션·변수 이름은 소문자로 맞춘 키에 대어 본다.
+_SETTING_KEYS = (
+    r"^(filter\..*\.(clean|smudge|process)|extensions\.partialclone|remote\.(.*\.)?(promisor|partialclonefilter))$"
+)
+
+#: promisor 원격을 만드는 키다. git(promisor-remote.c)은 `extensions.partialClone`, 참인 `remote.<이름>.promisor`, 값과
+#: 무관하게 `remote.<이름>.partialCloneFilter`가 있는 원격을 promisor로 쓰고 이름 없는 `remote.promisor`도 받는다. 값은
+#: 보지 않는다. 거짓 양성(`promisor = false`)은 지연 fetch를 한 번 더 끌 뿐이다.
+_PROMISOR_KEY = re.compile(rb"extensions\.partialclone|remote\.(?:.*\.)?(?:promisor|partialclonefilter)", re.DOTALL)
+
+#: promisor 원격이 있는 저장소의 분석용 호출에 붙이는 전역 옵션이다(git 2.45+, `GIT_NO_LAZY_FETCH=1`과 같다). 이 옵션을
+#: 모르는 옛 git은 하위 명령을 시작하기 전에 사용 오류(129)로 끝나므로 환경 변수를 무시하고 지연 fetch를 띄우지 못한다.
+_NO_LAZY_FETCH = "--no-lazy-fetch"
 
 #: 드라이버마다 덮는 키와 값이다. 빈 명령은 git이 실행하지 않고(filter 없이 원문을 쓴다), required=false라야
 #: "filter 실패"로 끝나지 않는다.
@@ -64,6 +83,15 @@ FILTER_DRIVER_LIMITATION = (
     "pass --revision to record the analyzed revision"
 )
 
+#: promisor 원격이 있는 저장소에서 지연 fetch를 끈 git 명령이 실패했을 때의 한계 문구다(빠진 객체가 필요했거나 git이
+#: `--no-lazy-fetch`를 모른다).
+LAZY_FETCH_LIMITATION = (
+    "revision-unverified: the repository has a promisor remote (a partial clone), so pythograph ran git with lazy "
+    "fetching turned off (--no-lazy-fetch, git 2.45 or later), because fetching missing objects would run commands "
+    "from the repository's configuration, and git could not read the work tree that way; pass --revision to record "
+    "the analyzed revision"
+)
+
 
 @dataclass(frozen=True)
 class GitRevision:
@@ -79,8 +107,25 @@ class GitRevision:
     limitation: str | None = None
 
 
+@dataclass(frozen=True)
+class _RepositorySettings:
+    """분석용 git 호출 하나 바로 앞에서 모은 설정 요약.
+
+    Attributes:
+        drivers: 덮을 filter 드라이버 이름(정렬·중복 제거).
+        promisor: promisor 원격을 만드는 키가 있는지(부분 clone).
+    """
+
+    drivers: tuple[str, ...]
+    promisor: bool
+
+
 class _UnneutralizableDriverError(Exception):
     """`-c`로 덮을 수 없는 filter 드라이버 이름이 설정에 있다(git 명령을 더 실행하지 않는다)."""
+
+
+class _LazyFetchRefusedError(Exception):
+    """promisor 원격이 있는 저장소에서 지연 fetch를 끈 git 명령이 실패했다(git 명령을 더 실행하지 않는다)."""
 
 
 def git_revision(project: Path) -> str | None:
@@ -113,6 +158,8 @@ def read_git_revision(project: Path) -> GitRevision:
         return _clean_head(executable, project)
     except _UnneutralizableDriverError:
         return GitRevision(None, FILTER_DRIVER_LIMITATION)
+    except _LazyFetchRefusedError:
+        return GitRevision(None, LAZY_FETCH_LIMITATION)
 
 
 def _clean_head(executable: str, project: Path) -> GitRevision:
@@ -131,6 +178,7 @@ def _clean_head(executable: str, project: Path) -> GitRevision:
 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 드라이버 이름이 있다.
+        _LazyFetchRefusedError: 부분 clone에서 지연 fetch를 끈 git 명령이 실패했다.
     """
     index = _git(executable, project, "ls-files", "--stage", "-z")
     if index is None:
@@ -153,6 +201,7 @@ def _head_if_clean(executable: str, project: Path) -> str | None:
 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 드라이버 이름이 있다.
+        _LazyFetchRefusedError: 부분 clone에서 지연 fetch를 끈 git 명령이 실패했다.
     """
     status = _git(
         executable, project, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all"
@@ -277,11 +326,12 @@ def _lies_within(directory: str, project_info: os.stat_result) -> bool:
 
 
 def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
-    """분석 대상 설정의 filter 드라이버를 덮고 git 명령 하나를 실행한다.
+    """분석 대상 설정의 filter 드라이버를 덮고 지연 fetch를 끈 채 git 명령 하나를 실행한다.
 
-    바로 앞에서 드라이버를 다시 모아(`_filter_driver_names`) 그때의 설정을 덮는다. 모든 분석용 호출이 이 함수를
-    지난다. 호출마다 따로 덮으면 한쪽만 설정의 명령을 실행하는 어긋남이 생긴다. 드라이버를 모으지 못하면 그 명령은
-    실행하지 않는다(fail-closed).
+    바로 앞에서 설정을 다시 모아(`_repository_settings`) 그때의 드라이버를 덮고, promisor 원격이 보이면
+    `--no-lazy-fetch`를 붙인다. 모든 분석용 호출이 이 함수를 지난다. 호출마다 따로 막으면 한쪽만 설정의 명령을
+    실행하는 어긋남이 생긴다. 설정을 모으지 못하면 그 명령은 실행하지 않는다(fail-closed). promisor 저장소에서 명령이
+    실패하면 지연 fetch를 끈 탓일 수 있으므로(빠진 객체, 옵션을 모르는 옛 git) 조용히 넘기지 않고 알린다.
 
     Args:
         executable: `_git_executable`이 고른 git 절대 경로.
@@ -289,68 +339,80 @@ def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
         arguments: git 하위 명령과 인자.
 
     Returns:
-        표준 출력 바이트, 드라이버를 모으지 못했거나 git이 실패하면 None.
+        표준 출력 바이트, 설정을 모으지 못했거나 git이 실패하면 None.
 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 드라이버 이름이 있다.
+        _LazyFetchRefusedError: promisor 원격이 있는 저장소에서 명령이 실패했다.
     """
-    names = _filter_driver_names(executable, project)
-    if names is None:
+    settings = _repository_settings(executable, project)
+    if settings is None:
         return None
-    completed = _run_git(executable, project, *_neutralizing_arguments(names), *arguments)
-    return completed.stdout if completed is not None and completed.returncode == 0 else None
+    completed = _run_git(executable, project, *_isolating_arguments(settings), *arguments)
+    if completed is None:
+        return None
+    if completed.returncode == 0:
+        return completed.stdout
+    if settings.promisor:
+        raise _LazyFetchRefusedError
+    return None
 
 
-def _filter_driver_names(executable: str, project: Path) -> list[str] | None:
-    """git이 이 저장소에서 읽는 설정 전체(시스템·사용자·저장소·worktree·include)에 정의된 filter 드라이버 이름을 모은다.
+def _repository_settings(executable: str, project: Path) -> _RepositorySettings | None:
+    """git이 이 저장소에서 읽는 설정 전체에서 filter 드라이버 이름과 promisor 원격 여부를 모은다.
 
-    설정 조회는 명령을 실행하지 않는다. `git config`의 종료 1과 빈 출력은 "일치 없음"이다.
+    시스템·사용자·저장소·worktree 설정과 include를 모두 본다. 설정 조회는 명령을 실행하지 않고 객체도 읽지 않는다.
+    `git config`의 종료 1과 빈 출력은 "일치 없음"이다.
 
     Args:
         executable: git 절대 경로.
         project: 작업 디렉터리.
 
     Returns:
-        정렬·중복 제거한 이름, 조회가 실패했거나 출력 형식이 다르면 None.
+        설정 요약, 조회가 실패했거나 출력 형식이 다르면 None.
 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 이름이 있다.
     """
-    completed = _run_git(executable, project, "config", "-z", "--includes", "--get-regexp", _FILTER_COMMAND_KEYS)
+    completed = _run_git(executable, project, "config", "-z", "--includes", "--get-regexp", _SETTING_KEYS)
     if completed is None:
         return None
     if completed.returncode == 1 and not completed.stdout:
-        return []
+        return _RepositorySettings((), promisor=False)
     if completed.returncode != 0:
         return None
-    return _parse_driver_names(completed.stdout)
+    return _parse_settings(completed.stdout)
 
 
-def _parse_driver_names(output: bytes) -> list[str] | None:
-    """`git config -z --get-regexp` 출력에서 드라이버 이름을 뽑는다.
+def _parse_settings(output: bytes) -> _RepositorySettings | None:
+    """`git config -z --get-regexp` 출력에서 드라이버 이름과 promisor 키를 뽑는다.
 
-    레코드는 `키\\n값\\0`(값 없는 키는 `키\\0`)이다. 키의 섹션·변수 이름은 소문자로, subsection(드라이버 이름)은
-    그대로 나온다. 이름은 `filter.`과 마지막 `.<키>` 사이 전체다. 점이 들어갈 수 있고 빈 이름(`[filter ""]`)도 git이
-    쓴다.
+    레코드는 `키\\n값\\0`(값 없는 키는 `키\\0`)이다. 키의 섹션·변수 이름은 소문자로, subsection(드라이버·원격 이름)은
+    그대로 나온다. 드라이버 이름은 `filter.`과 마지막 `.<키>` 사이 전체다. 점이 들어갈 수 있고 빈 이름(`[filter ""]`)도
+    git이 쓴다.
 
     Args:
         output: 조회 출력.
 
     Returns:
-        정렬·중복 제거한 이름, 형식이 어긋나면 None(조회 정규식에 맞는 키만 올 수 있으므로 출력을 믿지 않는다).
+        설정 요약, 형식이 어긋나면 None(조회 정규식에 맞는 키만 올 수 있으므로 출력을 믿지 않는다).
 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 이름이 있다.
     """
     names: set[str] = set()
+    promisor = False
     for record in output.split(b"\0"):
         if not record:
             continue
         key = record.partition(b"\n")[0]
-        if not key.startswith(b"filter.") or key.count(b".") < 2:
+        if _PROMISOR_KEY.fullmatch(key):
+            promisor = True
+        elif key.startswith(b"filter.") and key.count(b".") >= 2:
+            names.add(_neutralizable_name(key[len(b"filter.") : key.rindex(b".")]))
+        else:
             return None
-        names.add(_neutralizable_name(key[len(b"filter.") : key.rindex(b".")]))
-    return sorted(names)
+    return _RepositorySettings(tuple(sorted(names)), promisor)
 
 
 def _neutralizable_name(raw: bytes) -> str:
@@ -379,7 +441,20 @@ def _neutralizable_name(raw: bytes) -> str:
     return name
 
 
-def _neutralizing_arguments(names: list[str]) -> list[str]:
+def _isolating_arguments(settings: _RepositorySettings) -> list[str]:
+    """분석용 호출의 하위 명령 앞에 붙일 전역 인자다: 드라이버를 덮는 `-c`와, promisor 원격이 있으면 `--no-lazy-fetch`.
+
+    Args:
+        settings: 바로 앞에서 모은 설정 요약.
+
+    Returns:
+        git 인자.
+    """
+    lazy_fetch = [_NO_LAZY_FETCH] if settings.promisor else []
+    return [*_neutralizing_arguments(settings.drivers), *lazy_fetch]
+
+
+def _neutralizing_arguments(names: tuple[str, ...]) -> list[str]:
     """드라이버 이름마다 명령 세 키를 빈 값으로, required를 false로 덮는 `-c` 인자다.
 
     Args:
@@ -399,16 +474,19 @@ def _neutralizing_arguments(names: list[str]) -> list[str]:
 def _run_git(executable: str, project: Path, *arguments: str) -> subprocess.CompletedProcess[bytes] | None:
     """공통 설정과 줄인 환경으로 git 프로세스 하나를 실행한다.
 
+    `GIT_NO_LAZY_FETCH=1`은 git 2.45부터 모든 호출(과 그 자식)의 지연 fetch를 끈다. promisor 키 판정이 놓친 원격이
+    있어도 막기 위한 이중 장치이고, 옛 git은 이 변수를 무시하므로 혼자 쓰지 않는다(`_NO_LAZY_FETCH`).
+
     Args:
         executable: git 절대 경로.
         project: 작업 디렉터리.
-        arguments: git 인자(덮는 `-c`와 하위 명령).
+        arguments: git 인자(덮는 `-c`·`--no-lazy-fetch`와 하위 명령).
 
     Returns:
         끝난 프로세스, git을 실행하지 못했거나 시간이 지나면 None.
     """
     environment = {key: value for key, value in os.environ.items() if key in ("PATH", "HOME", "SYSTEMROOT")}
-    environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
+    environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1", "LC_ALL": "C"})
     try:
         return subprocess.run(
             [executable, *_GIT_CONFIG, *arguments],

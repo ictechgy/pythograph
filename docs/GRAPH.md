@@ -270,10 +270,18 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   대소문자·유니코드 정규화만 다른 철자도 같은 디렉터리로 본다). 찾지 못하면 revision을 싣지 않는다.
   분석 대상 코드와, 분석 대상 `.git`(과 사용자·시스템) 설정이 정한 명령은 실행하지 않는다([README 보안](../README.ko.md#보안)).
   - git 호출(`ls-files --stage`·`status`·`rev-parse`)마다 바로 앞에서 `git config -z --includes --get-regexp
-    '^filter\..*\.(clean|smudge|process)$'`로 filter 드라이버 이름(`filter.`과 마지막 `.<키>` 사이 전체, 대소문자 보존)을
-    모은다. 이름마다 `-c filter.<이름>.clean=`·`smudge=`·`process=`·`required=false`로 덮고, 공통으로
-    `log.showSignature=false`를 붙인다. 조회의 종료 1(출력 없음)은 드라이버 없음이고, 그 밖의 실패나 형식이 다른 출력이면 그
-    호출을 하지 않는다. status는 `--ignore-submodules=all`로 돈다. diff·log 계열 호출은 없다.
+    '^(filter\..*\.(clean|smudge|process)|extensions\.partialclone|remote\.(.*\.)?(promisor|partialclonefilter))$'`로
+    filter 드라이버 이름(`filter.`과 마지막 `.<키>` 사이 전체, 대소문자 보존)과 promisor 키를 모은다. 이름마다
+    `-c filter.<이름>.clean=`·`smudge=`·`process=`·`required=false`로 덮고, 공통으로 `log.showSignature=false`를 붙인다.
+    조회의 종료 1(출력 없음)은 드라이버·promisor 없음이고, 그 밖의 실패나 형식이 다른 출력이면 그 호출을 하지 않는다.
+    status는 `--ignore-submodules=all`로 돈다. diff·log 계열 호출은 없다.
+  - 부분 clone의 지연 fetch(빠진 객체를 원격에서 받아 오며 `remote.<이름>.uploadpack`·`core.sshCommand` 같은 원격 설정을
+    따른다)를 띄우지 않는다. 모든 호출에 `GIT_NO_LAZY_FETCH=1`을 주고, 모은 키에 promisor 키(`extensions.partialclone`,
+    `remote.<이름>.promisor`·`partialclonefilter`, 이름 없는 `remote.promisor`, 값은 보지 않는다)가 있으면 설정 조회가
+    아닌 호출의 하위 명령 앞에 `--no-lazy-fetch`도 붙인다. 둘 다 git 2.45부터다. 옛 git은 변수를 무시하지만 옵션은 시작
+    전에 거부(129)하므로 promisor 저장소에서는 아무것도 읽지 않는다. promisor 저장소에서 이렇게 붙인 호출이 실패하면(빠진
+    객체, 옛 git) revision을 싣지 않고 `revision-unverified:` 한계를 단다. promisor 키가 없는 저장소는 옵션을 붙이지 않아
+    어느 git에서나 그대로다.
   - git-lfs처럼 filter로 정규화되던 파일은 stat 캐시가 낡으면 원문이 기록된 blob과 달라 바뀐 것으로 보이므로 revision을
     싣지 않는다(fail-safe).
   - 인덱스에 서브모듈(gitlink, mode 160000)이 있으면 status를 실행하지 않는다. 서브모듈 작업 트리가 깨끗한지는 그 저장소
@@ -282,8 +290,9 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   - 드라이버 이름에 `=`·제어 문자·UTF-8이 아닌 바이트가 있으면 `-c`로 덮을 수 없어(git은 `-c`를 첫 `=`에서 나눈다) git
     명령을 더 실행하지 않고 같은 접두사의 한계를 단다(이름 원문은 싣지 않는다). `GIT_CONFIG_COUNT` 환경 변수로 넘기는 대안은
     옛 git이 조용히 무시해 드라이버가 실행되므로 쓰지 않는다.
-  - git이 없거나 실패했거나 더러운 트리는 지금처럼 한계 없이 revision만 생략한다(isthmus가 `analysis-revision-unknown`으로
-    드러낸다). 나머지 설정(`core.worktree` 등)은 git이 무엇을 보고할지를 정하므로, 신뢰하지 않는 `.git`이면 `--revision`을 준다.
+  - git이 없거나, promisor 저장소가 아닌데 git이 실패했거나, 더러운 트리는 지금처럼 한계 없이 revision만 생략한다(isthmus가
+    `analysis-revision-unknown`으로 드러낸다). 나머지 설정(`core.worktree` 등)은 git이 무엇을 보고할지를 정하고 위에서 막은
+    경로 밖의 설정은 그대로 믿으므로, 신뢰하지 않는 `.git`이면 `--revision`을 준다.
 - `graphRevision`: 정점 id·종류·모드별 미해석 수와 간선(등급 포함)의 SHA-256(`sha256:`), 위치 제외. 같은 그래프의 `graph`·`reach`·
   `impact`는 모드와 무관하게 같은 값이다.
 - `limitations`: 모드의 그래프 한계(`unresolved-calls:`, `overridden-methods:`/`candidate-dispatch:`, `bound-dispatch:`·

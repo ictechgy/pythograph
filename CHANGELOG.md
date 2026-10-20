@@ -15,6 +15,12 @@
   서브모듈 저장소 설정 포함)가 정한 filter 명령을 `.gitattributes`·`.git/info/attributes`를 따라 사용자 권한으로
   실행했다. 깨끗한 저장소의 revision 판독은 git 프로세스 2개에서 6개가 된다(파일 314개 클론에서 중앙값 32 → 69 ms).
   무엇을 덮고 무엇을 여전히 신뢰하는지는 README Security(보안) 절에 있다.
+- 같은 git이 부분 clone(promisor 원격)에 빠진 객체를 받아 오는 지연 fetch를 띄우지 않는다. 모든 호출에
+  `GIT_NO_LAZY_FETCH=1`을 주고, 같은 설정 조회에 promisor 키(`extensions.partialClone`, `remote.<이름>.promisor`·
+  `partialCloneFilter`)가 보이면 설정 조회가 아닌 호출에 `--no-lazy-fetch`도 붙인다. 둘 다 git 2.45부터 있고, 옛 git은
+  변수를 무시하지만 옵션은 시작 전에 거부하므로 그런 저장소를 읽지 않는다. 전에는 `.git`째 받은 부분 clone에서
+  `git status`가 빠진 객체를 만나면 그 fetch가 `remote.<이름>.uploadpack`·`core.sshCommand` 같은 원격 설정의 명령을
+  사용자 권한으로 실행했고, filter 덮기·서브모듈 정책으로는 막히지 않았다.
 
 ### Fixed
 
@@ -129,7 +135,9 @@
   파일) 작업 트리를 바뀐 것으로 보고 `revision`을 싣지 않는다. 확인하지 못한 깨끗한 `HEAD`를 주장하지 않기 위해서다.
   서브모듈이 있는 작업 트리와 덮을 수 없는 filter 드라이버 이름이 있는 저장소는 `revision`을 싣지 않고, 스냅샷과 순회
   문서의 `limitations` 끝에 `revision-unverified:` 한계로 이유를 단다. 도움말의 `--revision` 기본값 설명에 서브모듈
-  조건을 더했다. 이런 트리에서 `revision`이 필요하면 `--revision`으로 준다.
+  조건을 더했다. 부분 clone은 이미 있는 객체로만 읽어, 작업 트리를 확인하는 데 빠진 객체가 필요하거나 git이 2.45보다
+  오래되면 `revision`을 싣지 않고 같은 `revision-unverified:` 한계를 단다. 이런 트리에서 `revision`이 필요하면
+  `--revision`으로 준다.
 
 - routes·schema가 증명하지 못한 모듈 상수를 평가하지 않는다. 묶음 규칙은 graph·`routes --role client`와 같아, 모듈
   수준에서 두 번 이상 묶이거나(`+=`, 두 번째 대입, 반복 변수, import), `if`·`try`·`for`·`while`·`with`·`match` 블록

@@ -4,14 +4,17 @@
 넣는다(먼저 넣으면 준비용 `git add`가 그 명령을 실행한다). 추적 파일의 stat을 2001년으로 돌려 git이 내용을 다시 읽게
 한다(같은 초의 touch는 racy 재해시라 결정적이지 않다). 그다음 graph·reach·impact(`--revision` 없음)와 `git_revision`을
 불러 표식이 없는지와 revision 정책(덮으면 원문 그대로라 깨끗하면 HEAD, 정규화가 풀려 바뀐 것으로 보이면 생략, 덮을 수
-없는 이름·서브모듈이면 생략과 `revision-unverified:` 한계)을 확인한다. 뒤쪽 테스트는 `subprocess.run` 대역으로 인자
-계약과 fail-closed 경로를 고정한다.
+없는 이름·서브모듈이면 생략과 `revision-unverified:` 한계)을 확인한다. 부분 clone(promisor 원격) 테스트는 원격의
+`uploadpack`을 표식 스크립트로 두고 객체를 지워, git이 지연 fetch를 띄우면 표식이 생기게 한다. 뒤쪽 테스트는
+`subprocess.run` 대역으로 인자 계약과 fail-closed 경로를 고정한다.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -40,8 +43,17 @@ OBJECT_ID = "0123456789abcdef0123456789abcdef01234567"
 #: 모든 git 호출 맨 앞에 붙는 공통 설정이다.
 BASE_CONFIG = ["core.fsmonitor=false", "core.untrackedCache=false", "log.showSignature=false"]
 
-#: 드라이버 이름을 모으는 설정 조회 인자다.
-DRIVER_QUERY = ["config", "-z", "--includes", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$"]
+#: 드라이버 이름과 promisor 키를 모으는 설정 조회 인자다.
+SETTINGS_QUERY = [
+    "config",
+    "-z",
+    "--includes",
+    "--get-regexp",
+    r"^(filter\..*\.(clean|smudge|process)|extensions\.partialclone|remote\.(.*\.)?(promisor|partialclonefilter))$",
+]
+
+#: promisor 원격이 있는 저장소의 분석용 호출이 하위 명령 바로 앞에 붙이는 전역 옵션이다.
+NO_LAZY_FETCH = "--no-lazy-fetch"
 
 
 @dataclass(frozen=True)
@@ -60,7 +72,7 @@ class Sandbox:
 
     @property
     def marker(self) -> Path:
-        """filter 명령이 실행되면 생기는 표식 파일이다."""
+        """분석 대상 설정의 명령(filter 드라이버, 원격 uploadpack)이 실행되면 생기는 표식 파일이다."""
         return self.tools / "filter-ran"
 
 
@@ -365,30 +377,168 @@ def test_explicit_revision_runs_no_git(sandbox: Sandbox) -> None:
     assert not sandbox.marker.exists()
 
 
+#: 부분 clone 변형이다(이름 → 더할 promisor 설정). git(promisor-remote.c)이 promisor 원격으로 쓰는 키를 하나씩 둔다.
+PROMISOR_SETTINGS: dict[str, tuple[tuple[str, str], ...]] = {
+    "partial-clone": (
+        ("extensions.partialClone", "origin"),
+        ("remote.origin.promisor", "true"),
+        ("remote.origin.partialCloneFilter", "blob:none"),
+    ),
+    "promisor-key": (("remote.origin.promisor", "true"),),
+    "filter-key": (("remote.origin.partialCloneFilter", "blob:none"),),
+    "extension": (("extensions.partialClone", "origin"),),
+    "nameless-remote": (("remote.promisor", "true"),),
+}
+
+
+@functools.cache
+def git_knows_no_lazy_fetch() -> bool:
+    """설치된 git이 `--no-lazy-fetch`(git 2.45+)를 아는지 본다. 모르는 git에서는 promisor 저장소의 판독이 늘 한계로
+    끝난다.
+
+    Returns:
+        알면 True.
+    """
+    completed = subprocess.run(["git", NO_LAZY_FETCH, "version"], capture_output=True, check=False)
+    return completed.returncode == 0
+
+
+def promisor_repository(box: Sandbox, settings: Sequence[tuple[str, str]], *, drop_root_tree: bool) -> str:
+    """원격 `origin`이 있는 저장소를 만든다. 원격의 uploadpack이 표식 스크립트라 지연 fetch가 뜨면 표식이 생긴다.
+
+    Args:
+        box: 작업 공간.
+        settings: 더할 promisor 설정(키, 값). 비우면 부분 clone이 아닌 저장소다.
+        drop_root_tree: HEAD 루트 트리 객체를 지워 status가 그 객체를 받아 와야 하게 할지.
+
+    Returns:
+        HEAD 커밋 id.
+    """
+    head = commit_tree(box, box.project, {"app.py": APP})
+    remote = box.tools / "remote.git"
+    remote.mkdir()
+    setup_git(box, remote, "init", "-q", "--bare")
+    setup_git(box, box.project, "config", "remote.origin.url", str(remote))
+    setup_git(box, box.project, "config", "remote.origin.uploadpack", marker_command(box, "false"))
+    for key, value in settings:
+        setup_git(box, box.project, "config", key, value)
+    if drop_root_tree:
+        tree = setup_git(box, box.project, "rev-parse", "HEAD^{tree}").strip()
+        (box.project / ".git" / "objects" / tree[:2] / tree[2:]).unlink()
+    return head
+
+
+def lazy_fetch_refused() -> revision_module.GitRevision:
+    """지연 fetch 없이 읽지 못한 부분 clone의 판독 결과다."""
+    return revision_module.GitRevision(None, revision_module.LAZY_FETCH_LIMITATION)
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("drop_root_tree", [True, False], ids=["object-missing", "objects-present"])
+@pytest.mark.parametrize("settings", list(PROMISOR_SETTINGS.values()), ids=list(PROMISOR_SETTINGS))
+def test_partial_clone_reading_starts_no_lazy_fetch(
+    sandbox: Sandbox, settings: tuple[tuple[str, str], ...], drop_root_tree: bool
+) -> None:
+    """부분 clone에서 revision을 읽어도 지연 fetch(원격 설정의 uploadpack 명령)를 띄우지 않는다. 빠진 객체가 필요하거나
+    git이 `--no-lazy-fetch`를 모르면 revision을 생략하고 한계로 알리고, 아니면 지금처럼 HEAD를 싣는다."""
+    head = promisor_repository(sandbox, settings, drop_root_tree=drop_root_tree)
+    documents = documents_without_revision_flag(sandbox.project)
+    direct = revision_module.read_git_revision(sandbox.project)
+    assert not sandbox.marker.exists(), "a lazy fetch ran a command from the analyzed repository's git configuration"
+    readable = not drop_root_tree and git_knows_no_lazy_fetch()
+    expected = revision_module.GitRevision(head) if readable else lazy_fetch_refused()
+    assert direct == expected
+    for document in documents.values():
+        assert document.get("revision") == expected.revision
+        assert unverified_lines(document) == ([] if readable else [revision_module.LAZY_FETCH_LIMITATION])
+
+
+def old_git(box: Sandbox) -> Path:
+    """git 2.45 이전처럼 `--no-lazy-fetch`를 모르는 전역 옵션으로 거부하고(129) `GIT_NO_LAZY_FETCH`를 무시하는 git
+    대역을 만든다. 그 밖의 호출은 설치된 git에 넘긴다.
+
+    Args:
+        box: 작업 공간.
+
+    Returns:
+        대역이 든 디렉터리(PATH 맨 앞에 둔다).
+    """
+    real = shutil.which("git")
+    assert real is not None
+    directory = box.tools / "old-git"
+    directory.mkdir()
+    script = directory / "git"
+    script.write_text(
+        "#!/bin/sh\n"
+        'for argument in "$@"; do\n'
+        f'    if [ "$argument" = "{NO_LAZY_FETCH}" ]; then echo "unknown option: $argument" >&2; exit 129; fi\n'
+        "done\n"
+        "unset GIT_NO_LAZY_FETCH\n"
+        f'exec "{real}" "$@"\n',
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return directory
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("promisor", [True, False], ids=["partial-clone", "ordinary-clone"])
+def test_git_without_lazy_fetch_control_reads_no_partial_clone(
+    sandbox: Sandbox, monkeypatch: pytest.MonkeyPatch, promisor: bool
+) -> None:
+    """`--no-lazy-fetch`를 모르는 git은 promisor 저장소에서 명령을 시작하지 못해 지연 fetch가 없다(환경 변수만으로는
+    막히지 않는다). 부분 clone이 아닌 저장소는 그런 git으로도 지금처럼 읽는다."""
+    head = promisor_repository(sandbox, PROMISOR_SETTINGS["promisor-key"] if promisor else (), drop_root_tree=promisor)
+    stand_in = old_git(sandbox)
+    if promisor:
+        # 대역 검증: 옵션 없이 부르면 환경 변수를 줘도 지연 fetch가 원격 설정의 명령을 실행한다.
+        environment = {"PATH": os.environ.get("PATH", os.defpath), "HOME": str(sandbox.home), "GIT_NO_LAZY_FETCH": "1"}
+        subprocess.run(
+            [str(stand_in / "git"), "status", "--porcelain"],
+            cwd=sandbox.project,
+            env=environment,
+            capture_output=True,
+            check=False,
+        )
+        assert sandbox.marker.exists()
+        sandbox.marker.unlink()
+    monkeypatch.setenv("PATH", f"{stand_in}{os.pathsep}{os.environ.get('PATH', os.defpath)}")
+    documents = documents_without_revision_flag(sandbox.project)
+    direct = revision_module.read_git_revision(sandbox.project)
+    assert not sandbox.marker.exists(), "a lazy fetch ran a command from the analyzed repository's git configuration"
+    assert direct == (lazy_fetch_refused() if promisor else revision_module.GitRevision(head))
+    for document in documents.values():
+        assert document.get("revision") == direct.revision
+        assert len(unverified_lines(document)) == (1 if promisor else 0)
+
+
 @dataclass
 class FakeGit:
-    """`subprocess.run` 대역: git 하위 명령마다 정한 (종료 코드, 표준 출력)으로 답하고 받은 인자를 모은다.
+    """`subprocess.run` 대역: git 하위 명령마다 정한 (종료 코드, 표준 출력)으로 답하고 받은 인자와 환경을 모은다.
 
     Attributes:
         answers: 하위 명령 → (종료 코드, 표준 출력 바이트).
         calls: 받은 인자 목록(호출 순서).
+        environments: 호출마다 받은 환경(호출 순서).
     """
 
     answers: dict[str, tuple[int, bytes]]
     calls: list[list[str]] = field(default_factory=list)
+    environments: list[object] = field(default_factory=list)
 
-    def __call__(self, command: Sequence[str], **_keywords: object) -> subprocess.CompletedProcess[bytes]:
+    def __call__(self, command: Sequence[str], **keywords: object) -> subprocess.CompletedProcess[bytes]:
         """git 실행을 흉내 낸다.
 
         Args:
             command: 실행할 인자.
-            _keywords: subprocess.run 키워드(쓰지 않는다).
+            keywords: subprocess.run 키워드(환경만 기록한다).
 
         Returns:
             정한 결과.
         """
         arguments = [str(argument) for argument in command]
         self.calls.append(arguments)
+        self.environments.append(keywords.get("env"))
         code, stdout = self.answers[subcommand(arguments)]
         return subprocess.CompletedProcess(arguments, code, stdout=stdout, stderr=b"")
 
@@ -402,7 +552,7 @@ class FakeGit:
 
 
 def subcommand(arguments: Sequence[str]) -> str:
-    """git 인자에서 실행 파일과 `-c 키=값` 쌍을 건너뛴 하위 명령 이름이다.
+    """git 인자에서 실행 파일과 전역 인자(`-c 키=값` 쌍, `--no-lazy-fetch`)를 건너뛴 하위 명령 이름이다.
 
     Args:
         arguments: git 인자(실행 파일 포함).
@@ -410,10 +560,22 @@ def subcommand(arguments: Sequence[str]) -> str:
     Returns:
         하위 명령 이름.
     """
+    return arguments[1 + len(global_arguments(arguments))]
+
+
+def global_arguments(arguments: Sequence[str]) -> list[str]:
+    """git 인자에서 실행 파일 뒤, 하위 명령 앞의 전역 인자다.
+
+    Args:
+        arguments: git 인자(실행 파일 포함).
+
+    Returns:
+        전역 인자 목록.
+    """
     index = 1
-    while arguments[index] == "-c":
-        index += 2
-    return arguments[index]
+    while arguments[index] in ("-c", NO_LAZY_FETCH):
+        index += 2 if arguments[index] == "-c" else 1
+    return list(arguments[1:index])
 
 
 def config_values(arguments: Sequence[str]) -> list[str]:
@@ -480,23 +642,92 @@ def test_every_git_call_first_lists_and_overrides_filter_drivers(
     for call in fake.calls:
         if subcommand(call) == "config":
             assert config_values(call) == BASE_CONFIG
-            assert call[1 + 2 * len(BASE_CONFIG) :] == DRIVER_QUERY
+            assert call[1 + 2 * len(BASE_CONFIG) :] == SETTINGS_QUERY
         else:
             assert config_values(call) == [*BASE_CONFIG, *overrides]
+        assert NO_LAZY_FETCH not in global_arguments(call)
     assert fake.calls[3][-3:] == ["--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all"]
 
 
 def test_no_configured_driver_adds_no_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """설정 조회의 종료 1(출력 없음)은 드라이버 없음이다. 덮는 인자 없이 판독한다."""
+    """설정 조회의 종료 1(출력 없음)은 드라이버·promisor 없음이다. 덮는 인자와 `--no-lazy-fetch` 없이 판독하되,
+    모든 호출의 환경은 지연 fetch를 끈다(git 2.45+, 옛 git은 무시해 출력이 그대로다)."""
     project, fake = install_fake_git(tmp_path, monkeypatch, CLEAN_ANSWERS)
     assert revision_module.read_git_revision(project) == revision_module.GitRevision(OBJECT_ID)
     assert all(config_values(call) == BASE_CONFIG for call in fake.calls)
+    assert all(NO_LAZY_FETCH not in global_arguments(call) for call in fake.calls)
+    for environment in fake.environments:
+        assert isinstance(environment, dict)
+        assert environment["GIT_NO_LAZY_FETCH"] == "1"
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        b"remote.origin.promisor\ntrue\0filter.lfs.clean\nx\0",
+        b"extensions.partialclone\norigin\0",
+        b"remote.Up.Stream.partialclonefilter\nblob:none\0",
+        b"remote.promisor\0",
+        b"remote..promisor\nfalse\0",
+    ],
+    ids=["promisor-and-driver", "extension", "filter-key-dotted-name", "nameless-remote", "empty-name-false"],
+)
+def test_promisor_settings_add_no_lazy_fetch_to_every_reading_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, listing: bytes
+) -> None:
+    """promisor 원격을 만드는 키(값과 무관)가 보이면 설정 조회가 아닌 호출마다 하위 명령 바로 앞에 `--no-lazy-fetch`를
+    붙인다. 객체를 읽지 않는 설정 조회에는 붙이지 않는다(옛 git에서도 조회는 그대로 돈다)."""
+    project, fake = install_fake_git(tmp_path, monkeypatch, {**CLEAN_ANSWERS, "config": (0, listing)})
+    assert revision_module.read_git_revision(project) == revision_module.GitRevision(OBJECT_ID)
+    assert fake.subcommands() == ["config", "ls-files", "config", "status", "config", "rev-parse"]
+    for call in fake.calls:
+        options = global_arguments(call)
+        if subcommand(call) == "config":
+            assert NO_LAZY_FETCH not in options
+        else:
+            assert options[-1] == NO_LAZY_FETCH
+            assert options.count(NO_LAZY_FETCH) == 1
+
+
+@pytest.mark.parametrize(
+    ("command", "answer", "subcommands"),
+    [
+        ("ls-files", (129, b""), ["config", "ls-files"]),
+        ("status", (128, b""), ["config", "ls-files", "config", "status"]),
+        ("rev-parse", (128, b""), ["config", "ls-files", "config", "status", "config", "rev-parse"]),
+    ],
+    ids=["option-unknown-to-old-git", "missing-object", "head-unreadable"],
+)
+def test_failed_call_in_partial_clone_reports_lazy_fetch_limitation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    answer: tuple[int, bytes],
+    subcommands: list[str],
+) -> None:
+    """promisor 저장소에서 지연 fetch를 끈 호출이 실패하면(옛 git의 129, 빠진 객체의 128) 다른 git 명령을 더 실행하지
+    않고 revision을 생략하며 `revision-unverified:` 한계로 알린다."""
+    answers = {**CLEAN_ANSWERS, "config": (0, b"remote.origin.promisor\ntrue\0"), command: answer}
+    project, fake = install_fake_git(tmp_path, monkeypatch, answers)
+    result = revision_module.read_git_revision(project)
+    assert result == revision_module.GitRevision(None, revision_module.LAZY_FETCH_LIMITATION)
+    assert result.limitation is not None
+    assert result.limitation.startswith(UNVERIFIED)
+    assert "--revision" in result.limitation
+    assert fake.subcommands() == subcommands
 
 
 @pytest.mark.parametrize(
     "answer",
-    [(128, b""), (1, b"filter.x.clean\nv\0"), (0, b"filterx.clean\nv\0"), (0, b"filter.clean\0")],
-    ids=["query-fails", "exit-1-with-output", "foreign-key", "no-driver-name"],
+    [
+        (128, b""),
+        (1, b"filter.x.clean\nv\0"),
+        (0, b"filterx.clean\nv\0"),
+        (0, b"filter.clean\0"),
+        (0, b"remote.origin.promisorx\nv\0"),
+        (0, b"extensions.partialclonex\nv\0"),
+    ],
+    ids=["query-fails", "exit-1-with-output", "foreign-key", "no-driver-name", "near-promisor", "near-extension"],
 )
 def test_unlisted_drivers_stop_before_any_other_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: tuple[int, bytes]

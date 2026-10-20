@@ -15,7 +15,8 @@ isthmus joins the documents.
 The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
 and pythograph has no runtime dependencies and uses no network. The only program it starts is git at the project root,
 to read `revision` for `graph`, `reach`, and `impact`; git runs without the filter commands that the repository's git
-configuration defines and never inside submodules (see [Security](#security)).
+configuration defines, never fetches the objects that a partial clone lacks, and never runs inside submodules (see
+[Security](#security)).
 
 ## Status
 
@@ -316,7 +317,8 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
   `rootsTruncated`. Roots that are not graph nodes are listed without `symbol`; the document is written and the
   command exits `64`. `revision` is `--revision` or git `HEAD` when the work tree is clean (omitted, with a
   `revision-unverified:` limitation in the snapshot and the traversal documents, when a clean tree cannot be checked
-  without running the repository's git configuration: a work tree with submodules, see [Security](#security));
+  without running the repository's git configuration: a work tree with submodules, or a partial clone that lacks
+  objects the check reads, see [Security](#security));
   `graphRevision` is a SHA-256 of the graph content.
 
 ## Validation
@@ -479,20 +481,26 @@ pythograph starts one external program: `git`, only to read the `revision` of `g
 `--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`, and
 `git rev-parse`, run at the project root). It runs the first `git` in an absolute `PATH` entry and skips one that
 lives inside the project or directly in the current directory. A `.git` directory that arrives with an archive or a
-copy can define commands that git runs while it reads the work tree (see "SECURITY" in git(1)), so every one of those
-git calls keeps the git configuration from running commands:
+copy can define commands that git runs while it reads the work tree (see "SECURITY" in git(1)). pythograph closes the
+ways it knows these git calls can reach such commands:
 
-- Right before each call, pythograph lists the filter drivers git sees
-  (`git config -z --includes --get-regexp '^filter\..*\.(clean|smudge|process)$'`, which covers the repository, its
-  includes, your own configuration, and the system configuration) and overrides each one with empty `clean`,
+- Right before each call, pythograph lists the filter drivers and promisor settings git sees
+  (`git config -z --includes --get-regexp` for `filter.<driver>.clean`, `smudge`, and `process`,
+  `extensions.partialClone`, and `remote.<name>.promisor` and `partialCloneFilter`, which covers the repository, its
+  includes, your own configuration, and the system configuration) and overrides each driver with empty `clean`,
   `smudge`, and `process` commands and `required=false`, so git runs none of them. This holds for drivers named in
   `.gitattributes` and in `.git/info/attributes`.
+- It never lets git fetch missing objects. A partial clone (a repository with a promisor remote) fetches objects it
+  lacks on demand, and that fetch follows the remote's configuration (`remote.<name>.uploadpack`, `core.sshCommand`,
+  and so on). Every call sets `GIT_NO_LAZY_FETCH=1`, and when the listing shows a promisor setting, every call except
+  the listing itself also passes `--no-lazy-fetch`. Both need git 2.45 or later: an older git ignores the variable
+  but rejects the option before it starts, so it reads no partial clone.
 - It turns off `core.fsmonitor`, the untracked cache, `log.showSignature`, and optional locks
   (`GIT_OPTIONAL_LOCKS=0`, so the index is never rewritten). pythograph runs no `git diff` or `git log`.
 - It never starts git inside a submodule: `git status` runs with `--ignore-submodules=all`, and does not run at all
   when the index has a submodule.
-- When the drivers cannot be listed, or a driver name contains `=`, a control character, or bytes that are not UTF-8
-  (git's `-c` splits at the first `=`, so such a driver cannot be overridden), no other git command runs.
+- When these settings cannot be listed, or a driver name contains `=`, a control character, or bytes that are not
+  UTF-8 (git's `-c` splits at the first `=`, so such a driver cannot be overridden), no other git command runs.
 
 What this changes:
 
@@ -504,9 +512,12 @@ What this changes:
   cannot tell whether they are clean without following each submodule's own configuration. A driver name that cannot
   be overridden stops git altogether. Both cases add a `revision-unverified:` limitation to the `graph` snapshot and
   to the `reach` and `impact` documents.
-- The rest of the git configuration still decides what git reports (for example `core.worktree`), so an automatic
-  `revision` is only as trustworthy as the `.git` directory. For a tree whose `.git` you do not trust, pass
-  `--revision <id>`: git then does not run at all.
+- A partial clone is read only from the objects it already has. When git needs a missing object to check the work
+  tree, or is older than 2.45, no `revision` is recorded and the same `revision-unverified:` limitation says why. A
+  partial clone that has every object the check reads keeps its `revision` with git 2.45 or later.
+- The rest of the git configuration still decides what git reports (for example `core.worktree`), and pythograph
+  trusts every setting outside the paths above, so an automatic `revision` is only as trustworthy as the `.git`
+  directory. For a tree whose `.git` you do not trust, pass `--revision <id>`: git then does not run at all.
 
 ## Development
 
