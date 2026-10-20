@@ -125,7 +125,8 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 `+=`, `if`·반복문·`try`·`with`·`match` 블록 안 대입, `global` 재대입, `INSTALLED_APPS.append(...)` 같은 제자리 변경)은
 모르는 값이다. 그 값으로 만든 경로 문자열은 `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의
 `route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base` 앵커, 그렇게 바뀌는 `INSTALLED_APPS`는 스코프 없는
-`framework-provided-routes:` 한계가 된다.
+`framework-provided-routes:` 한계가 된다. 그런 이름에 묶인 Flask 앱·블루프린트는 실행할 때 다른 객체일 수 있으므로, 그
+이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다.
 
 ### 결정 사항
 

@@ -148,9 +148,13 @@
   앵커와 `unresolved-route-prefix:`, 그렇게 바뀌는 `INSTALLED_APPS`는 `framework-provided-routes:` 한계("INSTALLED_APPS
   could not be read …"), 테이블 이름은 `dynamic` 사실과 `dynamic-relation-names:`, `execute()`에 넘긴 SQL 상수는
   `unresolved-sql-arguments:`가 된다. schema는 그런 이름이 가리키는 Core `Table` 객체(`select(users)`,
-  `__table__ = users`, `secondary=users`)도 테이블로 풀지 않고 같은 dynamic 사실로 낸다. 전에는 마지막 무조건 대입을
-  상수로 써 `/api/users/` 같은 거짓 정적 경로·method·테이블 이름을 내거나, `INSTALLED_APPS`에 더한 staticfiles·DRF
-  앱과 `FORCE_SCRIPT_NAME`의 한계를 빠뜨렸다.
+  `__table__ = users`, `secondary=users`)도 테이블로 풀지 않고 같은 dynamic 사실로 낸다. `routes --role server`는 그런
+  이름에 묶인 Flask 앱·블루프린트에 단 규칙과 그 이름을 거친 블루프린트 등록을 `base` 앵커와
+  `unresolved-route-prefix:`로 내고(`bp = Blueprint(…, url_prefix="/api")` 뒤 `if V2: bp = Blueprint(…)`), 그런
+  앱의 정적 파일은 스코프 없는 `framework-provided-routes:`로 둔다(함수 안 지역 이름은 판정하지 않는다). 전에는 마지막
+  무조건 대입을 상수로 써 `/api/users/` 같은 거짓 정적 경로·method·테이블 이름을 내거나, `INSTALLED_APPS`에 더한
+  staticfiles·DRF 앱과 `FORCE_SCRIPT_NAME`의 한계를 빠뜨렸고, Flask는 마지막으로 만든 객체의 접두사로 `/v2/users`를
+  한계 없는 root 경로로 냈다.
 - schema: SQL 텍스트 관계 추출이 같은 문장(비인용 `;`로 나뉜다)의 CTE 이름인 한정자 없는 피연산자, 함수 인자 안 `FROM`의
   피연산자(`EXTRACT(YEAR FROM created_at)`·`TRIM`·`SUBSTRING` 등. 그 안의 하위 질의는 그대로 관계다),
   `IS [NOT] DISTINCT FROM`의 피연산자를 relation-use로 내지 않고, 그 자리의 플레이스홀더도 dynamic

@@ -154,6 +154,111 @@ def test_rebound_rule_constants_are_dynamic(make_project: Callable[[dict[str, st
     assert anchors["app.py#orders"] == "base"
 
 
+#: 다시 묶이는 모듈 이름이 가리키는 블루프린트·앱의 등록 한계 문장이다(`{count}` 자리).
+REBOUND_REGISTRATIONS = (
+    "unresolved-route-prefix: {count} Flask blueprint registrations go through a module name that may refer to "
+    "another app or blueprint (bound more than once or conditionally), so their routes are emitted with a base anchor"
+)
+
+#: 다시 묶이는 모듈 이름이 가리키는 앱·블루프린트에 단 규칙의 한계 문장이다(`{count}` 자리).
+REBOUND_RULES = (
+    "unresolved-route-prefix: {count} Flask rules are registered through a module name that may refer to another app "
+    "or blueprint (bound more than once or conditionally), so they are emitted with a base anchor"
+)
+
+
+def test_rebound_app_and_blueprint_names_are_base_anchored(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """다시 묶이는 모듈 이름(두 번 이상·조건부 대입)이 가리키는 블루프린트·앱의 규칙과 등록은 `base` 앵커와
+    `unresolved-route-prefix:`로 낸다. 그 이름을 import해 쓰는 다른 모듈도 같다.
+
+    객체 사전이 이름의 마지막 대입만 보고 묶음은 보지 않아, `bp = Blueprint(…, url_prefix=PREFIX)` 뒤
+    `if V2: bp = Blueprint(…, url_prefix="/v2")`인 `@bp.route("/users")`를 한계 없이 정적 `/v2/users`(root)로 냈다.
+    실행 조건에 따라 실제 경로는 `/api/users`다. 한 번만 묶인 블루프린트·앱과 리터럴 목록 반복으로 등록한 블루프린트는
+    그대로 root다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import os
+        from flask import Blueprint, Flask
+        from shop import shop
+        V2 = os.environ.get("V2")
+        PREFIX = "/api"
+        bp = Blueprint("api", __name__, url_prefix=PREFIX)
+        if V2:
+            bp = Blueprint("api", __name__, url_prefix="/v2")
+        stable = Blueprint("stable", __name__, url_prefix="/stable")
+        @bp.route("/users")
+        def users():
+            pass
+        @stable.route("/items")
+        def items():
+            pass
+        app = Flask(__name__, static_folder=None)
+        for blueprint in (bp, stable):
+            app.register_blueprint(blueprint)
+        app.register_blueprint(shop, url_prefix="/shop")
+    """,
+            "views.py": """
+        from app import bp
+        @bp.route("/extra")
+        def extra():
+            pass
+    """,
+            "other.py": """
+        from flask import Flask
+        from app import bp
+        other = Flask(__name__, static_folder=None)
+        other.register_blueprint(bp, url_prefix="/other")
+    """,
+            "shop.py": """
+        from flask import Blueprint
+        shop = Blueprint("shop", __name__)
+        @shop.get("/orders")
+        def orders():
+            pass
+    """,
+            "legacy.py": """
+        import os
+        from flask import Flask
+        from shop import shop
+        legacy = Flask(__name__, static_folder=None)
+        @legacy.route("/ping")
+        def ping():
+            pass
+        def health():
+            pass
+        legacy.add_url_rule("/health", view_func=health)
+        legacy.register_blueprint(shop, url_prefix="/old")
+        if os.environ.get("ALT"):
+            legacy = Flask("alt", static_folder=None)
+    """,
+        }
+    )
+    document = routes_document(root)
+    facts = document["facts"]
+    assert isinstance(facts, list)
+    rows = {(fact["channel"], fact["pathAnchor"], fact["symbol"]["usr"]) for fact in facts}
+    assert rows == {
+        ("/users", "base", "app.py#users"),
+        ("/extra", "base", "views.py#extra"),
+        ("/ping", "base", "legacy.py#ping"),
+        ("/health", "base", "legacy.py#health"),
+        ("/orders", "base", "shop.py#orders"),
+        ("/stable/items", "root", "app.py#items"),
+        ("/shop/orders", "root", "shop.py#orders"),
+    }
+    assert not any(fact["dynamic"] for fact in facts)
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert REBOUND_REGISTRATIONS.format(count=3) in limitations
+    assert REBOUND_RULES.format(count=2) in limitations
+    # 다시 묶인 앱의 정적 파일 경로는 다른 묶음의 값을 알 수 없어 스코프 없는 한계다.
+    assert "framework-provided-routes: Flask serves static files under the static URL path" in limitations
+    assert "limitationScopes" not in document
+
+
 def test_factory_local_blueprint_imports(make_project: Callable[[dict[str, str]], Path]) -> None:
     """앱 팩토리 안의 `from pkg.auth import bp as auth_bp` 뒤 `register_blueprint(auth_bp, url_prefix=...)`를 따른다.
 

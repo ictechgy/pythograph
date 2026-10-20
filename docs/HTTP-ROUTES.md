@@ -143,6 +143,11 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
   as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
   같은 이름의 모듈 수준 import를 가린다.
+- 모듈 수준 앱·블루프린트 이름은 상수 평가와 같은 묶음 판정을 지나야 그 객체로 본다(두 번 이상·조건부로 묶이거나
+  `global`로 다시 묶이는 이름 등, import·모듈 별칭으로 거쳐 간 묶음도 본다). 지나지 못한 이름은 실행 경로에 따라 다른
+  객체를 가리킬 수 있으므로(`bp = Blueprint(…, url_prefix="/api")` 뒤 `if V2: bp = Blueprint(…, url_prefix="/v2")`)
+  그 이름에 단 규칙과 그 이름을 거친 블루프린트 등록은 `pathAnchor: "base"`(규칙만)와 `unresolved-route-prefix:`이고,
+  그런 앱의 정적 파일은 스코프 없는 `framework-provided-routes:`다. 함수(앱 팩토리) 안 지역 이름은 판정하지 않는다.
 - 앱에 닿는 등록을 찾지 못한 블루프린트의 규칙은 `pathAnchor: "base"`(규칙만)와 `unresolved-route-prefix:`다.
 
 ## 한계와 스코프
@@ -151,7 +156,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 |---|---|
 | 설정 모듈·`ROOT_URLCONF`를 찾지 못함 | 사실 0건 + `route-coverage:` |
 | `FORCE_SCRIPT_NAME` 설정 | 모든 사실 `pathAnchor: "base"` + `unresolved-route-prefix:` |
-| 증명하지 못한 모듈 상수·설정: 모듈 수준에서 두 번 이상 묶임(`+=` 포함), `if`·반복문·`try`·`with`·`match` 블록 안 대입, 함수의 `global` 재대입, `globals()`(모듈 수준 `vars()`·`locals()`)를 부르는 모듈, 모듈 어디서든 `NAME.append(…)`·`NAME[k] = …` 같은 제자리 변경. import·star import·모듈 별칭으로 거쳐 간 모듈의 묶음도 본다 | 모르는 값이다(마지막 무조건 대입이 있어도). 경로 문자열은 dynamic 사실 + `route-coverage:`("… is not a literal"), method 목록은 method를 확정하지 못한 뷰와 같고, 설정은 읽지 못한 설정이다(조건부 `FORCE_SCRIPT_NAME`은 base 앵커 + `unresolved-route-prefix:`, `INSTALLED_APPS`는 스코프 없는 `framework-provided-routes:`). 설정 모듈이 star import로 합친 기반 설정을 바꾸면(`INSTALLED_APPS += [...]`) 그 설정도 같다 |
+| 증명하지 못한 모듈 상수·설정: 모듈 수준에서 두 번 이상 묶임(`+=` 포함), `if`·반복문·`try`·`with`·`match` 블록 안 대입, 함수의 `global` 재대입, `globals()`(모듈 수준 `vars()`·`locals()`)를 부르는 모듈, 모듈 어디서든 `NAME.append(…)`·`NAME[k] = …` 같은 제자리 변경. import·star import·모듈 별칭으로 거쳐 간 모듈의 묶음도 본다 | 모르는 값이다(마지막 무조건 대입이 있어도). 경로 문자열은 dynamic 사실 + `route-coverage:`("… is not a literal"), method 목록은 method를 확정하지 못한 뷰와 같고, 설정은 읽지 못한 설정이다(조건부 `FORCE_SCRIPT_NAME`은 base 앵커 + `unresolved-route-prefix:`, `INSTALLED_APPS`는 스코프 없는 `framework-provided-routes:`). 설정 모듈이 star import로 합친 기반 설정을 바꾸면(`INSTALLED_APPS += [...]`) 그 설정도 같다. 그런 이름이 가리키는 Flask 앱·블루프린트에 단 규칙과 그 이름을 거친 블루프린트 등록은 `pathAnchor: "base"` + `unresolved-route-prefix:`, 그런 앱의 정적 파일은 스코프 없는 `framework-provided-routes:`다 |
 | 조건문(`if`·`try`) 안 등록 | decl 대신 `route-coverage:`, 템플릿을 확정하면 `templates` 스코프 |
 | 반복문으로 만든 목록, 모르는 호출·식, 모르는 호출로 바꾼 목록 | 그 자리에 `route-coverage:`, include 접두사가 정적이면 세그먼트 경계 `templatePrefixes` 스코프 |
 | 프로젝트 밖 URL 모듈 include | Django·DRF 모듈이면 `framework-provided-routes:`, 그 밖은 `route-coverage:`, 접두사 스코프 |

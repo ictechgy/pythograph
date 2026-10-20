@@ -171,7 +171,9 @@ provable (see [Bounded source scanning](#bounded-source-scanning): bound twice, 
 `try`, `with`, or `match` block, rebound through `global`, or changed in place such as `INSTALLED_APPS.append(...)`)
 is unknown: a route string built from it is `dynamic`, a method list from it leaves the view with its known methods
 or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
-`INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation.
+`INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation. A Flask app or blueprint
+bound to such a name may be a different object at run time, so the rules and blueprint registrations that go through
+that name get the `base` anchor with `unresolved-route-prefix:`.
 
 ### Decisions
 
