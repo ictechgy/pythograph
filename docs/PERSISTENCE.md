@@ -42,7 +42,11 @@ pythograph schema --project <root> [--include-tests] [--settings <module>] [--ge
 [README 소스 읽기 상한](../README.ko.md#소스-읽기-상한)). 모듈 수준에서 두 번 이상 묶이거나(`+=` 포함),
 `if`·반복문·`try`·`with`·`match` 블록 안에서 묶이거나, 함수가 `global`로 다시 묶거나, 모듈 어디서든 제자리에서
 바뀌거나(`NAME.append(…)`·`NAME[k] = …`), `globals()`를 부르는 모듈의 이름은 무조건 대입이 있어도 모르는 값이다.
-그 이름으로 만든 테이블은 dynamic 사실, SQL 인자는 읽지 못한 인자다.
+그 이름으로 만든 테이블은 dynamic 사실, SQL 인자는 읽지 못한 인자다. 그런 이름이 가리키는 Core `Table` 객체도 테이블로
+풀지 않는다(`users = Table(…)` 뒤 `if …: users = Table(…)`): 쿼리 엔터티(`select(users)`)는 풀지 못한 엔터티,
+`__table__ = users`는 계산된 테이블 이름, `secondary=users`는 리터럴이 아닌 연결 테이블과 같은 dynamic 사실이다.
+다시 묶은 이름이 가리키는 `MetaData`·declarative 기반·`SQLAlchemy()` 객체의 스키마 인자(`MetaData(schema=…)`)는 아직
+이 판정을 거치지 않는다.
 
 ## Django
 

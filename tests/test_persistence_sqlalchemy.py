@@ -168,6 +168,93 @@ events = Table(LOG, Base.metadata, Column("id", Integer))
     assert ("Order", None, True) in rows
 
 
+#: 다시 묶이는 이름이 가리키는 Core 테이블 객체를 쓰는 매핑이다(조건부·반복문·두 번째 무조건 대입, 대조군 `stable`).
+REBOUND_TABLES = """
+import os
+
+from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
+from sqlalchemy.orm import DeclarativeBase, relationship
+
+LEGACY = os.environ.get("LEGACY")
+metadata = MetaData()
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+users = Table("users", metadata, Column("id", Integer, primary_key=True))
+if LEGACY:
+    users = Table("legacy_users", metadata, Column("id", Integer, primary_key=True))
+stable = Table("stable", metadata, Column("id", Integer, primary_key=True))
+accounts = Table("accounts", metadata, Column("id", Integer, primary_key=True))
+for _ in range(1):
+    accounts = Table("old_accounts", metadata, Column("id", Integer, primary_key=True))
+links = Table("links", Base.metadata, Column("a", ForeignKey("a.id")), Column("b", ForeignKey("b.id")))
+links = Table("links_v2", Base.metadata, Column("a", ForeignKey("a.id")), Column("b", ForeignKey("b.id")))
+
+
+class Account(Base):
+    __table__ = accounts
+
+
+class A(Base):
+    __tablename__ = "a"
+    id = Column(Integer, primary_key=True)
+    bs = relationship("B", secondary=links)
+
+
+class B(Base):
+    __tablename__ = "b"
+    id = Column(Integer, primary_key=True)
+"""
+
+#: 위 객체를 다른 모듈에서 쓰는 질의다.
+REBOUND_TABLE_USES = """
+from sqlalchemy import select
+
+from app.models import A, Account, stable, users
+
+
+def list_users(session):
+    return session.execute(select(users))
+
+
+def list_stable(session):
+    return session.execute(select(stable))
+
+
+def list_accounts(session):
+    return session.execute(select(Account))
+
+
+def list_links(session):
+    return session.execute(select(A).join(A.bs))
+"""
+
+
+def test_rebound_core_table_objects_are_not_resolved(make_project: MakeProject) -> None:
+    """다시 묶이는 이름이 가리키는 Core `Table` 객체(`select(users)`, `__table__ = accounts`, `secondary=links`)는
+    정적 테이블로 풀지 않고 dynamic 사실과 `dynamic-relation-names:` 한계로 낸다.
+
+    묶음은 이름을 값으로 평가할 때만 보고 테이블 객체로 풀 때는 보지 않아, `users = Table("users", …)` 뒤
+    `if …: users = Table("legacy_users", …)`의 `select(users)`를 한계 없이 정적 `users`로 냈다. 한 번만 묶인
+    `stable`은 그대로 정적이다.
+    """
+    document = schema_document(_project(make_project, REBOUND_TABLE_USES, REBOUND_TABLES))
+    rows = _rows(document)
+    rebound = {"users", "legacy_users", "accounts", "old_accounts", "links", "links_v2"}
+    assert ("stable", None, False) in rows
+    assert ("b", None, False) in rows
+    assert not {row[0] for row in rows if not row[2]} & rebound
+    assert {row[0] for row in rows if row[2]} >= {"users", "Account"}
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    reasons = [line for line in limitations if line.startswith("dynamic-relation-names:")]
+    for phrase in ("statement entities could not be resolved", "computed table names", "secondary tables"):
+        assert any(phrase in line for line in reasons), phrase
+
+
 def test_unparseable_string_annotations_are_not_columns(make_project: MakeProject) -> None:
     """파싱할 수 없거나 너무 깊은 문자열 주석(NUL·5만 항)은 컬럼으로 보지 않고 schema는 성공한다.
 

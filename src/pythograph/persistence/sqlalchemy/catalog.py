@@ -275,7 +275,12 @@ class SqlAlchemyCatalog:
         return None
 
     def table_for_symbol(self, symbol: Symbol | None) -> SaTable | None:
-        """해석 결과가 모듈 수준 Core 테이블이면 돌려준다.
+        """해석 결과가 모듈 수준 Core 테이블 하나로 증명되면 돌려준다.
+
+        다시 묶이는 이름(두 번 이상 묶이거나 조건·반복·예외 블록 안에서 묶이는 등, `SymbolTable.proven`)은 실행
+        경로에 따라 다른 테이블을 가리키므로 테이블로 풀지 않는다. 호출자는 풀지 못한 식처럼 다룬다: 쿼리 엔터티는
+        dynamic 사실과 `dynamic-relation-names:`, `__table__`은 계산된 테이블 이름, `secondary=`는 모르는 연결
+        테이블이다.
 
         Args:
             symbol: 해석 결과.
@@ -283,7 +288,7 @@ class SqlAlchemyCatalog:
         Returns:
             테이블 또는 None.
         """
-        if isinstance(symbol, ValueSymbol) and isinstance(symbol.node, ast.Call):
+        if isinstance(symbol, ValueSymbol) and isinstance(symbol.node, ast.Call) and self.symbols.proven(symbol):
             return self.tables.get(id(symbol.node))
         return None
 

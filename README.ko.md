@@ -201,8 +201,9 @@ bridge-facts v1 문서(`platform: "python"`, `target: "persistence"`, 사실이 
 - **channel**은 코드·매핑이 쓴 관계 이름(한정했을 때만 `schema.table`, 기본 스키마는 추측하지 않음), **method**는
   컬럼, **symbol.usr**는 감싸는 함수·메서드·모델 클래스이며 `routes`와 같은 id다. 백엔드·앱 라벨·Flask-SQLAlchemy
   버전에 따라 갈리는 이름, 풀지 못한 모델·조회식, 증명하지 못한 모듈 상수(`TABLE += ...` 뒤의 `db_table = TABLE`,
-  조건부로 다시 대입한 접두사로 만든 `__tablename__`), 실행 중에 만든 SQL은 추측하지 않고 `dynamic` 사실과
-  `dynamic-relation-names:` 한계로 낸다. 그런 상수를 `execute()`에 넘기면 `unresolved-sql-arguments:`로 센다.
+  조건부로 다시 대입한 접두사로 만든 `__tablename__`), 증명하지 못한 이름으로 가리킨 Core `Table` 객체(`users`를 다시
+  대입한 뒤의 `select(users)`·`__table__ = users`·`secondary=users`), 실행 중에 만든 SQL은 추측하지 않고 `dynamic`
+  사실과 `dynamic-relation-names:` 한계로 낸다. 그런 상수를 `execute()`에 넘기면 `unresolved-sql-arguments:`로 센다.
 - 테스트 소스(`--include-tests`가 없을 때)와 마이그레이션(Django `migrations/`, Alembic `versions/`)은 읽지 않는다.
   마이그레이션은 과거 스키마를 기술한다.
 

@@ -260,9 +260,10 @@ facts), and one `relation-use` fact per observed relation or column reference. i
   guessed), **method** is the column, and **symbol.usr** is the enclosing function, method, or model class with the
   same ids as `routes`. A name that depends on an unknown backend, app label, or Flask-SQLAlchemy version, an
   unresolved model or lookup, a module constant that is not provable (`db_table = TABLE` after `TABLE += ...`, a
-  `__tablename__` built from a conditionally reassigned prefix), and SQL built at runtime become `dynamic` facts with a
-  `dynamic-relation-names:` limitation instead of guesses; such a constant passed to `execute()` is counted under
-  `unresolved-sql-arguments:`.
+  `__tablename__` built from a conditionally reassigned prefix), a Core `Table` object reached through a name that is
+  not provable (`select(users)`, `__table__ = users`, or `secondary=users` when `users` is reassigned), and SQL built
+  at runtime become `dynamic` facts with a `dynamic-relation-names:` limitation instead of guesses; such a constant
+  passed to `execute()` is counted under `unresolved-sql-arguments:`.
 - Test sources (unless `--include-tests`) and migrations (Django `migrations/`, Alembic `versions/`) are not scanned;
   migrations describe past schemas.
 
