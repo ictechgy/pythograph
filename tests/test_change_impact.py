@@ -146,3 +146,25 @@ def test_partial_clone_refusal_is_input_error(repository: Path, monkeypatch: pyt
     monkeypatch.setattr("pythograph.graph.change._git", refuse)
     with pytest.raises(InputError, match="Git capture refused"):
         capture(repository)
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_staged_and_unstaged_delete_preserve_old_caller(repository: Path, staged: bool) -> None:
+    (repository / "value.py").unlink()
+    if staged:
+        git(repository, "add", "-u")
+    result = report(repository)
+    assert {"path": "value.py", "status": "deleted"} in result["changes"]
+    assert "caller.py#caller" in {row["id"] for row in result["before"]["reviewCandidates"]}
+    assert not result["after"]["seeds"]
+
+
+def test_staged_edit_reverted_in_worktree_uses_net_source_state(repository: Path) -> None:
+    original = (repository / "value.py").read_bytes()
+    (repository / "value.py").write_text("def value():\n    return 999\n", encoding="utf-8")
+    git(repository, "add", "value.py")
+    (repository / "value.py").write_bytes(original)
+    result = report(repository)
+    assert result["changes"] == []
+    assert result["before"]["input"]["contentDigest"] == result["after"]["input"]["contentDigest"]
+    assert result["status"] == "incomplete"
