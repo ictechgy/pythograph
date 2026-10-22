@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TextIO
 
 from pythograph import __version__
+from pythograph.cli.change_command import CHANGE_USAGE, run_change
 from pythograph.cli.common import InputError, UsageError, parse_timestamp, resolve_project
 from pythograph.cli.graph_commands import (
     GRAPH_USAGE,
@@ -58,6 +59,7 @@ Commands:
   graph      Python call graph snapshot (pythograph-graph v1)
   reach      Symbols the roots depend on (isthmus language-traversal v1)
   impact     Symbols that depend on the roots (isthmus language-traversal v1)
+  change-impact Git base/head or working-tree changes with separate before/after paths
   help       Show help for a command
 
 Options:
@@ -252,6 +254,8 @@ def run(arguments: list[str], stdin: TextIO | None = None) -> str:
         return _schema(rest)
     if command == "graph":
         return run_graph(rest)
+    if command == "change-impact":
+        return run_change(rest)
     if command in ("reach", "impact"):
         return run_traversal(rest, "dependencies" if command == "reach" else "dependents", stdin)
     raise UsageError("unknown command.\n" + MAIN_USAGE)
@@ -275,7 +279,7 @@ def _help(rest: list[str]) -> str:
         return ROUTES_USAGE
     if rest == ["schema"]:
         return SCHEMA_USAGE
-    topics = {"graph": GRAPH_USAGE, "reach": REACH_USAGE, "impact": IMPACT_USAGE}
+    topics = {"graph": GRAPH_USAGE, "reach": REACH_USAGE, "impact": IMPACT_USAGE, "change-impact": CHANGE_USAGE}
     if len(rest) == 1 and rest[0] in topics:
         return topics[rest[0]]
     raise UsageError("unknown command for help.\n" + MAIN_USAGE)

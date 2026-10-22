@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.3.0] — Release preparation
+
+이 절은 릴리스 준비 기록이며 게시 완료를 뜻하지 않는다. 기존 `impact <id>` 출력은 유지된다.
+새 `change-impact` 보고서는 시점별 `traversal`을 분리해 소비하고 전체 출처·한계를 보존해야 한다.
+
+### Added
+
+- `change-impact --project <git-root> --base <commit> [--head <commit>]`: 실제 변경의 before/after 소스를 고정하고
+  각 그래프에서 삭제·rename caller와 검토할 호출자·테스트 후보를 따로 계산한다. 내용 해시, 파일 seed 이유,
+  미매핑 파일, 준비 비용, 미해석 framework 경로와 깊이/행 제한을 보존하며 안전 판정을 하지 않는다.
+
 ### Security
 
 - `graph`·`reach`·`impact`가 `revision`을 읽으려고 실행하는 git이 git 설정(분석 대상 저장소의 `.git/config`와 그
