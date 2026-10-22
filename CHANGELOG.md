@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- `change-impact --project <git-root> --base <commit> [--head <commit>]`: 실제 변경의 before/after 소스를 고정하고
+  각 그래프에서 삭제·rename caller와 검토할 호출자·테스트 후보를 따로 계산한다. 내용 해시, 파일 seed 이유,
+  미매핑 파일, 준비 비용, 미해석 framework 경로와 깊이/행 제한을 보존하며 안전 판정을 하지 않는다.
+
 ### Security
 
 - `graph`·`reach`·`impact`가 `revision`을 읽으려고 실행하는 git이 git 설정(분석 대상 저장소의 `.git/config`와 그

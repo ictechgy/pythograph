@@ -439,6 +439,13 @@ uv run python scripts/verify_cli_contract.py
 프레임워크 훅 표는 스크래치 가상 환경(Django 5.2.17·DRF 3.18.1·Flask 3.1.3 설치)의 site-packages로
 `python experiments/graph/dump_framework_hooks.py --site-packages <경로>`가 다시 만든다(`--check`는 비교만).
 
+## 실제 변경 분석
+
+`pythograph change-impact --project . --base HEAD~1 --head HEAD`로 두 커밋을 비교한다. `--head`를 생략하면
+작업 트리 변경을 분석한다. 소스를 따로 고정해 삭제 caller와 각 시점의 경로, 실제 내용 해시, 파일 seed 이유,
+검토/테스트 후보, 미매핑 파일과 한계를 보존한다. 항상 불완전한 결과이며 실패 예측이나 테스트 생략 허가가 아니다.
+기존 `impact <id>`는 유지한다. [변경 분석](docs/CHANGE-IMPACT.md)에 예산과 남은 framework 공백이 있다.
+
 ## 라이선스
 
 MIT

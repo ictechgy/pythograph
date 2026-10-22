@@ -542,6 +542,14 @@ The framework hook table is regenerated from a scratch virtual environment with 
 Flask 3.1.3 installed: `python experiments/graph/dump_framework_hooks.py --site-packages <path>` (`--check` compares
 only).
 
+## Analyze an actual change
+
+Run `pythograph change-impact --project . --base HEAD~1 --head HEAD`, or omit `--head` for working-tree
+edits. Before/after source captures retain deleted callers and separate propagation paths, with content
+digests, file seed reasons, connected review/test candidates, unmapped files and limits. Results are always
+incomplete; they do not predict failures or authorize skipping tests. Existing `impact <id>` is unchanged.
+See [change analysis](docs/CHANGE-IMPACT.md) for the capture budget and remaining framework gaps.
+
 ## License
 
 MIT
