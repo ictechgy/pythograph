@@ -16,7 +16,7 @@ from pythograph import __version__
 from pythograph.cli.common import InputError
 from pythograph.graph.build import build_graph
 from pythograph.graph.document import GraphHeader, TraversalInput, build_traversal_document
-from pythograph.graph.revision import _git, _git_executable
+from pythograph.graph.revision import _git, _git_executable, _LazyFetchRefusedError, _UnneutralizableDriverError
 from pythograph.graph.traversal import TraversalRequest, traverse
 from pythograph.source.project import Project
 
@@ -49,7 +49,10 @@ def _read_git(root: Path, *args: str) -> bytes:
     executable = _git_executable(root)
     if executable is None:
         raise InputError("trusted Git executable unavailable")
-    result = _git(executable, root, *args)
+    try:
+        result = _git(executable, root, *args)
+    except (_UnneutralizableDriverError, _LazyFetchRefusedError) as error:
+        raise InputError("Git capture refused unsafe filter configuration or unavailable local objects") from error
     if result is None or len(result) > MAX_TOTAL_BYTES:
         raise InputError("Git capture failed; check local objects, revisions and capture budgets")
     return result
@@ -123,13 +126,21 @@ def capture(root: Path, revision: str | None = None) -> Capture:
         if size > MAX_FILE_BYTES or total + size > MAX_TOTAL_BYTES:
             raise InputError("capture byte budget exceeded")
         data = (
-            (root / path).read_bytes() if commit is None else _read_git(root, "cat-file", "blob", metadata.split()[2])
+            _read_working_file(root / path)
+            if commit is None
+            else _read_git(root, "cat-file", "blob", metadata.split()[2])
         )
         if len(data) != size:
             raise InputError("source changed during capture; retry on stable input")
         total += len(data)
         files[path] = data
     return Capture(files, content_digest(files), commit, omitted)
+
+
+def _read_working_file(path: Path) -> bytes:
+    """stat 이후 파일이 커져도 예산+1 byte만 읽는다."""
+    with path.open("rb") as stream:
+        return stream.read(MAX_FILE_BYTES + 1)
 
 
 def changed_files(before: Capture, after: Capture) -> list[dict[str, str]]:

@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -121,3 +122,27 @@ def test_interface_callback_patch_preserves_dispatch_limits(repository: Path) ->
     result = analyze_change(repository, "HEAD", None, TraversalRequest((), "dependents", 128, 100000, "candidates"))
     assert result["status"] == "incomplete"
     assert result["after"]["traversal"]["dispatch"] == "candidates"  # type: ignore[index]
+
+
+def test_unsafe_filter_is_cli_input_failure(repository: Path) -> None:
+    git(repository, "config", "filter.bad=name.clean", "unused-command")
+    result = subprocess.run(
+        [sys.executable, "-m", "pythograph", "change-impact", "--project", str(repository), "--base", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert "Git capture refused" in result.stderr
+
+
+def test_partial_clone_refusal_is_input_error(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pythograph.graph.revision import _LazyFetchRefusedError
+
+    def refuse(*args: object) -> bytes:
+        raise _LazyFetchRefusedError
+
+    monkeypatch.setattr("pythograph.graph.change._git", refuse)
+    with pytest.raises(InputError, match="Git capture refused"):
+        capture(repository)
