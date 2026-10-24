@@ -548,6 +548,9 @@ Run `pythograph change-impact --project . --base HEAD~1 --head HEAD`, or omit `-
 edits. Before/after source captures retain deleted callers and separate propagation paths, with content
 digests, file seed reasons, connected review/test candidates, unmapped files and limits. Results are always
 incomplete; they do not predict failures or authorize skipping tests. Existing `impact <id>` is unchanged.
+Nested traversals preserve the original project's canonical identity. Test candidates use the same filename
+policy as ordinary graphs; capture omissions keep source uncertainty open, and working reads and Git output
+are checked while reading. These boundaries and explicit omissions are documented below.
 See [change analysis](docs/CHANGE-IMPACT.md) for the capture budget and remaining framework gaps.
 
 ## License

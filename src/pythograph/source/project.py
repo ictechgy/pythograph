@@ -112,6 +112,15 @@ class ReadFailure:
     reason: str
 
 
+@dataclass(frozen=True)
+class SourceOmission:
+    """캡처 단계에서 제외한 원본 경로와 이유다. 실제 파일 순회 통계와 구분한다."""
+
+    path: str
+    reason: str
+    may_hide_source: bool
+
+
 @dataclass
 class Project:
     """분석 대상 프로젝트.
@@ -146,9 +155,12 @@ class Project:
     _resolved_roots: list[str] = field(default_factory=list)
     _root_entries: dict[str, frozenset[str] | None] = field(default_factory=dict)
     _root_names: frozenset[str] = field(default_factory=frozenset)
+    source_omissions: tuple[SourceOmission, ...] = ()
 
     @classmethod
-    def open(cls, root: Path, max_depth: int = MAX_AST_DEPTH) -> Project:
+    def open(
+        cls, root: Path, max_depth: int = MAX_AST_DEPTH, *, source_omissions: tuple[SourceOmission, ...] = ()
+    ) -> Project:
         """프로젝트를 열고 모듈 루트를 정한다.
 
         모듈 루트는 `manage.py`가 있는 디렉터리들(Django가 `sys.path`에 넣는 곳, (깊이, 경로) 순 앞
@@ -157,11 +169,12 @@ class Project:
         Args:
             root: 프로젝트 realpath(디렉터리).
             max_depth: 분석하는 구문 트리의 최대 중첩 깊이(기본은 graph 계열 상한).
+            source_omissions: 별도 캡처가 제외한 입력이다. 새 스캔이 못 보는 원래 소스 경계를 보존한다.
 
         Returns:
             프로젝트.
         """
-        project = cls(root=root, max_depth=max_depth)
+        project = cls(root=root, max_depth=max_depth, source_omissions=source_omissions)
         manage_directories = project._manage_directories()
         project.skipped_module_roots = max(len(manage_directories) - MAX_MODULE_ROOTS, 0)
         roots = [("" if directory == "." else directory) for directory in manage_directories[:MAX_MODULE_ROOTS]]

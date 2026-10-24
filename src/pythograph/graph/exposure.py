@@ -352,6 +352,7 @@ def collect_program(project: Project, index: DefinitionIndex, resolver: Resolver
         or project.forbidden_names
         or project.scan_errors
         or project.skipped_module_roots
+        or any(omission.may_hide_source for omission in project.source_omissions)
         or index.unparsed
     ):
         facts.incomplete = (

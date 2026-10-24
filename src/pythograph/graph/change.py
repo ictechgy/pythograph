@@ -6,10 +6,12 @@ import hashlib
 import json
 import os
 import re
+import stat
 import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 from pythograph import __version__
@@ -18,7 +20,14 @@ from pythograph.graph.build import build_graph
 from pythograph.graph.document import GraphHeader, TraversalInput, build_traversal_document
 from pythograph.graph.revision import _git, _git_executable, _LazyFetchRefusedError, _UnneutralizableDriverError
 from pythograph.graph.traversal import TraversalRequest, traverse
-from pythograph.source.project import Project
+from pythograph.source.project import (
+    Project,
+    SourceOmission,
+    _is_link,
+    _is_skipped_directory,
+    _link_may_hide_sources,
+    is_test_path,
+)
 
 MAX_CAPTURE_FILES = 20_000
 MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -32,7 +41,12 @@ class Capture:
     files: dict[str, bytes]
     digest: str
     revision: str | None
-    omitted: int
+    omissions: tuple[SourceOmission, ...]
+
+    @property
+    def omitted(self) -> int:
+        """기존 개수 필드를 유지하면서 경로·이유는 별도로 보존한다."""
+        return len(self.omissions)
 
 
 def content_digest(files: dict[str, bytes]) -> str:
@@ -50,7 +64,7 @@ def _read_git(root: Path, *args: str) -> bytes:
     if executable is None:
         raise InputError("trusted Git executable unavailable")
     try:
-        result = _git(executable, root, *args)
+        result = _git(executable, root, *args, output_limit=MAX_TOTAL_BYTES)
     except (_UnneutralizableDriverError, _LazyFetchRefusedError) as error:
         raise InputError("Git capture refused unsafe filter configuration or unavailable local objects") from error
     if result is None or len(result) > MAX_TOTAL_BYTES:
@@ -74,13 +88,38 @@ def _safe_path(path: str) -> bool:
 
 
 def _regular_file(root: Path, path: str) -> bool:
-    """경로 구성 요소의 symlink를 따라가지 않는다."""
+    """원래 Project와 같은 경로·링크·재분석 지점 검사로 정규 파일만 고른다."""
+    try:
+        return stat.S_ISREG(Project(root)._checked_stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _omission(path: str, reason: str, boundary: str | None = None) -> SourceOmission:
+    """대상에 접근하지 않고 소스 누락 가능성을 원래 순회 이름 규칙으로 분류한다."""
+    parts = PurePosixPath(boundary or path).parts
+    visible = not any(_is_skipped_directory(part) for part in parts[:-1])
+    source = visible and (
+        not _is_skipped_directory(parts[-1])
+        if reason in ("submodule", "directory")
+        else reason != "missing" and _link_may_hide_sources(parts[-1])
+    )
+    return SourceOmission(path, reason, source)
+
+
+def _working_omission(root: Path, path: str) -> SourceOmission:
+    """따르지 않은 경계의 종류만 lstat으로 읽고, 실제 삭제는 소스 미확인과 구분한다."""
     cursor = root
-    for part in path.split("/"):
+    parts = path.split("/")
+    for index, part in enumerate(parts):
         cursor /= part
-        if cursor.is_symlink():
-            return False
-    return cursor.is_file()
+        try:
+            info = cursor.lstat()
+        except FileNotFoundError:
+            return _omission(path, "missing")
+        if _is_link(info):
+            return _omission(path, "symlink", "/".join(parts[: index + 1]))
+    return _omission(path, "directory" if stat.S_ISDIR(info.st_mode) else "non-regular")
 
 
 def capture(root: Path, revision: str | None = None) -> Capture:
@@ -102,7 +141,8 @@ def capture(root: Path, revision: str | None = None) -> Capture:
         raise InputError("capture file-count budget exceeded")
     files: dict[str, bytes] = {}
     spellings: set[str] = set()
-    omitted = total = 0
+    omissions: list[SourceOmission] = []
+    total = 0
     for row in rows:
         metadata, _, path = row.partition("\t") if commit else ("", "", row)
         if not _safe_path(path):
@@ -110,7 +150,11 @@ def capture(root: Path, revision: str | None = None) -> Capture:
         if (commit and metadata.split()[0] not in ("100644", "100755")) or (
             commit is None and not _regular_file(root, path)
         ):
-            omitted += 1
+            omissions.append(
+                _omission(path, "submodule" if metadata.split()[0] == "160000" else "symlink")
+                if commit
+                else _working_omission(root, path)
+            )
             continue
         if path in files:
             continue
@@ -119,14 +163,14 @@ def capture(root: Path, revision: str | None = None) -> Capture:
             raise InputError("capture contains colliding file paths")
         spellings.add(spelling)
         size = (
-            (root / path).stat().st_size
+            Project(root)._checked_stat(path).st_size
             if commit is None
             else int(_read_git(root, "cat-file", "-s", metadata.split()[2]))
         )
         if size > MAX_FILE_BYTES or total + size > MAX_TOTAL_BYTES:
             raise InputError("capture byte budget exceeded")
         data = (
-            _read_working_file(root / path)
+            _read_working_file(root, path)
             if commit is None
             else _read_git(root, "cat-file", "blob", metadata.split()[2])
         )
@@ -134,13 +178,12 @@ def capture(root: Path, revision: str | None = None) -> Capture:
             raise InputError("source changed during capture; retry on stable input")
         total += len(data)
         files[path] = data
-    return Capture(files, content_digest(files), commit, omitted)
+    return Capture(files, content_digest(files), commit, tuple(omissions))
 
 
-def _read_working_file(path: Path) -> bytes:
-    """stat 이후 파일이 커져도 예산+1 byte만 읽는다."""
-    with path.open("rb") as stream:
-        return stream.read(MAX_FILE_BYTES + 1)
+def _read_working_file(root: Path, path: str) -> bytes:
+    """Project의 nofollow·dir-fd·nonblock·핸들 신원 검사와 제한 읽기를 그대로 쓴다."""
+    return Project(root)._read_bytes(path, MAX_FILE_BYTES)
 
 
 def changed_files(before: Capture, after: Capture) -> list[dict[str, str]]:
@@ -172,10 +215,16 @@ def _provenance(value: Capture) -> dict[str, object]:
         "freshness": "captured-content",
         "files": len(value.files),
         "omittedFiles": value.omitted,
+        "omissions": [
+            {"path": item.path, "reason": item.reason, "sourceMayBeHidden": item.may_hide_source}
+            for item in value.omissions
+        ],
     }
 
 
-def _analyze(value: Capture, destination: Path, paths: set[str], request: TraversalRequest) -> dict[str, object]:
+def _analyze(
+    value: Capture, destination: Path, paths: set[str], request: TraversalRequest, project_identity: str
+) -> dict[str, object]:
     """한 캡처만 materialize하고 파일 seed에서 기존 순회 엔진으로 경로를 만든다."""
     destination.mkdir()
     for path, data in value.files.items():
@@ -183,13 +232,23 @@ def _analyze(value: Capture, destination: Path, paths: set[str], request: Traver
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("xb") as stream:
             stream.write(data)
-    graph = build_graph(Project.open(destination), include_tests=True)
+    graph = build_graph(Project.open(destination, source_omissions=value.omissions), include_tests=True)
+    if value.omissions:
+        reasons = ", ".join(
+            f"{reason}={count}" for reason, count in sorted(Counter(item.reason for item in value.omissions).items())
+        )
+        hidden = sum(item.may_hide_source for item in value.omissions)
+        for limitations in graph.limitations.values():
+            limitations.append(
+                f"capture-omissions: {value.omitted} paths omitted ({reasons}); {hidden} may hide sources; "
+                "capture provenance lists their paths and reasons, and omitted sources keep program evidence open"
+            )
     selected = [node for node in graph.nodes if node.location.path in paths]
     nodes = selected[:10_000]
     roots = tuple(node.id for node in nodes)
     traversal_request = TraversalRequest(roots, "dependents", request.max_depth, request.max_reached, request.dispatch)
     result = traverse(graph, traversal_request)
-    header = GraphHeader(__version__, datetime.now(timezone.utc), ".", value.revision)
+    header = GraphHeader(__version__, datetime.now(timezone.utc), project_identity, value.revision)
     document = build_traversal_document(
         TraversalInput(header, graph, "dependents", request.dispatch, roots, frozenset(), result)
     )
@@ -210,7 +269,7 @@ def _analyze(value: Capture, destination: Path, paths: set[str], request: Traver
                 "depth": row.depth,
                 "evidence": row.evidence,
                 "path": node_map[row.id].location.path,
-                "testCandidate": any(part.startswith("test") for part in Path(node_map[row.id].location.path).parts),
+                "testCandidate": is_test_path(node_map[row.id].location.path),
             }
             for row in result.reached
         ],
@@ -220,6 +279,7 @@ def _analyze(value: Capture, destination: Path, paths: set[str], request: Traver
 def analyze_change(root: Path, base: str, head: str | None, request: TraversalRequest) -> dict[str, object]:
     """캡처 비용을 포함해 두 시점을 분석한다. 빈 결과도 항상 불완전한 검토 근거다."""
     started = time.perf_counter()
+    project_identity = root.resolve().as_posix()
     before, after = capture(root, base), capture(root, head)
     if head is None and capture(root).digest != after.digest:
         raise InputError("working tree changed during capture; retry on stable input")
@@ -227,10 +287,18 @@ def analyze_change(root: Path, base: str, head: str | None, request: TraversalRe
     preparation = (time.perf_counter() - started) * 1000
     with TemporaryDirectory(prefix="pythograph-change-") as temporary:
         old = _analyze(
-            before, Path(temporary) / "before", {row["path"] for row in changes if row["status"] != "added"}, request
+            before,
+            Path(temporary) / "before",
+            {row["path"] for row in changes if row["status"] != "added"},
+            request,
+            project_identity,
         )
         current = _analyze(
-            after, Path(temporary) / "after", {row["path"] for row in changes if row["status"] != "deleted"}, request
+            after,
+            Path(temporary) / "after",
+            {row["path"] for row in changes if row["status"] != "deleted"},
+            request,
+            project_identity,
         )
     return {
         "format": "pythograph-change-impact",

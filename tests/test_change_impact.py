@@ -140,7 +140,9 @@ def test_unsafe_filter_is_cli_input_failure(repository: Path) -> None:
 def test_partial_clone_refusal_is_input_error(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from pythograph.graph.revision import _LazyFetchRefusedError
 
-    def refuse(*args: object) -> bytes:
+    def refuse(*args: object, output_limit: int) -> bytes:
+        """새 캡처도 출력 예산을 전달한 뒤 지연 fetch 거부를 보존해야 한다."""
+        assert output_limit > 0
         raise _LazyFetchRefusedError
 
     monkeypatch.setattr("pythograph.graph.change._git", refuse)
