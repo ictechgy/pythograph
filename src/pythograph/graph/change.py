@@ -9,6 +9,8 @@ import re
 import stat
 import time
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -226,12 +228,7 @@ def _analyze(
     value: Capture, destination: Path, paths: set[str], request: TraversalRequest, project_identity: str
 ) -> dict[str, object]:
     """한 캡처만 materialize하고 파일 seed에서 기존 순회 엔진으로 경로를 만든다."""
-    destination.mkdir()
-    for path, data in value.files.items():
-        target = destination / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("xb") as stream:
-            stream.write(data)
+    _materialize_capture(value, destination)
     graph = build_graph(Project.open(destination, source_omissions=value.omissions), include_tests=True)
     if value.omissions:
         reasons = ", ".join(
@@ -274,6 +271,87 @@ def _analyze(
             for row in result.reached
         ],
     }
+
+
+@contextmanager
+def _materialized_directory(
+    project: Project, relative: str, directories: dict[str, os.stat_result]
+) -> Iterator[int | Path]:
+    """등록한 실제 디렉터리 핸들만 사용하고 루트·부모의 링크 교체를 거부한다."""
+    expected = directories[relative]
+    if not os.path.samestat(directories["."], project.root.lstat()):
+        raise InputError("capture destination changed during materialization")
+    with project._open_directory(relative) as directory:
+        actual = os.fstat(directory) if isinstance(directory, int) else directory.lstat()
+        if not stat.S_ISDIR(actual.st_mode) or not os.path.samestat(expected, actual):
+            raise InputError("capture destination changed during materialization")
+        yield directory
+        if not os.path.samestat(expected, project._checked_stat(relative)) or not os.path.samestat(
+            directories["."], project.root.lstat()
+        ):
+            raise InputError("capture destination changed during materialization")
+
+
+def _materialize_parents(
+    project: Project,
+    parts: list[str],
+    directories: dict[str, os.stat_result],
+    identities: dict[tuple[int, int], str],
+) -> str:
+    """동일 raw prefix만 재사용한다. 새 prefix의 EEXIST나 같은 inode 별칭은 입력 실패다."""
+    parent = "."
+    for index, part in enumerate(parts):
+        relative = "/".join(parts[: index + 1])
+        if relative in directories:
+            if not os.path.samestat(directories[relative], project._checked_stat(relative)):
+                raise InputError("capture destination changed during materialization")
+        else:
+            with _materialized_directory(project, parent, directories) as directory:
+                if isinstance(directory, int):
+                    os.mkdir(part, mode=0o700, dir_fd=directory)
+                else:
+                    (directory / part).mkdir(mode=0o700)
+            info = project._checked_stat(relative)
+            identity = info.st_dev, info.st_ino
+            if not stat.S_ISDIR(info.st_mode) or identity in identities:
+                raise InputError("capture contains colliding physical directory paths")
+            directories[relative], identities[identity] = info, relative
+        parent = relative
+    return parent
+
+
+def _materialize_capture(value: Capture, destination: Path) -> None:
+    """raw Git 경로를 실제 파일 시스템에 단사로 쓴다. 플랫폼 전체 casefold는 사용하지 않는다."""
+    try:
+        destination.mkdir()
+        project = Project(destination)
+        root = destination.lstat()
+        directories = {".": root}
+        identities = {(root.st_dev, root.st_ino): "."}
+        for relative, data in sorted(value.files.items()):
+            if not _safe_path(relative):
+                raise InputError("capture contains unsupported path spelling")
+            parts = relative.split("/")
+            parent = _materialize_parents(project, parts[:-1], directories, identities)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+            with _materialized_directory(project, parent, directories) as directory:
+                descriptor = (
+                    os.open(parts[-1], flags, 0o600, dir_fd=directory)
+                    if isinstance(directory, int)
+                    else os.open(directory / parts[-1], flags, 0o600)
+                )
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    actual = os.fstat(stream.fileno())
+                    if (
+                        not stat.S_ISREG(actual.st_mode)
+                        or actual.st_size != len(data)
+                        or not os.path.samestat(actual, project._checked_stat(relative))
+                    ):
+                        raise InputError("capture destination changed during materialization")
+    except OSError as error:
+        raise InputError("capture cannot preserve paths on destination filesystem") from error
 
 
 def analyze_change(root: Path, base: str, head: str | None, request: TraversalRequest) -> dict[str, object]:

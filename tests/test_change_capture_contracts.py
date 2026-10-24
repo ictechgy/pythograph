@@ -84,6 +84,46 @@ class ChangeCaptureContracts(unittest.TestCase):
             "    inner(Repo())\n    return store(Repo())\n",
         )
 
+    def test_git_selected_universe_differs_from_ordinary_scan_without_erasing_local_facts(self) -> None:
+        """ignored writer는 선택 범위 밖이며 tracked로 들어오면 같은 코드의 모듈 bound를 연다."""
+        self.write(".gitignore", "ignored_writer.py\n")
+        self.write("repos.py", "class Repo:\n    def save(self): return 1\n")
+        self.write(
+            "wiring.py",
+            "import os\nfrom repos import Repo\nrepo = Repo() if os.environ.get('WHICH') else Repo()\n",
+        )
+        self.write(
+            "app.py",
+            "import wiring\nfrom repos import Repo\ndef global_site():\n    return wiring.repo.save()\n"
+            "def main():\n    def inner(repo):\n        return repo.save()\n"
+            "    inner(Repo())\n    return global_site()\n",
+        )
+        self.commit()
+        self.write("ignored_writer.py", "import wiring\nclass Other: pass\nwiring.repo = Other()\n")
+        self.write("repos.py", "class Repo:\n    def save(self): return 2\n")
+        self.write("value.py", "def value(): return 2\n")
+        ordinary = build_graph(Project.open(self.root), include_tests=True)
+        bound = {(edge.source, edge.target) for edge in ordinary.edges if edge.evidence == "bound"}
+        self.assertNotIn(("app.py#global_site", "repos.py#Repo.save"), bound)
+        self.assertIn(("app.py#main.inner", "repos.py#Repo.save"), bound)
+        self.assertIn("ignored_writer.py", {node.location.path for node in ordinary.nodes})
+        captured = change.capture(self.root)
+        self.assertNotIn("ignored_writer.py", captured.files)
+        self.assertEqual(captured.omissions, ())
+        selected = self.report("bound")
+        rows = {row["id"]: row for row in selected["after"]["reviewCandidates"]}
+        self.assertEqual(rows["app.py#global_site"]["evidence"], "bound")
+        self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
+        self.assertEqual(rows["caller.py#caller"]["evidence"], "direct")
+        self.assertEqual(selected["scope"]["files"], "tracked-and-nonignored-untracked")
+        self.assertEqual(selected["status"], "incomplete")
+        self.git("add", "-f", "ignored_writer.py")
+        tracked = self.report("bound")
+        rows = {row["id"]: row for row in tracked["after"]["reviewCandidates"]}
+        self.assertNotIn("app.py#global_site", rows)
+        self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
+        self.assertEqual(rows["caller.py#caller"]["evidence"], "direct")
+
     @unittest.skipUnless(hasattr(os, "symlink"), "symlink unavailable")
     def test_source_link_omission_preserves_open_program_evidence(self) -> None:
         """원래 스캔이 여는 모듈 함수를 캡처 후 bound로 승격하지 않는다."""

@@ -551,6 +551,9 @@ incomplete; they do not predict failures or authorize skipping tests. Existing `
 Nested traversals preserve the original project's canonical identity. Test candidates use the same filename
 policy as ordinary graphs; capture omissions keep source uncertainty open, and working reads and Git output
 are checked while reading. These boundaries and explicit omissions are documented below.
+Captures use Git-selected inputs; `bound` assumes those selected sources form the whole program. Ignored
+runtime writers may therefore change ordinary graph results. Materialization rejects paths that alias on
+the destination filesystem instead of merging their identities.
 See [change analysis](docs/CHANGE-IMPACT.md) for the capture budget and remaining framework gaps.
 
 ## License
