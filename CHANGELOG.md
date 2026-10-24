@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
+기존 `impact <id>` 출력은 유지된다.
+새 `change-impact` 보고서는 시점별 `traversal`을 분리해 소비하고 전체 출처·한계를 보존해야 한다.
+
+### Added
+
+- `change-impact --project <git-root> --base <commit> [--head <commit>]`: 실제 변경의 before/after 소스를 고정하고
+  각 그래프에서 삭제·rename caller와 검토할 호출자·테스트 후보를 따로 계산한다. 내용 해시, 파일 seed 이유,
+  미매핑 파일, 준비 비용, 미해석 framework 경로와 깊이/행 제한을 보존하며 안전 판정을 하지 않는다.
+
 ### Security
 
 - `graph`·`reach`·`impact`가 `revision`을 읽으려고 실행하는 git이 git 설정(분석 대상 저장소의 `.git/config`와 그
@@ -23,6 +34,16 @@
   사용자 권한으로 실행했고, filter 덮기·서브모듈 정책으로는 막히지 않았다.
 
 ### Fixed
+
+- 변경 캡처의 임시 디렉터리는 raw 경로 prefix와 실제 디렉터리 신원을 대조하고 파일·새 디렉터리를 exclusive로
+  만든다. case·Unicode 별칭으로 서로 다른 Git 경로가 합쳐지면 부분 JSON 없이 입력 실패로 끝내며, 별개 경로인
+  파일 시스템에서는 유지한다. Git 선택 범위와 일반 순회의 차이·ignored 미추적 writer의 `bound` 가정을 명시했다.
+- 변경 분석의 테스트 후보가 공통 경로 정책을 따르고 두 내부 순회의 `project`가 원래 프로젝트의 POSIX realpath를
+  보존한다. 임시 디렉터리 신원을 쓰지 않는다.
+- 캡처에서 제외한 링크·gitlink·비정규 입력과 실제 삭제의 경로·사유를 보존한다. 소스 누락을 새 스캔에서 잊어 모듈
+  수준 호출을 `bound`로 승격하지 않고, 직접 호출·닫힌 지역 흐름·문서 링크만 있는 정상 입력의 사실은 유지한다.
+- 작업 파일도 기존 Project의 nofollow·dir-fd·nonblock·fstat 검사로 읽고, 캡처 Git의 설정 조회와 본 명령 출력은
+  stdout·stderr 합산 예산을 읽는 중 적용한다. 실패·시간 초과를 일반 성공으로 바꾸지 않는다.
 
 - `graph`·`reach`·`impact`가 `revision`용 git을 PATH의 절대 경로 항목에서만 찾아 그 절대 경로로 실행한다. 빈·상대
   PATH 항목, 프로젝트 안, 현재 디렉터리에 바로 있는 git(Windows에서 현재 디렉터리의 `git.exe` 포함)은 실행하지 않고,

@@ -37,8 +37,11 @@ import os
 import re
 import stat
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
@@ -325,7 +328,7 @@ def _lies_within(directory: str, project_info: os.stat_result) -> bool:
     return True
 
 
-def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
+def _git(executable: str, project: Path, *arguments: str, output_limit: int | None = None) -> bytes | None:
     """분석 대상 설정의 filter 드라이버를 덮고 지연 fetch를 끈 채 git 명령 하나를 실행한다.
 
     바로 앞에서 설정을 다시 모아(`_repository_settings`) 그때의 드라이버를 덮고, promisor 원격이 보이면
@@ -337,6 +340,7 @@ def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
         executable: `_git_executable`이 고른 git 절대 경로.
         project: 작업 디렉터리.
         arguments: git 하위 명령과 인자.
+        output_limit: 지정하면 설정 조회와 본 명령의 stdout·stderr 합을 읽는 중 제한한다.
 
     Returns:
         표준 출력 바이트, 설정을 모으지 못했거나 git이 실패하면 None.
@@ -345,10 +349,19 @@ def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
         _UnneutralizableDriverError: 덮을 수 없는 드라이버 이름이 있다.
         _LazyFetchRefusedError: promisor 원격이 있는 저장소에서 명령이 실패했다.
     """
-    settings = _repository_settings(executable, project)
+    settings = (
+        _repository_settings(executable, project)
+        if output_limit is None
+        else _repository_settings(executable, project, output_limit=output_limit)
+    )
     if settings is None:
         return None
-    completed = _run_git(executable, project, *_isolating_arguments(settings), *arguments)
+    isolated = (*_isolating_arguments(settings), *arguments)
+    completed = (
+        _run_git(executable, project, *isolated)
+        if output_limit is None
+        else _run_git(executable, project, *isolated, output_limit=output_limit)
+    )
     if completed is None:
         return None
     if completed.returncode == 0:
@@ -358,7 +371,9 @@ def _git(executable: str, project: Path, *arguments: str) -> bytes | None:
     return None
 
 
-def _repository_settings(executable: str, project: Path) -> _RepositorySettings | None:
+def _repository_settings(
+    executable: str, project: Path, *, output_limit: int | None = None
+) -> _RepositorySettings | None:
     """git이 이 저장소에서 읽는 설정 전체에서 filter 드라이버 이름과 promisor 원격 여부를 모은다.
 
     시스템·사용자·저장소·worktree 설정과 include를 모두 본다. 설정 조회는 명령을 실행하지 않고 객체도 읽지 않는다.
@@ -367,6 +382,7 @@ def _repository_settings(executable: str, project: Path) -> _RepositorySettings 
     Args:
         executable: git 절대 경로.
         project: 작업 디렉터리.
+        output_limit: 설정 원문도 읽는 중 제한할 합산 출력 예산이다.
 
     Returns:
         설정 요약, 조회가 실패했거나 출력 형식이 다르면 None.
@@ -374,7 +390,12 @@ def _repository_settings(executable: str, project: Path) -> _RepositorySettings 
     Raises:
         _UnneutralizableDriverError: 덮을 수 없는 이름이 있다.
     """
-    completed = _run_git(executable, project, "config", "-z", "--includes", "--get-regexp", _SETTING_KEYS)
+    arguments = ("config", "-z", "--includes", "--get-regexp", _SETTING_KEYS)
+    completed = (
+        _run_git(executable, project, *arguments)
+        if output_limit is None
+        else _run_git(executable, project, *arguments, output_limit=output_limit)
+    )
     if completed is None:
         return None
     if completed.returncode == 1 and not completed.stdout:
@@ -471,7 +492,9 @@ def _neutralizing_arguments(names: tuple[str, ...]) -> list[str]:
     ]
 
 
-def _run_git(executable: str, project: Path, *arguments: str) -> subprocess.CompletedProcess[bytes] | None:
+def _run_git(
+    executable: str, project: Path, *arguments: str, output_limit: int | None = None
+) -> subprocess.CompletedProcess[bytes] | None:
     """공통 설정과 줄인 환경으로 git 프로세스 하나를 실행한다.
 
     `GIT_NO_LAZY_FETCH=1`은 git 2.45부터 모든 호출(과 그 자식)의 지연 fetch를 끈다. promisor 키 판정이 놓친 원격이
@@ -481,15 +504,19 @@ def _run_git(executable: str, project: Path, *arguments: str) -> subprocess.Comp
         executable: git 절대 경로.
         project: 작업 디렉터리.
         arguments: git 인자(덮는 `-c`·`--no-lazy-fetch`와 하위 명령).
+        output_limit: 지정하면 stdout·stderr 합산 바이트를 읽는 중 제한한다(초과는 실패).
 
     Returns:
         끝난 프로세스, git을 실행하지 못했거나 시간이 지나면 None.
     """
     environment = {key: value for key, value in os.environ.items() if key in ("PATH", "HOME", "SYSTEMROOT")}
     environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1", "LC_ALL": "C"})
+    command = [executable, *_GIT_CONFIG, *arguments]
+    if output_limit is not None:
+        return _run_git_bounded(command, project, environment, output_limit)
     try:
         return subprocess.run(
-            [executable, *_GIT_CONFIG, *arguments],
+            command,
             cwd=project,
             env=environment,
             capture_output=True,
@@ -499,3 +526,82 @@ def _run_git(executable: str, project: Path, *arguments: str) -> subprocess.Comp
     except (OSError, subprocess.SubprocessError, UnicodeError):
         # git이 없거나 시간이 지났다. revision 없이 계속한다(없다는 것이 신호다).
         return None
+
+
+def _run_git_bounded(
+    command: list[str], project: Path, environment: dict[str, str], limit: int
+) -> subprocess.CompletedProcess[bytes] | None:
+    """작은 청크를 동시에 배수하며 출력 예산·시간을 지킨다. 직접 소유한 자식만 정리한다.
+
+    reader는 프로세스에 신호를 보내거나 wait하지 않는다. 부모만 Popen의 아직 수거하지 않은 자식을 kill/wait하므로
+    수거 뒤 재사용된 PID·프로세스 그룹에 신호를 보내지 않는다. stderr도 같은 예산에 포함하고 어느 실패도 성공 출력으로
+    바꾸지 않는다. 기존 revision 조회 호출의 호환 경로와 별도로 change 캡처가 명시적으로 요청한다.
+    """
+    if limit < 0:
+        return None
+    chunks: list[list[bytes]] = [[], []]
+    lock = threading.Lock()
+    failed = threading.Event()
+    drained = threading.Event()
+    used = 0
+    finished = 0
+
+    def drain(stream: BinaryIO, index: int) -> None:
+        """파이프 한 개를 읽되 합산 예산을 넘는 청크는 보관하지 않는다."""
+        nonlocal used, finished
+        try:
+            with stream:
+                while data := os.read(stream.fileno(), min(8192, limit + 1)):
+                    with lock:
+                        if failed.is_set() or used + len(data) > limit:
+                            failed.set()
+                            drained.set()
+                            return
+                        chunks[index].append(data)
+                        used += len(data)
+        except (OSError, ValueError, MemoryError):
+            failed.set()
+            drained.set()
+        finally:
+            with lock:
+                finished += 1
+                if finished == 2:
+                    drained.set()
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=project,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, UnicodeError):
+        return None
+    assert process.stdout is not None and process.stderr is not None
+    readers = [
+        threading.Thread(target=drain, args=(stream, index), daemon=True)
+        for index, stream in enumerate((process.stdout, process.stderr))
+    ]
+    deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    try:
+        for reader in readers:
+            reader.start()
+        if not drained.wait(max(0, deadline - time.monotonic())) or failed.is_set():
+            return None
+        code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(command, code, b"".join(chunks[0]), b"".join(chunks[1]))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        # poll은 Popen이 소유한 자식만 수거한다. 살아 있거나 아직 수거 전인 같은 자식에만 kill한다.
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            failed.set()
+        for reader in readers:
+            if reader.ident is not None:
+                reader.join(timeout=1)
