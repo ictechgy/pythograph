@@ -1,0 +1,176 @@
+"""파싱 결과를 바꾸지 않고 정점 범위·추가 테스트 흐름·실행 파서의 한계를 집계한다."""
+
+from __future__ import annotations
+
+import re
+import sys
+from collections import Counter
+from collections.abc import Collection, Mapping
+from importlib import import_module
+from typing import TypedDict, cast
+
+from pythograph.source import project as project_module
+from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path, source_budget_reason
+from pythograph.source.text import is_contract_safe
+
+#: 3.10도 실행 계약에 들어가므로, 그 런타임에서는 TOML 요구 판정을 명시적으로 생략한다.
+_TOML = import_module("tomllib") if sys.version_info >= (3, 11) else None
+
+#: 파서의 거부는 소스 자체의 문법 오류와 새 Python 문법을 구분하지 못한다.
+SYNTAX_REASON = "syntax error or syntax newer than the running Python"
+
+#: 메타데이터는 소스 예산을 쓰지 않지만 별도의 작은 읽기 상한을 둔다.
+MAX_METADATA_BYTES = 64 * 1024
+
+#: 전체 PEP 440 호환 판정 대신 단일 숫자 하한만 비교한다.
+_MINIMUM = re.compile(r">=\s*([0-9]{1,4})(?:\.([0-9]{1,4}))?(?:\.([0-9]{1,4}))?")
+
+
+class SourceCounts(TypedDict):
+    """한 범위의 분모와 배타적인 파싱 결과다. 실패 이유의 합은 unparsed와 같다."""
+
+    files: int
+    attempted: int
+    parsed: int
+    unparsed: int
+    notAttempted: int
+    failureReasons: dict[str, int]
+
+
+def source_statistics(project: Project, include_tests: bool) -> dict[str, object]:
+    """이미 캐시한 결과만 집계한다. 진단 때문에 파일을 새로 파싱하거나 예산을 소비하지 않는다."""
+    outcomes = project.parsed_modules()
+    scanned = set(project.python_files())
+    graph = {path for path in scanned if include_tests or not is_test_path(path)}
+    all_attempts = _counts(outcomes.keys(), outcomes)
+    result: dict[str, object] = {
+        "scannedPythonFiles": len(scanned),
+        "includeTests": include_tests,
+        "graphFiles": _counts(graph, outcomes),
+        "supplementalTestFiles": _counts(scanned - graph, outcomes),
+        "outsideScanFiles": _counts(outcomes.keys() - scanned, outcomes),
+        "allParseAttempts": all_attempts,
+        "sourceBudget": {
+            "limitBytes": project_module.MAX_TOTAL_SOURCE_BYTES,
+            "parsedBytes": project.parsed_source_bytes,
+            "skippedFiles": project.budget_skipped_modules,
+        },
+    }
+    rejected = all_attempts["failureReasons"].get(SYNTAX_REASON, 0)
+    if rejected:
+        result["parser"] = _parser(project, rejected)
+    return result
+
+
+def _counts(paths: Collection[str], outcomes: Mapping[str, SourceModule | ReadFailure]) -> SourceCounts:
+    """지정 경로의 성공·실패·미시도를 센다. 범위끼리 겹치지 않아도 전체 합계와는 겹친다."""
+    attempted = 0
+    failures: Counter[str] = Counter()
+    for path in paths:
+        outcome = outcomes.get(path)
+        if outcome is not None:
+            attempted += 1
+            if isinstance(outcome, ReadFailure):
+                failures[outcome.reason] += 1
+    unparsed = sum(failures.values())
+    return {
+        "files": len(paths),
+        "attempted": attempted,
+        "parsed": attempted - unparsed,
+        "unparsed": unparsed,
+        "notAttempted": len(paths) - attempted,
+        "failureReasons": dict(sorted(failures.items())),
+    }
+
+
+def _parser(project: Project, rejected: int) -> dict[str, object]:
+    """실제 문법 거부가 있을 때 실행 파서와 읽을 수 있는 프로젝트 요구를 함께 싣는다."""
+    return {
+        "implementation": sys.implementation.name,
+        "version": ".".join(str(part) for part in sys.version_info[:3]),
+        "syntaxRejectedFiles": rejected,
+        **_requirement(project),
+    }
+
+
+def _requirement(project: Project) -> dict[str, object]:
+    """작은 pyproject의 정식 project.requires-python만 읽는다. 분석 대상 코드를 실행하지 않는다."""
+    if not project.is_file("pyproject.toml"):
+        return {"requiresPythonStatus": "not-declared"}
+    text = project.read_text("pyproject.toml", MAX_METADATA_BYTES)
+    if text is None:
+        return {"requiresPythonStatus": "metadata-unreadable"}
+    if _TOML is None:
+        return {"requiresPythonStatus": "metadata-parser-unavailable"}
+    try:
+        metadata = _TOML.loads(text)
+    except (ValueError, RecursionError):
+        return {"requiresPythonStatus": "metadata-invalid"}
+    declaration = metadata.get("project", {})
+    if not isinstance(declaration, dict):
+        return {"requiresPythonStatus": "metadata-invalid"}
+    requirement = declaration.get("requires-python")
+    if requirement is None:
+        return {"requiresPythonStatus": "not-declared"}
+    if not isinstance(requirement, str) or len(requirement) > 256 or not is_contract_safe(requirement):
+        return {"requiresPythonStatus": "metadata-invalid"}
+    status = "not-evaluated"
+    minimum = _MINIMUM.fullmatch(requirement.strip())
+    if minimum is not None and sys.version_info.releaselevel == "final":
+        version = tuple(int(part or "0") for part in minimum.groups())
+        status = "runtime-below-minimum" if sys.version_info[:3] < version else "minimum-not-newer"
+    return {"requiresPython": requirement, "requiresPythonStatus": status}
+
+
+def source_lines(project: Project, statistics: dict[str, object]) -> list[str]:
+    """스냅샷과 순회에 같은 분모·원인 경계를 보존하는 한계를 만든다."""
+    analysis = cast(dict[str, object], statistics["sourceAnalysis"])
+    graph = cast(SourceCounts, analysis["graphFiles"])
+    supplemental = cast(SourceCounts, analysis["supplementalTestFiles"])
+    outside = cast(SourceCounts, analysis["outsideScanFiles"])
+    lines: list[str] = []
+    if graph["unparsed"]:
+        lines.append(
+            f"unparsed-files: {graph['unparsed']} of {graph['files']} graph-eligible Python files could not be "
+            f"read or parsed and have no symbols ({_reasons(graph)}); see graph statistics.sourceAnalysis"
+        )
+    if supplemental["unparsed"]:
+        lines.append(
+            f"supplemental-test-files: {supplemental['unparsed']} of {supplemental['files']} tests excluded from "
+            f"graph symbols could not be read or parsed for program-flow context ({_reasons(supplemental)}); "
+            "these files do not overlap graph-eligible omissions"
+        )
+    if outside["unparsed"]:
+        lines.append(
+            f"outside-scan-files: {outside['unparsed']} of {outside['files']} additional imported files outside "
+            f"the Python file walk could not be read or parsed ({_reasons(outside)})"
+        )
+    if project.budget_skipped_modules:
+        lines.append(
+            f"source-budget: {project.budget_skipped_modules} Python files could not be analyzed: "
+            + source_budget_reason()
+            + "; this run-wide total overlaps the scope failure counts in graph statistics.sourceAnalysis"
+        )
+    parser = cast(dict[str, object], analysis.get("parser", {}))
+    if parser:
+        lines.append(_parser_line(parser))
+    return lines
+
+
+def _reasons(counts: SourceCounts) -> str:
+    """원인별 수를 안정된 순서로 표시한다."""
+    return "; ".join(f"{reason}: {count}" for reason, count in counts["failureReasons"].items())
+
+
+def _parser_line(parser: dict[str, object]) -> str:
+    """파서 거부를 소스 문법 오류로 단정하지 않고 확인 가능한 환경 차이를 알린다."""
+    line = (
+        f"python-parser: {parser['syntaxRejectedFiles']} files were rejected by {parser['implementation']} "
+        f"{parser['version']} (syntax errors or syntax newer than this runtime)"
+    )
+    if parser.get("requiresPythonStatus") == "runtime-below-minimum":
+        line += (
+            f"; this runtime is below the declared minimum in pyproject.toml [project].requires-python "
+            f"{parser['requiresPython']}; rerun with a runtime satisfying the project requirement"
+        )
+    return line

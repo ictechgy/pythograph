@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
+  `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며
+  `source-budget:`는 두 범위와 겹칠 수 있는 실행 전체 예산 실패 수다. 기존 `unparsedFiles`·64 MiB 상한·그래프 사실과
+  `graphRevision`은 유지한다. 실제 파서 거부가 있으면 실행 Python과 정식 프로젝트 최소 버전을 함께 진단하며,
+  새 문법을 소스 자체의 문법 오류로 단정하거나 미지원 런타임의 분석을 지원 완료로 판정하지 않는다.
+
 ## [0.3.0] - 2026-10-24
 
 기존 `impact <id>` 출력은 유지된다.

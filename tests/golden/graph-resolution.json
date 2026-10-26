@@ -1058,6 +1058,47 @@
       "overridden-method": 5,
       "subclass-method": 1
     },
+    "sourceAnalysis": {
+      "allParseAttempts": {
+        "attempted": 7,
+        "failureReasons": {},
+        "files": 7,
+        "notAttempted": 0,
+        "parsed": 7,
+        "unparsed": 0
+      },
+      "graphFiles": {
+        "attempted": 7,
+        "failureReasons": {},
+        "files": 7,
+        "notAttempted": 0,
+        "parsed": 7,
+        "unparsed": 0
+      },
+      "includeTests": false,
+      "outsideScanFiles": {
+        "attempted": 0,
+        "failureReasons": {},
+        "files": 0,
+        "notAttempted": 0,
+        "parsed": 0,
+        "unparsed": 0
+      },
+      "scannedPythonFiles": 8,
+      "sourceBudget": {
+        "limitBytes": 67108864,
+        "parsedBytes": 6021,
+        "skippedFiles": 0
+      },
+      "supplementalTestFiles": {
+        "attempted": 0,
+        "failureReasons": {},
+        "files": 1,
+        "notAttempted": 1,
+        "parsed": 0,
+        "unparsed": 0
+      }
+    },
     "unparsedFiles": 0,
     "unresolvedCalls": {
       "dynamic-callee": 2,

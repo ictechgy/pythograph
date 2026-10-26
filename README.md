@@ -417,9 +417,16 @@ annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) ar
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation.
 
+Graph snapshots expose `statistics.sourceAnalysis`: separate file denominators, parse outcomes and reasons for graph
+symbols, tests excluded from symbols but read as supplemental context, and all parse attempts. `unparsed-files:` and
+`supplemental-test-files:` cover disjoint scopes; `source-budget:` is a run-wide total that can overlap both. Unrequested
+tests are counted as not attempted. Actual parser syntax rejections also report the running Python and a bounded, static
+reading of `[project].requires-python`. A newer declared minimum remains an environment blocker; parser rejection alone
+cannot distinguish invalid syntax from syntax newer than the running Python. See [graph diagnostics](docs/GRAPH.md).
+
 One run parses at most 64 MiB of Python source in total, counting only the modules it parses successfully. A module
 that would push the total past this budget is not parsed and is reported like a file that fails to parse
-(`unparsed-files:` in graph output, `route-coverage:` or `route-call-coverage:` for routes, `unreadable-sources:` for
+(`source-budget:` in graph output, `route-coverage:` or `route-call-coverage:` for routes, `unreadable-sources:` for
 schema) with the reason "the run's total parsed source would exceed its 64 MiB budget; pass a narrower --project";
 the command still succeeds with the other modules. Each command parses in a fixed order (path order, with modules
 reached through imports parsed when first needed), so the same input skips the same modules on every run. Parsed syntax
