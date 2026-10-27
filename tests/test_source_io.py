@@ -378,7 +378,7 @@ def test_syntax_node_limit_is_reported_by_every_producer(
     make_project: MakeProject, monkeypatch: pytest.MonkeyPatch, command: list[str], prefix: str
 ) -> None:
     """노드 상한을 넘는 모듈은 명령마다 읽지 못한 소스 한계로 남고 명령은 성공한다. graph는 파싱하지 못한 파일 수에
-    넣고(다른 파싱 실패처럼 이유 줄은 없다) 닫힌 세계 `bound` 증명을 연다. 경로·절대 경로는 싣지 않는다."""
+    넣고 분모·원인을 함께 알리며 닫힌 세계 `bound` 증명을 연다. 경로·절대 경로는 싣지 않는다."""
     root = make_project(
         {
             "app.py": "def main():\n    return 1\n",
@@ -392,7 +392,8 @@ def test_syntax_node_limit_is_reported_by_every_producer(
     document = json.loads(out)
     limitations = document["limitations"]
     if command == ["graph"]:
-        assert f"{prefix} 1 Python files could not be read or parsed and have no symbols" in limitations
+        assert any(line.startswith(f"{prefix} 1 of 3 graph-eligible Python files") for line in limitations)
+        assert document["statistics"]["sourceAnalysis"]["graphFiles"]["failureReasons"] == {syntax_nodes_reason(): 1}
         assert document["statistics"]["unparsedFiles"] == 1
         assert document["statistics"]["boundDispatch"]["scanIncomplete"] is True
     else:
@@ -414,7 +415,7 @@ def test_source_budget_reason_names_the_budget_and_the_way_out(monkeypatch: pyte
 @pytest.mark.parametrize(
     ("command", "prefix"),
     [
-        (["graph"], "unparsed-files:"),
+        (["graph"], "source-budget:"),
         (["schema"], "unreadable-sources:"),
         (["routes", "--role", "server"], "route-coverage:"),
         (["routes", "--role", "client"], "route-call-coverage:"),
@@ -438,7 +439,10 @@ def test_source_budget_is_reported_by_every_producer(
     code, out, err = run_cli([*command, "--project", str(root), "--generated-at", GENERATED_AT])
     assert code == 0, err
     document = json.loads(out)
-    assert f"{prefix} 1 Python files could not be analyzed: {source_budget_reason()}" in document["limitations"]
+    assert any(
+        line.startswith(f"{prefix} 1 Python files could not be analyzed: {source_budget_reason()}")
+        for line in document["limitations"]
+    )
     limitations = json.dumps(document["limitations"])
     assert str(root) not in limitations and "pkg/data.py" not in limitations
     if command == ["graph"]:

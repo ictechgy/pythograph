@@ -299,13 +299,28 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   `bound-assumptions:`(`bound`·`candidates`),
   `external-calls:`, `framework-dispatch:`, `dynamic-attribute-writes:`, `mro-approximated:`, `unparsed-files:`, `scan-incomplete:`)와
   문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`, 끝에 `revision-unverified:`).
-- `unparsed-files:`는 읽거나 파싱하지 못한 파일 수다(문법 오류, UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과, 구문
+- `unparsed-files:`는 그래프 정점 대상 파일을 분모로 읽거나 파싱하지 못한 수와 원인을 싣는다(실행 파서의 문법 거부,
+  UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과, 구문
   트리 노드 1,000,000개 초과, 실행당 파싱 총량 64 MiB 초과). 깊은 모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령
   전체를 끝내지 않도록, 노드가 많은 모듈 하나가 구문 트리를 명령 끝까지 메모리에 남기지 않도록 그 모듈만 뺀다.
-  파싱 총량 때문에 빠진 파일은 같은 접두사의 줄 하나에 수와 이유("could not be analyzed: the run's total parsed source
-  would exceed its 64 MiB budget; pass a narrower --project")를 따로 싣는다. 빠진 파일에는 정점이 없고 `bound`는
-  `scan-incomplete`로 연다.
-- 같은 입력이면 같은 바이트다(`--generated-at`으로 시각 고정).
+  파싱 총량 때문에 빠진 파일은 `source-budget:`에 실행 전체 수와 이유("could not be analyzed: the run's total parsed
+  source would exceed its 64 MiB budget; pass a narrower --project")를 싣는다. 이 전체 수는 범위별 누락 수와 겹치므로 더하지
+  않는다. 기본 정점에서 제외한 테스트를 import·프로그램 흐름 문맥으로 읽다가 실패한 수는 별도 분모의
+  `supplemental-test-files:`다. 빠진 파일에는 정점이 없고 필요한 흐름의 누락은 `bound`를 `scan-incomplete`로 연다.
+- `statistics.sourceAnalysis`는 `scannedPythonFiles`, `includeTests`, `graphFiles`(정점 대상),
+  `supplementalTestFiles`(정점에서 제외한 테스트), `outsideScanFiles`(순회 밖에서 추가로 읽은 import 경로),
+  `allParseAttempts`(캐시된 전체 시도), `sourceBudget`(`limitBytes`, `parsedBytes`, `skippedFiles`)를 싣는다.
+  각 범위는 `files` 분모, `attempted`, `parsed`, `unparsed`, `notAttempted`, `failureReasons`다.
+  `parsed + unparsed + notAttempted = files`, 이유별 합은 `unparsed`다. 앞 세 범위는 배타적이며 전체 시도와는 겹친다.
+  기본 제외 테스트의 미시도는 파싱 실패가 아니다. `unparsedFiles`는 호환성을 위해 기존 정점 대상 누락 수를 유지한다.
+- 실제 파서 문법 거부가 있으면 `sourceAnalysis.parser`와 모든 순회 모드의 `python-parser:` 한계에 실행 구현·버전과
+  거부 수를 싣는다. 거부는 문법 오류와 새 Python 문법을 구분하지 못한다. `pyproject.toml`의 `[project].requires-python`은
+  링크를 따라가지 않고 최대 64 KiB만 읽는다. Python 3.11 이상에서는 표준 TOML 파서로 읽고, 단일 `>=숫자버전`만
+  실행 버전과 하한 비교한다. `runtime-below-minimum`은 대상 요구 버전으로 다시 실행해야 한다는 환경 진단이다.
+  `minimum-not-newer`도 전체 호환 판정은 아니며, 복잡한 조건은 `not-evaluated`, Python 3.10은
+  `metadata-parser-unavailable`, 없거나 읽지 못한·잘못된 메타데이터는 `not-declared`·`metadata-unreadable`·`metadata-invalid`다.
+  진단은 새 소스를 파싱하지 않고 사실·`graphRevision`·교환 형식 버전을 바꾸지 않는다.
+- 같은 입력·실행 파서이면 같은 바이트다(`--generated-at`으로 시각 고정).
 
 ## 검증
 
