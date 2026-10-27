@@ -331,8 +331,15 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
 참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
 
+그래프 스냅샷의 `statistics.sourceAnalysis`는 정점 대상, 정점에서 제외했지만 추가 문맥으로 읽은 테스트, 전체 파싱
+시도의 분모·결과·원인을 나눠 싣습니다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며,
+`source-budget:`는 두 범위와 겹칠 수 있는 실행 전체 수입니다. 요청하지 않은 테스트는 미시도로 셉니다. 실제 파서의
+문법 거부가 있으면 실행 Python과 크기를 제한해 정적으로 읽은 `[project].requires-python`도 알립니다. 대상의 더 새
+최소 버전은 환경 차단으로 남습니다. 파서 거부만으로 소스 오류와 실행 Python보다 새 문법을 구분하지 않습니다.
+자세한 필드는 [그래프 진단](docs/GRAPH.md)에 있습니다.
+
 실행 하나가 파싱하는 파이썬 소스는 모두 합쳐 64 MiB까지입니다(파싱에 성공한 모듈만 셉니다). 합이 이 예산을 넘게 할
-모듈은 파싱하지 않고, 파싱하지 못한 파일처럼 graph `unparsed-files:`, routes `route-coverage:`·`route-call-coverage:`,
+모듈은 파싱하지 않고, 파싱하지 못한 파일처럼 graph `source-budget:`, routes `route-coverage:`·`route-call-coverage:`,
 schema `unreadable-sources:` 한계에 "the run's total parsed source would exceed its 64 MiB budget; pass a narrower
 --project" 이유로 남깁니다. 명령은 나머지 모듈로 성공합니다. 명령마다 파싱 순서가 정해져 있어(경로 순, import로 닿은
 모듈은 처음 필요할 때) 같은 입력이면 실행마다 같은 모듈이 빠집니다. 파싱한 구문 트리는 이름 해석이 어느 모듈로든 돌아갈 수

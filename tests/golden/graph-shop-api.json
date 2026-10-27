@@ -771,6 +771,47 @@
       "module": 12
     },
     "partialCalls": {},
+    "sourceAnalysis": {
+      "allParseAttempts": {
+        "attempted": 12,
+        "failureReasons": {},
+        "files": 12,
+        "notAttempted": 0,
+        "parsed": 12,
+        "unparsed": 0
+      },
+      "graphFiles": {
+        "attempted": 12,
+        "failureReasons": {},
+        "files": 12,
+        "notAttempted": 0,
+        "parsed": 12,
+        "unparsed": 0
+      },
+      "includeTests": false,
+      "outsideScanFiles": {
+        "attempted": 0,
+        "failureReasons": {},
+        "files": 0,
+        "notAttempted": 0,
+        "parsed": 0,
+        "unparsed": 0
+      },
+      "scannedPythonFiles": 12,
+      "sourceBudget": {
+        "limitBytes": 67108864,
+        "parsedBytes": 6781,
+        "skippedFiles": 0
+      },
+      "supplementalTestFiles": {
+        "attempted": 0,
+        "failureReasons": {},
+        "files": 0,
+        "notAttempted": 0,
+        "parsed": 0,
+        "unparsed": 0
+      }
+    },
     "unparsedFiles": 0,
     "unresolvedCalls": {},
     "viewHandlers": 12

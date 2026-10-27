@@ -26,6 +26,7 @@ from pythograph.graph.index import Definition, DefinitionIndex
 from pythograph.graph.limitations import graph_limitations
 from pythograph.graph.model import EVIDENCE_ORDER, CallGraph, GraphEdge, GraphNode, NodeLocation
 from pythograph.graph.scope import Resolver
+from pythograph.graph.source_diagnostics import source_statistics
 from pythograph.graph.values import ClassValue, FunctionValue
 from pythograph.source.project import Project
 from pythograph.source.symbols import SymbolTable
@@ -636,6 +637,7 @@ def _statistics(
         "boundDispatch": _bound_statistics(builder),
         "dynamicAttributeWrites": dynamic_writes,
         "unparsedFiles": builder.index.unparsed,
+        "sourceAnalysis": source_statistics(builder.project, builder.include_tests),
         "mroApproximated": len(builder.resolver.linearizer.approximated),
     }
 
