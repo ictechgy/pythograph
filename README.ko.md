@@ -44,8 +44,24 @@ pythograph --version
 ```
 
 아직 릴리스되지 않은 변경을 써 보려면 GitHub에서 설치한다(`uv tool install git+https://github.com/ictechgy/pythograph`, 또는
-`@v0.1.0` 같은 릴리스 태그로 고정). 체크아웃에서 빌드한 wheel(`uv build`)도 같은 방식이다:
+`@v0.3.0` 같은 릴리스 태그로 고정). 체크아웃에서 빌드한 wheel(`uv build`)도 같은 방식이다:
 `uv tool install dist/pythograph-<버전>-py3-none-any.whl`. 릴리스 절차는 [RELEASING.md](RELEASING.md)에 있다.
+
+## 빠른 시작
+
+작은 합성 Flask 소스를 만든다. 분석기는 import하거나 실행하지 않고 읽으며, 이 예제에 Flask 설치는 필요하지 않다.
+
+```sh
+mkdir -p pythograph-demo
+cat > pythograph-demo/app.py <<'PYTHON'
+from flask import Flask
+app = Flask(__name__)
+@app.get('/items')
+def items():
+    return []
+PYTHON
+pythograph routes --role server --framework flask --project pythograph-demo
+```
 
 ## `pythograph routes --role server`
 

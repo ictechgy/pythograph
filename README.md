@@ -47,9 +47,25 @@ pythograph --version
 ```
 
 To try unreleased changes, install from GitHub (`uv tool install git+https://github.com/ictechgy/pythograph`, or pin a
-release tag such as `@v0.1.0`). A wheel built from a checkout (`uv build`) installs the same way:
+release tag such as `@v0.3.0`). A wheel built from a checkout (`uv build`) installs the same way:
 `uv tool install dist/pythograph-<version>-py3-none-any.whl`. The release steps are in
 [RELEASING.md](https://github.com/ictechgy/pythograph/blob/main/RELEASING.md) (Korean).
+
+## Quick start
+
+Create a small synthetic Flask source file; the analyzer reads it without importing or running it. No Flask installation is required for this example.
+
+```sh
+mkdir -p pythograph-demo
+cat > pythograph-demo/app.py <<'PYTHON'
+from flask import Flask
+app = Flask(__name__)
+@app.get('/items')
+def items():
+    return []
+PYTHON
+pythograph routes --role server --framework flask --project pythograph-demo
+```
 
 ## `pythograph routes --role server`
 
@@ -341,7 +357,7 @@ directory) measured route precision against each framework's resolver, relation-
 isthmus, handler-to-relation reachability, unresolved-call reasons, and runtime; the results and the fixed issues are in
 [DOGFOOD.md](https://github.com/ictechgy/pythograph/blob/main/DOGFOOD.md) (Korean).
 
-The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `2954375` and locked in
+The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `1d6683a` and locked in
 `conformance.lock`) pass 100% of the `producer` and `producer:pythograph` cases (135: `template.grammar`,
 `template.normalize`, `scope.validate`, `scope.applies`, `dispatch.validate`, and 57 url-compose cases for query tails,
 interpolation, normalization, stripping, masking, the `rfc3986`/`httpx-base-url`/`aiohttp-base-url` joins, and wrapper
