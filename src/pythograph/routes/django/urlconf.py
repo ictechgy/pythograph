@@ -117,6 +117,7 @@ class RouterState:
         use_regex: `use_regex_path` 값, 모르면 None.
         registrations: (prefix, viewset 모듈, viewset 식, 위치) 목록.
         location: 라우터를 만든 위치.
+        conditional: 생성·등록이 조건부여서 확정할 수 없는지.
     """
 
     kind: str | None
@@ -124,6 +125,7 @@ class RouterState:
     use_regex: bool | None
     location: Location
     registrations: list[tuple[str | None, str, ast.expr | None, Location]] = field(default_factory=list)
+    conditional: bool = False
 
 
 @dataclass
@@ -257,6 +259,7 @@ class _ModuleInterpreter:
         self.path = path
         self.namespace = namespace
         self.has_bom = has_bom
+        self._changed_imported_routers: set[tuple[str, str]] = set()
 
     def run(self, statements: list[ast.stmt], conditional: bool) -> None:
         """문장 목록을 순서대로 해석한다.
@@ -337,6 +340,8 @@ class _ModuleInterpreter:
             value: 값.
             conditional: 조건문 안인지.
         """
+        if conditional and isinstance(value, RouterState):
+            value.conditional = True
         if conditional and isinstance(self.namespace.get(name), list) and isinstance(value, list):
             existing = self.namespace[name]
             assert isinstance(existing, list)
@@ -372,7 +377,14 @@ class _ModuleInterpreter:
                 self._list_method(target, func.attr, call, conditional)
                 return
             if isinstance(target, RouterState) and func.attr == "register":
+                target.conditional |= conditional
                 self._register(target, call)
+                return
+        if isinstance(func, ast.Attribute) and func.attr == "register":
+            imported = self._imported_router(func.value)
+            if imported is not None:
+                symbol, _ = imported
+                self._changed_imported_routers.add((symbol.path, symbol.name))
                 return
         resolved = (
             self.reader.symbols.resolve_expr(self.path, func) if isinstance(func, (ast.Name, ast.Attribute)) else None
@@ -548,18 +560,39 @@ class _ModuleInterpreter:
             value = self.namespace[node.id]
             assert isinstance(value, list)
             return list(value)
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            router = self.namespace.get(node.value.id)
-            if isinstance(router, RouterState) and node.attr == "urls":
+        if isinstance(node, ast.Attribute) and node.attr == "urls":
+            router = self.namespace.get(node.value.id) if isinstance(node.value, ast.Name) else None
+            if isinstance(router, RouterState):
+                return self._router_entries(router, node, conditional)
+            imported = self._imported_router(node.value)
+            if imported is not None:
+                symbol, router = imported
+                if (symbol.path, symbol.name) in self._changed_imported_routers:
+                    return [
+                        self._opaque(
+                            "{count} imported Django REST framework routers are changed outside their defining module",
+                            node,
+                            conditional,
+                        )
+                    ]
                 return self._router_entries(router, node, conditional)
         if isinstance(node, ast.Call):
             listed = self._list_call(node, conditional)
             if listed is not None:
                 return listed
-        imported = self._imported_list(node)
-        if imported is not None:
-            return imported
+        imported_list = self._imported_list(node)
+        if imported_list is not None:
+            return imported_list
         return [self._opaque("{count} URL pattern lists could not be resolved statically", node, conditional)]
+
+    def _imported_router(self, node: ast.expr) -> tuple[ValueSymbol, RouterState] | None:
+        """import가 끝난 모듈의 라우터를 읽되 공유 상태를 소비 모듈에서 변경하지 않는다."""
+        symbol = self.reader.symbols.resolve_expr(self.path, node)
+        if not isinstance(symbol, ValueSymbol) or symbol.path == self.path:
+            return None
+        namespace = self.reader.namespace(symbol.path)
+        value = namespace.get(symbol.name) if namespace is not None else None
+        return (symbol, value) if isinstance(value, RouterState) else None
 
     def _router_entries(self, router: RouterState, node: ast.expr, conditional: bool) -> list[Entry]:
         """라우터의 현재 등록으로 패턴을 만든다(`router.urls`는 접근 시점의 등록을 담는다).
@@ -572,6 +605,8 @@ class _ModuleInterpreter:
         Returns:
             패턴 목록.
         """
+        if router.conditional:
+            return [self._opaque("{count} Django REST framework routers have conditional state", node, True)]
         if router.kind is None or router.trailing_slash is None or router.use_regex is None:
             return [
                 self._opaque(
