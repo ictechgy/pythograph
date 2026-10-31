@@ -4,7 +4,12 @@
 
 ## [Unreleased]
 
+- Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.
+
 ### Fixed
+
+- 다른 모듈에서 가져온 DRF 라우터의 `router.urls`를 정적으로 해석한다. import 이후의
+  외부 등록 변경과 순환 import는 확정 경로로 추측하지 않고 기존 한계 보고를 유지한다.
 
 - 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
   `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며

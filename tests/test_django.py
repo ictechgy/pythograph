@@ -467,6 +467,135 @@ def test_drf_router_modes(make_project: Callable[[dict[str, str]], Path]) -> Non
     assert any("options that are not modeled" in text for text in document["limitations"])  # type: ignore[union-attr]
 
 
+def test_imported_drf_router_urls(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """import이 끝난 라우터의 등록을 별칭과 모듈 속성 두 형태에서 보존한다."""
+    root = _project(
+        make_project,
+        {
+            "site_pkg/api.py": """
+            from rest_framework.routers import SimpleRouter
+            from site_pkg.views import Notes
+            router = SimpleRouter()
+            router.register("notes", Notes, basename="note")
+        """,
+            "site_pkg/views.py": """
+            from rest_framework import mixins, viewsets
+            class Notes(mixins.ListModelMixin, viewsets.GenericViewSet):
+                pass
+        """,
+            "site_pkg/urls.py": """
+            from django.urls import include, path
+            from site_pkg.api import router as imported
+            import site_pkg.api
+            urlpatterns = [path("one/", include(imported.urls)),
+                           path("two/", include(site_pkg.api.router.urls))]
+        """,
+        },
+    )
+    document = routes_document(root)
+    rows = fact_rows(document)
+    assert ("GET", "/one/notes/", False, "site_pkg/views.py#Notes.list") in rows
+    assert ("GET", "/two/notes/", False, "site_pkg/views.py#Notes.list") in rows
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert not any("URL pattern lists could not be resolved" in text for text in limitations)
+
+
+@pytest.mark.parametrize("conditional_creation", [False, True])
+def test_imported_drf_router_conditional_state_stays_opaque(
+    make_project: Callable[[dict[str, str]], Path], conditional_creation: bool
+) -> None:
+    """가져온 라우터의 조건부 생성·등록을 확정 route로 바꾸지 않는다."""
+    prefix = "if enabled:\n    router = SimpleRouter()\n" if conditional_creation else "router = SimpleRouter()\n"
+    registration = 'router.register("notes", Notes, basename="note")'
+    if not conditional_creation:
+        registration = "if enabled:\n    " + registration
+    root = _project(
+        make_project,
+        {
+            "site_pkg/api.py": "from rest_framework.routers import SimpleRouter\nfrom site_pkg.views import Notes\n"
+            + prefix
+            + registration,
+            "site_pkg/views.py": "from rest_framework import mixins, viewsets\n"
+            "class Notes(mixins.ListModelMixin, viewsets.GenericViewSet):\n    pass\n",
+            "site_pkg/urls.py": "from django.urls import include, path\nfrom site_pkg.api import router\n"
+            'urlpatterns = [path("api/", include(router.urls))]\n',
+        },
+    )
+    document = routes_document(root)
+    assert not any(row[1] == "/api/notes/" and row[2] is False for row in fact_rows(document))
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert any("conditional state" in text or "could not be resolved statically" in text for text in limitations)
+
+
+def test_imported_drf_router_mutation_stays_opaque(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """가져온 객체의 외부 등록을 정의 모듈의 확정 상태로 오인하지 않는다."""
+    root = _project(
+        make_project,
+        {
+            "site_pkg/api.py": """
+            from rest_framework.routers import SimpleRouter
+            from site_pkg.views import Notes
+            router = SimpleRouter()
+            router.register("notes", Notes, basename="note")
+        """,
+            "site_pkg/views.py": """
+            from rest_framework import mixins, viewsets
+            class Notes(mixins.ListModelMixin, viewsets.GenericViewSet):
+                pass
+        """,
+            "site_pkg/urls.py": """
+            from django.urls import include, path
+            from site_pkg.api import router
+            from site_pkg.views import Notes
+            router.register("extra", Notes, basename="extra")
+            urlpatterns = [path("api/", include(router.urls))]
+        """,
+        },
+    )
+    document = routes_document(root)
+    assert not fact_rows(document)
+    limitations = document["limitations"]
+    assert isinstance(limitations, list)
+    assert any("changed outside their defining module" in text for text in limitations)
+
+
+@pytest.mark.parametrize(
+    "imports, expression",
+    [
+        (
+            "if enabled:\n    from site_pkg.api_a import router\nelse:\n    from site_pkg.api_b import router",
+            "router.urls",
+        ),
+        ("from site_pkg.api_a import router\nif enabled:\n    from site_pkg.api_b import router", "router.urls"),
+        ("if enabled:\n    import site_pkg.api_a as api\nelse:\n    import site_pkg.api_b as api", "api.router.urls"),
+    ],
+)
+def test_imported_drf_router_binding_uncertainty_stays_opaque(
+    make_project: Callable[[dict[str, str]], Path], imports: str, expression: str
+) -> None:
+    """조건부 import와 재바인딩을 마지막 모듈의 확정 router로 오인하지 않는다."""
+    definition = (
+        "from rest_framework.routers import SimpleRouter\nfrom site_pkg.views import Notes\nrouter = SimpleRouter()\n"
+    )
+    root = _project(
+        make_project,
+        {
+            "site_pkg/api_a.py": definition + 'router.register("a", Notes, basename="a")',
+            "site_pkg/api_b.py": definition + 'router.register("b", Notes, basename="b")',
+            "site_pkg/views.py": "from rest_framework import mixins, viewsets\n"
+            "class Notes(mixins.ListModelMixin, viewsets.GenericViewSet):\n    pass\n",
+            "site_pkg/urls.py": "from django.urls import include, path\n"
+            + imports
+            + f'\nurlpatterns = [path("api/", include({expression}))]\n',
+        },
+    )
+    document = routes_document(root)
+    assert not any(row[2] is False for row in fact_rows(document))
+    assert document["limitations"]
+
+
 def test_i18n_force_script_name_and_converters(make_project: Callable[[dict[str, str]], Path]) -> None:
     """i18n_patterns는 base 앵커, FORCE_SCRIPT_NAME은 전체 base, 알 수 없는 변환기는 dynamic이다."""
     root = _project(

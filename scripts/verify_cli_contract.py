@@ -79,12 +79,22 @@ def verify_basics(executable: str) -> None:
     verify(run(executable, ["help", "schema"]).stdout.startswith("Usage: pythograph schema"), "schema help")
     for command in ("graph", "reach", "impact"):
         verify(run(executable, ["help", command]).stdout.startswith(f"Usage: pythograph {command}"), f"{command} help")
-    for arguments in ([], ["no-such-command"], ["routes", "--project", "."], ["routes", "--role", "client"],
-                      ["routes", "--role", "server"], ["routes", "--role", "server", "--project", ".", "--format",
-                                                        "yaml"],
-                      ["schema"], ["schema", "--project", ".", "--format", "yaml"], ["schema", "--project", ".", "x"],
-                      ["graph"], ["graph", "--project", ".", "x"], ["reach", "--project", "."],
-                      ["impact", "--project", ".", "a\u0001b"], ["reach", "--project", ".", "--dispatch", "x", "a#b"]):
+    for arguments in (
+        [],
+        ["no-such-command"],
+        ["routes", "--project", "."],
+        ["routes", "--role", "client"],
+        ["routes", "--role", "server"],
+        ["routes", "--role", "server", "--project", ".", "--format", "yaml"],
+        ["schema"],
+        ["schema", "--project", ".", "--format", "yaml"],
+        ["schema", "--project", ".", "x"],
+        ["graph"],
+        ["graph", "--project", ".", "x"],
+        ["reach", "--project", "."],
+        ["impact", "--project", ".", "a\u0001b"],
+        ["reach", "--project", ".", "--dispatch", "x", "a#b"],
+    ):
         verify(run(executable, arguments).returncode == 64, f"usage error {arguments}")
 
 
@@ -95,16 +105,27 @@ def verify_routes(executable: str) -> None:
         executable: 실행 파일.
     """
     for fixture, dispatch in FIXTURES:
-        arguments = ["routes", "--role", "server", "--project", str(fixture), "--generated-at", GENERATED_AT,
-                     "--format", "json"]
+        arguments = [
+            "routes",
+            "--role",
+            "server",
+            "--project",
+            str(fixture),
+            "--generated-at",
+            GENERATED_AT,
+            "--format",
+            "json",
+        ]
         first = run(executable, arguments)
         verify(first.returncode == 0, f"{fixture.name} exit code")
         document = json.loads(first.stdout)
         verify(document["format"] == "bridge-facts" and document["version"] == 1, f"{fixture.name} envelope")
         verify(document["platform"] == "python" and document["target"] == "http", f"{fixture.name} platform")
         verify(document["dispatch"] == dispatch, f"{fixture.name} dispatch")
-        verify(document["facts"] and all(fact["kind"] == "route-decl" for fact in document["facts"]),
-               f"{fixture.name} facts")
+        verify(
+            document["facts"] and all(fact["kind"] == "route-decl" for fact in document["facts"]),
+            f"{fixture.name} facts",
+        )
         verify(first.stdout == run(executable, arguments).stdout, f"{fixture.name} determinism")
 
 
@@ -120,8 +141,10 @@ def verify_schema(executable: str) -> None:
         verify(first.returncode == 0, f"{fixture.name} schema exit code")
         document = json.loads(first.stdout)
         verify(document["platform"] == "python" and document["target"] == "persistence", f"{fixture.name} target")
-        verify(document["facts"] and all(fact["kind"] == "relation-use" for fact in document["facts"]),
-               f"{fixture.name} relation-use facts")
+        verify(
+            document["facts"] and all(fact["kind"] == "relation-use" for fact in document["facts"]),
+            f"{fixture.name} relation-use facts",
+        )
         verify(first.stdout == run(executable, arguments).stdout, f"{fixture.name} schema determinism")
 
 
@@ -155,8 +178,10 @@ def verify_input_errors(executable: str) -> None:
         missing = run(executable, ["routes", "--role", "server", "--project", str(directory / "missing")])
         verify(missing.returncode == 2 and str(directory) not in missing.stderr, "missing project")
         (directory / "file.txt").write_text("x")
-        verify(run(executable, ["routes", "--role", "server", "--project", str(directory / "file.txt")])
-               .returncode == 2, "project is a file")
+        verify(
+            run(executable, ["routes", "--role", "server", "--project", str(directory / "file.txt")]).returncode == 2,
+            "project is a file",
+        )
         missing_schema = run(executable, ["schema", "--project", str(directory / "missing")])
         verify(missing_schema.returncode == 2 and str(directory) not in missing_schema.stderr, "schema missing project")
         missing_graph = run(executable, ["graph", "--project", str(directory / "missing")])

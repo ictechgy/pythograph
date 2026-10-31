@@ -21,3 +21,5 @@ pythograph가 실행하는 사례(`appliesTo`에 `producer` 또는 `producer:pyt
 건너뛰는 사례와 이유: `consumer` 전용 사례(`match.*`, `dispatch.match`, `dispatch.shadow`), 다른 생산자의 사례(`framework.openapi.*`는
 `producer:openapi`, `framework.spring.*`·Spring `base-join`은 `producer:kartograph`, Go·Rust `base-join`은 `producer:gartograph`·
 `producer:rustograph`), `scope.dynamic-*`(`dynamicScope` 검증 — pythograph는 아직 `dynamicScope`를 내지 않는다).
+
+2026-11-01: isthmus `1d6683ab2cd4f7804370c85d4869501042bc3dec`의 전체 벡터·SHA256SUMS·conformance.lock을 동기화했다. SQL relation 생산자 사례는 `tests/test_conformance.py`가 직접 실행하며 새 ruleId는 계속 명시적 분류를 요구한다.
