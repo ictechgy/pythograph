@@ -588,7 +588,7 @@ class _ModuleInterpreter:
     def _imported_router(self, node: ast.expr) -> tuple[ValueSymbol, RouterState] | None:
         """import가 끝난 모듈의 라우터를 읽되 공유 상태를 소비 모듈에서 변경하지 않는다."""
         symbol = self.reader.symbols.resolve_expr(self.path, node)
-        if not isinstance(symbol, ValueSymbol) or symbol.path == self.path:
+        if not isinstance(symbol, ValueSymbol) or symbol.path == self.path or not self.reader.symbols.proven(symbol):
             return None
         namespace = self.reader.namespace(symbol.path)
         value = namespace.get(symbol.name) if namespace is not None else None
