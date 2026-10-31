@@ -2,8 +2,7 @@
 
 기대값은 tsograph `sql-relations.test.ts`(cartograph `SqlRelationsTests`·dartograph `sql_relations_test`와 같은
 공유 벡터)를 그대로 옮겼다. 가족 생산자가 같은 SQL을 같게 읽어야 isthmus 조인 결과가 생산자 언어와 무관해진다.
-CTE 이름·함수 인자 안의 FROM·`IS [NOT] DISTINCT FROM` 규칙은 persistence 생산자 계열 공통 사례(`_FAMILY_CASES`)로
-고정한다.
+CTE 이름·함수 인자 안의 FROM·`IS [NOT] DISTINCT FROM` 공통 규칙은 `test_conformance.py`가 벤더링한 정본으로 검증한다.
 """
 
 from __future__ import annotations
@@ -200,65 +199,6 @@ def test_semicolon_tokens_bound_the_keyword_context() -> None:
     assert relations('GRANT SELECT ";" ON t TO r') == []
     assert relations("GRANT select ON t TO r", True) == []
     assert relations('SELECT * FROM (SELECT * FROM a ")" ) x, b') == ["b", "a"]
-
-
-#: persistence 생산자 계열(cartograph·kartograph·dartograph·gartograph·rustograph·tsograph·pythograph)의 공통
-#: 사례 14개다. id·SQL·기대 관계 집합을 공통 사례 파일에서 글자 그대로 옮겼다(긴 SQL은 공백 자리에서 문자열을
-#: 이어 붙였다). isthmus `conformance/sql-relations.json` 벡터와 같은 사례라, 그 벡터가 머지되면 벤더링해
-#: `test_conformance.py`로 옮긴다.
-_FAMILY_CASES = [
-    pytest.param("WITH recent AS (SELECT * FROM orders) SELECT * FROM recent", ["orders"], id="cte/simple"),
-    pytest.param(
-        "WITH RECURSIVE tree(id, parent_id) AS (SELECT id, parent_id FROM nodes UNION ALL SELECT n.id, n.parent_id "
-        "FROM nodes n JOIN tree t ON n.parent_id = t.id) SELECT * FROM tree",
-        ["nodes"],
-        id="cte/recursive-with-columns",
-    ),
-    pytest.param(
-        "WITH a AS (SELECT 1), b AS MATERIALIZED (SELECT * FROM orders) SELECT * FROM a JOIN b ON true",
-        ["orders"],
-        id="cte/multiple-materialized",
-    ),
-    pytest.param(
-        "WITH c AS NOT MATERIALIZED (SELECT * FROM orders) SELECT * FROM c", ["orders"], id="cte/not-materialized"
-    ),
-    pytest.param(
-        "WITH staged AS (SELECT * FROM imports) INSERT INTO orders SELECT * FROM staged",
-        ["imports", "orders"],
-        id="cte/insert-select",
-    ),
-    pytest.param(
-        "WITH recent AS (SELECT 1) SELECT * FROM recent; SELECT * FROM recent",
-        ["recent"],
-        id="cte/scope-is-one-statement",
-    ),
-    pytest.param("SELECT EXTRACT(YEAR FROM created_at) FROM orders", ["orders"], id="function-from/extract"),
-    pytest.param("SELECT TRIM(BOTH ' ' FROM name) FROM users", ["users"], id="function-from/trim"),
-    pytest.param("SELECT SUBSTRING(name FROM 2 FOR 3) FROM users", ["users"], id="function-from/substring"),
-    pytest.param("SELECT * FROM (SELECT * FROM orders) AS sub", ["orders"], id="subquery/derived-table-still-fires"),
-    pytest.param(
-        "SELECT (SELECT max(id) FROM users) FROM orders", ["users", "orders"], id="subquery/scalar-still-fires"
-    ),
-    pytest.param(
-        "SELECT * FROM orders WHERE id IN (SELECT order_id FROM payments)",
-        ["orders", "payments"],
-        id="subquery/in-select-still-fires",
-    ),
-    pytest.param("SELECT * FROM events WHERE a IS DISTINCT FROM b", ["events"], id="distinct-from/is"),
-    pytest.param("SELECT * FROM events WHERE a IS NOT DISTINCT FROM b", ["events"], id="distinct-from/is-not"),
-]
-
-
-@pytest.mark.parametrize("strict", [False, True], ids=["plain", "strict"])
-@pytest.mark.parametrize(("sql", "expected"), _FAMILY_CASES)
-def test_family_cases_drop_cte_function_and_distinct_from_operands(sql: str, expected: list[str], strict: bool) -> None:
-    """함수 인자 안의 FROM(R1), 같은 문장의 CTE 이름(R2), `IS [NOT] DISTINCT FROM` 피연산자(R3)는 관계가 아니다.
-
-    셋 다 관계 이름이 아닌데 relation-use로 나가 isthmus가 완전한 카탈로그와 맞추면 거짓 `relation-use-without-decl`
-    error를 냈다(`recent`·`created_at`·`b` 등). 하위 질의 안의 FROM은 그대로 관계다. 순서·중복은 공통 사례가 정하지
-    않으므로 집합으로 비교하고, 세 규칙은 관계를 빼기만 하므로 strict 모드에서도 같은 집합이다.
-    """
-    assert set(relations(sql, strict)) == set(expected)
 
 
 #: 공통 규칙 문구가 정하지 않은 경계의 해석이다(계열 gartograph·tsograph 판독과 같다). (SQL, 관계 집합, 미해석 수).

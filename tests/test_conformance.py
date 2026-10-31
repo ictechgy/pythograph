@@ -19,6 +19,7 @@ import pytest
 from pythograph.exchange.order import order_problem
 from pythograph.exchange.scope import scope_applies, scope_problem
 from pythograph.exchange.template import normalize_uri_path, template_problem
+from pythograph.persistence.sql import sql_relations
 from pythograph.routes.client.compose import (
     UNKNOWN_BASE,
     Joined,
@@ -56,6 +57,9 @@ APPLICABLE = {
     "compose.base-join",
     "compose.strip",
     "compose.mask",
+    "relations.cte",
+    "relations.distinct-from",
+    "relations.function-from",
     "wrapper.method",
     "wrapper.location",
 }
@@ -65,6 +69,7 @@ GOLDEN = Path(__file__).resolve().parent / "golden"
 
 #: 건너뛰는 ruleId 접두사와 이유다.
 SKIPPED = {
+    "compose.wrapper-suffix": "another producer (cartograph wrapper suffix)",
     "match.": "consumer-only matching rule",
     "dispatch.match": "consumer-only registration-order binding",
     "dispatch.shadow": "consumer-only shadowing diagnostics",
@@ -105,7 +110,10 @@ def _applicable() -> list[dict[str, Any]]:
 
 def test_vendored_files_match_sums_and_lock() -> None:
     """벡터 파일이 SHA256SUMS·잠금 파일과 같고 목록에 빠진 파일이 없다."""
-    sums = dict(reversed(line.split()) for line in (CONFORMANCE / "SHA256SUMS").read_text().splitlines() if line)
+    sums = {
+        name: digest
+        for digest, name in (line.split() for line in (CONFORMANCE / "SHA256SUMS").read_text().splitlines() if line)
+    }
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     vectors = sorted(path.name for path in CONFORMANCE.glob("*.json"))
     assert sorted(sums) == vectors == sorted(lock["files"])
@@ -127,7 +135,7 @@ def test_every_case_is_applicable_or_classified() -> None:
 
 def test_applicable_case_count() -> None:
     """실행하는 생산자 사례 수가 벤더링한 벡터와 맞는다(조용히 줄지 않게)."""
-    assert len(_applicable()) == 135
+    assert len(_applicable()) == 149
 
 
 @pytest.mark.parametrize(
@@ -383,3 +391,14 @@ def test_wrapper_location(case: dict[str, Any], tmp_path: Path) -> None:
     wrapper = WrapperDecl(0, "python", "function", "api.py", "send", ArgumentSpec(0), ArgumentSpec(1), None)
     extraction = extract_client_calls(Project.open(tmp_path), ClientOptions(False, (wrapper,)))
     assert [call.location.line for call in extraction.calls] == [case["expect"]["line"]]
+
+
+@pytest.mark.parametrize(
+    "case", [case for case in _applicable() if case["ruleId"].startswith("relations.")], ids=lambda case: case["id"]
+)
+@pytest.mark.parametrize("strict", [False, True], ids=["plain", "strict"])
+def test_sql_relation_vectors(case: dict[str, Any], strict: bool) -> None:
+    """정본 SQL 벡터를 두 키워드 모드에서 실행하고 미해석 피연산자도 확인한다."""
+    result = sql_relations(case["input"]["sql"], strict)
+    assert {relation.name for relation in result.relations} == set(case["expect"]["relations"])
+    assert result.unresolved == 0
