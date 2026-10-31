@@ -51,7 +51,7 @@
   메시지에는 원인과 해결 방향을 담되 입력 원문을 넣지 않는다.
 - 입력 읽기는 크기(파일 4 MiB)·순회 항목 수(200,000)·깊이(64)에 상한을 두고 심볼릭 링크를 따라가지 않는다.
 - 초기화는 `uv sync`. `.venv/`·`dist/`·캐시는 생성물이다.
-- 제품 변경은 모두 통과해야 한다: `uv run ruff check src tests`, `uv run ruff format --check src tests`,
+- 제품 변경은 모두 통과해야 한다: `uv run ruff check src tests scripts`, `uv run ruff format --check src tests scripts`,
   `uv run mypy`, `uv run pytest --cov`(라인·분기 합산 90%), `uv run python scripts/verify_cli_contract.py`
   (종료 코드 0/2/64, 1은 예약). CI는 빌드한 wheel을 새 가상 환경에 설치해 같은 계약을 확인한다. 동작 변경에는
   의미 있는 회귀 테스트를 둔다.

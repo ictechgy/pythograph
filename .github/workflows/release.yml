@@ -1,4 +1,4 @@
-# 릴리스 워크플로(초안): `v<버전>` 태그를 push하면 검증 → 빌드 → PyPI 게시(Trusted Publishing)를 차례로 실행한다.
+# 릴리스 워크플로: `v<버전>` 태그를 push하면 검증 → 빌드 → PyPI 게시(Trusted Publishing)를 차례로 실행한다.
 # 게시 단계는 PyPI에 이 저장소·워크플로·환경(`pypi`)을 신뢰할 수 있는 게시자로 등록한 뒤에만 성공한다.
 # 수동 준비 절차는 RELEASING.md에 있다. API 토큰이나 비밀값은 쓰지 않는다(OIDC `id-token`만 게시 작업에 준다).
 # uv 버전(setup-uv `version`)과 빌드 백엔드(build-constraints.txt의 버전·해시)는 고정한다. 올리는 절차는 RELEASING.md "빌드 도구 고정".
@@ -36,9 +36,9 @@ jobs:
       - name: Install
         run: uv sync --locked
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
       - name: Format
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts
       - name: Typecheck
         run: uv run mypy
       - name: Tests and coverage gate
