@@ -658,6 +658,25 @@ def _mapping_module(number: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def test_module_scopes_walk_the_tree_once_in_ast_walk_order(make_project: MakeProject) -> None:
+    """판독기들이 함께 쓰는 노드 목록은 `ast.walk`와 같은 노드·순서이고(출력 바이트 보존), 도우미마다 한 번만 만든다."""
+    root = make_project(
+        {"app/models.py": MODELS, "app/queries.py": 'def rows(session):\n    return session.execute("SELECT 1")\n'}
+    )
+    symbols = SymbolTable(Project.open(root))
+    for path in ("app/models.py", "app/queries.py"):
+        index = symbols.index(path)
+        assert index is not None
+        scopes = ModuleScopes(index)
+        nodes = scopes.nodes
+        assert isinstance(nodes, tuple)
+        assert len(nodes) == sum(1 for _ in ast.walk(index.module.tree))
+        assert all(left is right for left, right in zip(nodes, ast.walk(index.module.tree), strict=True))
+        assert scopes.nodes is nodes
+        # 다른 도우미는 모듈마다 새로 만들어 실행 동안 노드 목록이 쌓이지 않는다.
+        assert ModuleScopes(index).nodes is not nodes
+
+
 def test_queries_read_only_their_module_mappings(make_project: MakeProject) -> None:
     """매핑 선언 사실은 모듈마다 그 모듈의 매핑 클래스·Core 테이블만 본다. 경로별 색인은 카탈로그 순서 그대로다.
 
