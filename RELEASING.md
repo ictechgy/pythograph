@@ -29,7 +29,7 @@ pythograph는 `v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows
 
    ```sh
    uv sync
-   uv run ruff check src tests && uv run ruff format --check src tests
+   uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
    uv run mypy
    uv run pytest --cov
    uv run python scripts/verify_cli_contract.py
