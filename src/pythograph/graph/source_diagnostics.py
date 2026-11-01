@@ -22,8 +22,12 @@ SYNTAX_REASON = "syntax error or syntax newer than the running Python"
 #: 메타데이터는 소스 예산을 쓰지 않지만 별도의 작은 읽기 상한을 둔다.
 MAX_METADATA_BYTES = 64 * 1024
 
-#: 전체 PEP 440 호환 판정 대신 단일 숫자 하한만 비교한다.
-_MINIMUM = re.compile(r">=\s*([0-9]{1,4})(?:\.([0-9]{1,4}))?(?:\.([0-9]{1,4}))?")
+#: 쉼표로 이은 PEP 440 비교 조건 하나다. 숫자 세 자리까지의 최종 릴리스만 읽고(사전·사후·개발 릴리스, epoch, 로컬
+#: 버전, `===`는 읽지 않는다) 끝 `.*`는 `==`·`!=`에서만 유효하다. 전체 호환 판정 대신 하한만 비교하려고 쓴다.
+_CLAUSE = re.compile(r"(~=|==|!=|<=|>=|<|>)\s*([0-9]{1,4}(?:\.[0-9]{1,4}){0,2})(\.\*)?")
+
+#: 하한을 주는 연산자다(`>`만 배타적이다). `~=V`는 `>=V` 하한을, `==V`·`==V.*`는 V를 하한으로 갖는다.
+_LOWER_BOUNDS = frozenset({">=", "~=", "==", ">"})
 
 
 class SourceCounts(TypedDict):
@@ -115,11 +119,46 @@ def _requirement(project: Project) -> dict[str, object]:
     if not isinstance(requirement, str) or len(requirement) > 256 or not is_contract_safe(requirement):
         return {"requiresPythonStatus": "metadata-invalid"}
     status = "not-evaluated"
-    minimum = _MINIMUM.fullmatch(requirement.strip())
-    if minimum is not None and sys.version_info.releaselevel == "final":
-        version = tuple(int(part or "0") for part in minimum.groups())
-        status = "runtime-below-minimum" if sys.version_info[:3] < version else "minimum-not-newer"
+    if sys.version_info.releaselevel == "final":
+        major, minor, micro = sys.version_info[:3]
+        status = requirement_status(requirement, (major, minor, micro))
     return {"requiresPython": requirement, "requiresPythonStatus": status}
+
+
+def requirement_status(requirement: str, runtime: tuple[int, int, int]) -> str:
+    """`requires-python`의 하한만 실행 버전과 비교한다. 증명할 수 없는 형식은 판정하지 않는다.
+
+    다른 조건은 허용 집합을 좁히기만 하므로, 실행 버전이 어느 하한에도 못 미치면 실제 최소 지원 버전에도 못 미친다.
+    반대로 하한을 모두 넘어도 `!=` 조건에 걸리면 실제 최소 지원 버전(`>=3.8,!=3.8.*`이면 3.9)이 실행 버전보다
+    새로울 수 있다. 상한(`<`·`<=`)은 최소 버전과 무관하므로 비교하지 않는다(`minimum-not-newer`는 호환 판정이 아니다).
+
+    Args:
+        requirement: 정식 메타데이터의 `requires-python` 문자열.
+        runtime: 실행 Python의 (major, minor, micro) 최종 릴리스 버전.
+
+    Returns:
+        `runtime-below-minimum`, `minimum-not-newer`, 또는 하한이 없거나 모르는 조건이 있으면 `not-evaluated`.
+    """
+    bounds: list[tuple[tuple[int, ...], bool]] = []
+    excluded = False
+    for text in requirement.split(","):
+        clause = _CLAUSE.fullmatch(text.strip())
+        if clause is None:
+            return "not-evaluated"
+        operator, version, wildcard = clause.groups()
+        release = tuple(int(part) for part in version.split("."))
+        if (wildcard and operator not in ("==", "!=")) or (operator == "~=" and len(release) < 2):
+            return "not-evaluated"
+        padded = release + (0,) * (3 - len(release))
+        if operator == "!=":
+            excluded = excluded or (runtime[: len(release)] == release if wildcard else runtime == padded)
+        elif operator in _LOWER_BOUNDS:
+            bounds.append((padded, operator != ">"))
+    if not bounds:
+        return "not-evaluated"
+    if any(runtime < bound or (runtime == bound and not inclusive) for bound, inclusive in bounds):
+        return "runtime-below-minimum"
+    return "not-evaluated" if excluded else "minimum-not-newer"
 
 
 def source_lines(project: Project, statistics: dict[str, object]) -> list[str]:

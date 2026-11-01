@@ -10,6 +10,10 @@
 
 - 다른 모듈에서 가져온 DRF 라우터의 `router.urls`를 정적으로 해석한다. import 이후의
   외부 등록 변경과 순환 import는 확정 경로로 추측하지 않고 기존 한계 보고를 유지한다.
+- 그래프 파서 진단이 `requires-python`의 흔한 형식(`>=3.11,<4`, `~=3.11`, `>3.10`, `==3.11.*`)에서도 하한을 읽어
+  `runtime-below-minimum`·`minimum-not-newer`를 판정한다. 전에는 문자열 전체가 `>=숫자버전` 하나일 때만 읽고 나머지는
+  `not-evaluated`였다. 상한은 비교하지 않고, 실행 버전이 `!=` 조건에 걸리거나 사전 릴리스·epoch·로컬 버전처럼 읽지 않는
+  조건이 있으면 계속 `not-evaluated`다. 상태 값 집합과 사실·`graphRevision`은 바뀌지 않는다.
 
 - 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
   `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며
