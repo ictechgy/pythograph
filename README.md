@@ -2,6 +2,11 @@
 
 <img src="https://raw.githubusercontent.com/ictechgy/pythograph/main/icon.png" alt="pythograph's blue tit mascot" width="112" height="112" align="right">
 
+[![PyPI](https://img.shields.io/pypi/v/pythograph)](https://pypi.org/project/pythograph/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pythograph)](https://pypi.org/project/pythograph/)
+[![CI](https://github.com/ictechgy/pythograph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ictechgy/pythograph/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/pypi/l/pythograph)](https://github.com/ictechgy/pythograph/blob/main/LICENSE)
+
 [한국어](https://github.com/ictechgy/pythograph/blob/main/README.ko.md)
 
 Static facts for Python services (Django, Django REST framework, Flask, SQLAlchemy), emitted in the
