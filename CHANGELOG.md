@@ -15,9 +15,6 @@
   `not-evaluated`였다. 상한은 실행 버전과 비교하지 않는다. 상한이 하한과 겹치지 않아 만족할 수 없는 요구(`>=3.10,<3.9`),
   실행 버전이 `!=` 조건에 걸리는 경우, 사전 릴리스·epoch·로컬 버전처럼 읽지 않는 조건이 있는 경우는 계속
   `not-evaluated`다. 상태 값 집합과 사실·`graphRevision`은 바뀌지 않는다.
-- `schema`가 모듈마다 구문 트리를 한 번만 펼쳐 Django·SQLAlchemy 사용, SQL 텍스트, docstring·import 판독이 함께 쓴다.
-  전에는 판독기마다 같은 트리를 따로 `ast.walk`해 사용 판독 단계에서 모듈 하나를 최대 일곱 번 훑었다
-  (netbox `schema` 중앙값 4.64 → 3.58 s, 최대 RSS 약 279 MiB로 같음). 출력은 같다.
 
 - 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
   `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며
@@ -27,6 +24,9 @@
 
 ### Changed
 
+- `schema`가 모듈마다 구문 트리를 한 번만 펼쳐 Django·SQLAlchemy 사용, SQL 텍스트, docstring·import 판독이 함께 쓴다.
+  전에는 판독기마다 같은 트리를 따로 `ast.walk`해 사용 판독 단계에서 모듈 하나를 최대 일곱 번 훑었다
+  (netbox `schema` 중앙값 4.64 → 3.58 s, 최대 RSS 약 279 MiB로 같음). 출력은 같다.
 - Python 3.14를 CI와 릴리스 검증(ubuntu)에 더하고 패키지 분류자에 `Programming Language :: Python :: 3.14`를 싣는다.
   분석 대상 코드는 실행 중인 인터프리터의 `ast`로 파싱하므로 3.14 문법을 쓰는 프로젝트는 3.14로 실행해야 한다.
 
