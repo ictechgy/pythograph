@@ -48,7 +48,7 @@ pythograph는 `v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows
    git push origin v0.1.0
    ```
 
-6. Actions의 "Release" 실행을 확인한다. `verify`(ubuntu·macOS × Python 3.10·3.13) → `build`(태그·버전 대조, 고정한 빌드 백엔드로
+6. Actions의 "Release" 실행을 확인한다. `verify`(ubuntu·macOS × Python 3.10·3.13과 ubuntu × Python 3.14) → `build`(태그·버전 대조, 고정한 빌드 백엔드로
    sdist·wheel, 깨끗한 가상 환경에 wheel을 설치해 `--version`과 CLI 계약 확인) → `publish`(환경 `pypi` 승인 후 게시) 순서다.
 7. 게시 뒤 확인:
 
