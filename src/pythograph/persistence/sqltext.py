@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 
 from pythograph.persistence.location import fact_location
 from pythograph.persistence.model import PersistenceExtraction, RelationUse
@@ -279,14 +280,10 @@ class SqlText:
             return self.text(symbol.node, depth + 1)
         return self.evaluator.string(self.scopes.path, node)
 
-    def fallback(self, tree: ast.Module) -> None:
-        """sink가 아닌 문자열 리터럴 중 대문자 SQL을 읽는다(docstring 제외).
-
-        Args:
-            tree: 모듈 구문 트리.
-        """
-        docstrings = _docstring_ids(tree)
-        for node in ast.walk(tree):
+    def fallback(self) -> None:
+        """sink가 아닌 문자열 리터럴 중 대문자 SQL을 읽는다(docstring 제외)."""
+        docstrings = _docstring_ids(self.scopes.nodes)
+        for node in self.scopes.nodes:
             if id(node) in self.consumed or id(node) in docstrings:
                 continue
             if isinstance(node, ast.JoinedStr):
@@ -331,17 +328,17 @@ class SqlText:
         return fact_location(self.scopes, node)
 
 
-def _docstring_ids(tree: ast.Module) -> set[int]:
+def _docstring_ids(nodes: Iterable[ast.AST]) -> set[int]:
     """모듈·클래스·함수 docstring 상수 노드의 id를 모은다.
 
     Args:
-        tree: 모듈 구문 트리.
+        nodes: 모듈 전체 노드(`ModuleScopes.nodes`).
 
     Returns:
         id 집합.
     """
     found: set[int] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
             first = node.body[0]
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):

@@ -14,6 +14,9 @@
   `runtime-below-minimum`·`minimum-not-newer`를 판정한다. 전에는 문자열 전체가 `>=숫자버전` 하나일 때만 읽고 나머지는
   `not-evaluated`였다. 상한은 비교하지 않고, 실행 버전이 `!=` 조건에 걸리거나 사전 릴리스·epoch·로컬 버전처럼 읽지 않는
   조건이 있으면 계속 `not-evaluated`다. 상태 값 집합과 사실·`graphRevision`은 바뀌지 않는다.
+- `schema`가 모듈마다 구문 트리를 한 번만 펼쳐 Django·SQLAlchemy 사용, SQL 텍스트, docstring·import 판독이 함께 쓴다.
+  전에는 판독기마다 같은 트리를 따로 `ast.walk`해 사용 판독 단계에서 모듈 하나를 최대 일곱 번 훑었다
+  (netbox `schema` 중앙값 4.64 → 3.58 s, 최대 RSS 약 279 MiB로 같음). 출력은 같다.
 
 - 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
   `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며

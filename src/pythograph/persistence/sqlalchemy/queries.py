@@ -75,7 +75,7 @@ class SqlAlchemyQueries:
                 self._definition(model)
         for table in self.catalog.tables_by_path.get(self.scopes.path, ()):
             self._table_definition(table)
-        for node in ast.walk(self.scopes.index.module.tree):
+        for node in self.scopes.nodes:
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 self._attribute(node)
             elif isinstance(node, ast.Call):

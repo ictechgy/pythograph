@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from functools import cached_property
 
 from pythograph.source.symbols import ModuleIndex, symbol_id
 
@@ -45,6 +46,19 @@ class ModuleScopes:
         """
         self.index = index
         self._locals: dict[ast.AST, dict[str, list[Binding]]] = {}
+
+    @cached_property
+    def nodes(self) -> tuple[ast.AST, ...]:
+        """모듈 전체 노드를 `ast.walk` 순서로 한 번만 펼쳐 둔다.
+
+        ORM 사용·SQL 텍스트·import 판독이 모듈마다 각자 `ast.walk`를 돌면 같은 트리를 여러 번 순회한다(대형 프로젝트
+        schema 실행 시간의 큰 몫). 순서가 같으므로 사실과 출력 바이트는 바뀌지 않는다. 모듈 하나를 다 읽으면 이
+        도우미와 함께 버려져 메모리가 실행 동안 쌓이지 않는다.
+
+        Returns:
+            너비 우선 순서의 노드.
+        """
+        return tuple(ast.walk(self.index.module.tree))
 
     @property
     def path(self) -> str:
