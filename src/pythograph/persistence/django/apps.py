@@ -16,6 +16,7 @@ import ast
 from dataclasses import dataclass
 
 from pythograph.persistence.django.settings import DjangoProjectSettings
+from pythograph.source.evaluate import literal_value
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable
 
 #: AppConfig 상속 사슬을 따라가는 최대 깊이다.
@@ -204,7 +205,7 @@ class DjangoApps:
             else:
                 continue
             if value is not None and any(isinstance(target, ast.Name) and target.id == name for target in targets):
-                return _literal(value)
+                return literal_value(value)
         if depth > MAX_APPCONFIG_DEPTH:
             return ...
         for base in node.bases:
@@ -214,18 +215,3 @@ class DjangoApps:
                 if found is not None:
                     return found
         return None
-
-
-def _literal(node: ast.expr) -> object:
-    """리터럴 식만 값으로 바꾼다.
-
-    Args:
-        node: 식.
-
-    Returns:
-        값, 리터럴이 아니면 `...`.
-    """
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return ...

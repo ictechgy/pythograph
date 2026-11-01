@@ -83,13 +83,21 @@ def test_tests_excluded_from_graph_are_not_counted_as_parse_failures(make_projec
     assert not any(line.startswith("supplemental-test-files:") for line in graph.limitations["direct"])
 
 
+#: 실행 런타임에 걸리는 `!=` 조건이다. 하한은 넘지만 실제 최소 지원 버전을 증명하지 못하는 경우를 런타임과 무관하게
+#: 만든다.
+_RUNTIME_EXCLUDED = f">=3.0,!={sys.version_info[0]}.{sys.version_info[1]}.*"
+
+
 @pytest.mark.parametrize(
     ("metadata", "status", "requirement"),
     [
         (None, "not-declared", None),
         ('[project]\nrequires-python = ">=999.0.2"\n', "runtime-below-minimum", ">=999.0.2"),
         ('[project]\nrequires-python = ">=3.0"\n', "minimum-not-newer", ">=3.0"),
-        ('[project]\nrequires-python = ">=3.10,!=3.13.*"\n', "not-evaluated", ">=3.10,!=3.13.*"),
+        (f'[project]\nrequires-python = "{_RUNTIME_EXCLUDED}"\n', "not-evaluated", _RUNTIME_EXCLUDED),
+        ('[project]\nrequires-python = ">=999.0.2, <1000"\n', "runtime-below-minimum", ">=999.0.2, <1000"),
+        ('[project]\nrequires-python = "~=3.0"\n', "minimum-not-newer", "~=3.0"),
+        ('[project]\nrequires-python = ">=3.0,<3.1.dev0"\n', "not-evaluated", ">=3.0,<3.1.dev0"),
         ('[tool.example]\nrequires-python = ">=999.0"\n', "not-declared", None),
         ("[project]\nrequires-python = 42\n", "metadata-invalid", None),
         ('project = "not a table"\n', "metadata-invalid", None),
@@ -124,6 +132,72 @@ def test_parser_diagnostics_report_runtime_and_requirement_without_claiming_inva
     assert str(root) not in warning and "broken.py" not in warning
     if expected == "runtime-below-minimum":
         assert ">=999.0.2" in warning and "below the declared minimum" in warning
+
+
+@pytest.mark.parametrize(
+    ("requirement", "runtime", "status"),
+    [
+        (">=3.11", (3, 10, 14), "runtime-below-minimum"),
+        (">=3.11", (3, 11, 0), "minimum-not-newer"),
+        (">= 3.11.2", (3, 11, 1), "runtime-below-minimum"),
+        ("~=3.11", (3, 10, 9), "runtime-below-minimum"),
+        ("~=3.11", (3, 13, 1), "minimum-not-newer"),
+        ("~=3.11.2", (3, 11, 1), "runtime-below-minimum"),
+        (">=3.11,<4", (3, 10, 0), "runtime-below-minimum"),
+        (">=3.11,<4", (3, 12, 0), "minimum-not-newer"),
+        (" >=3.9 , <3.14 ", (3, 14, 0), "minimum-not-newer"),
+        (">3.10", (3, 10, 0), "runtime-below-minimum"),
+        (">3.10", (3, 10, 1), "minimum-not-newer"),
+        ("==3.11.*", (3, 10, 5), "runtime-below-minimum"),
+        ("==3.11.*", (3, 12, 0), "minimum-not-newer"),
+        ("==3.11", (3, 10, 5), "runtime-below-minimum"),
+        (">=3.8,>=3.10", (3, 9, 0), "runtime-below-minimum"),
+        (">=3.10,!=3.13.*", (3, 12, 0), "minimum-not-newer"),
+        (">=3.10,!=3.13.*", (3, 9, 0), "runtime-below-minimum"),
+        # 실행 버전이 `!=`에 걸리면 실제 최소 지원 버전(`>=3.8,!=3.8.*`이면 3.9)이 실행 버전보다 새로울 수 있어
+        # 판정하지 않는다.
+        (">=3.10,!=3.13.*", (3, 13, 2), "not-evaluated"),
+        (">=3.8,!=3.8.*", (3, 8, 10), "not-evaluated"),
+        (">=3.8,!=3.8.10", (3, 8, 10), "not-evaluated"),
+        (">=3.8,!=3.8.10", (3, 8, 11), "minimum-not-newer"),
+        # 상한이 하한과 겹치지 않는(만족할 수 없는) 요구에는 최소 지원 버전이 없다. 실행 버전이 하한보다 낮아도
+        # 다시 실행할 런타임을 안내하지 않는다.
+        (">=3.10,<3.9", (3, 13, 1), "not-evaluated"),
+        (">=3.10,<3.9", (3, 8, 0), "not-evaluated"),
+        (">=3.10,<3.10", (3, 13, 1), "not-evaluated"),
+        (">=3.10,<=3.9.5", (3, 13, 1), "not-evaluated"),
+        (">3.10,<=3.10", (3, 13, 1), "not-evaluated"),
+        ("==3.9.*,>=3.10", (3, 13, 1), "not-evaluated"),
+        ("==3.9,>=3.10", (3, 13, 1), "not-evaluated"),
+        ("~=3.8,>=4", (4, 1, 0), "not-evaluated"),
+        ("~=3.11.2,>=3.12", (3, 13, 1), "not-evaluated"),
+        # 상한과 하한이 한 점에서 만나면 만족할 수 있다.
+        (">=3.10,<=3.10", (3, 10, 0), "minimum-not-newer"),
+        ("==3.10,<=3.10.0", (3, 9, 0), "runtime-below-minimum"),
+        ("~=3.11.2,<3.11.3", (3, 11, 2), "minimum-not-newer"),
+        # 하한이 없거나 해석하지 않는 형식이면 판정하지 않는다.
+        ("", (3, 13, 0), "not-evaluated"),
+        ("<4", (3, 13, 0), "not-evaluated"),
+        ("!=3.9.*", (3, 13, 0), "not-evaluated"),
+        (">=3.11,", (3, 10, 0), "not-evaluated"),
+        (">=3.x", (3, 10, 0), "not-evaluated"),
+        ("~=3", (2, 7, 0), "not-evaluated"),
+        (">=3.11.*", (3, 10, 0), "not-evaluated"),
+        (">=3.11.0rc1", (3, 10, 0), "not-evaluated"),
+        (">=1!3.11", (3, 10, 0), "not-evaluated"),
+        ("===3.11", (3, 10, 0), "not-evaluated"),
+        (">=3.11.0.0", (3, 10, 0), "not-evaluated"),
+        (">=3.11 || <3", (3, 10, 0), "not-evaluated"),
+        (">=3.11,<3.12+local", (3, 10, 0), "not-evaluated"),
+    ],
+)
+def test_requirement_status_compares_only_provable_lower_bounds(
+    requirement: str, runtime: tuple[int, int, int], status: str
+) -> None:
+    """쉼표로 이은 PEP 440 조건의 하한만 비교하고, 증명하지 못하는 형식은 판정하지 않는다."""
+    from pythograph.graph.source_diagnostics import requirement_status
+
+    assert requirement_status(requirement, runtime) == status
 
 
 def test_project_requirement_alone_does_not_claim_parser_failure(make_project: MakeProject) -> None:

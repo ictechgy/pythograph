@@ -68,6 +68,26 @@ def value_size(value: object, limit: int = MAX_EVALUATED_LENGTH) -> int:
     return total
 
 
+def literal_value(node: ast.expr | None) -> object:
+    """리터럴 식만 값으로 바꾼다(이름은 따라가지 않는다).
+
+    Django 모델·앱 설정·필드 선언과 DRF `@action` 인자처럼 소스에 적힌 리터럴만 믿는 판독이 함께 쓴다. 해시할 수
+    없는 키·지나치게 깊은 중첩 같은 `ast.literal_eval` 실패도 리터럴이 아닌 식과 같이 다룬다.
+
+    Args:
+        node: 식(없는 인자면 None).
+
+    Returns:
+        값, 리터럴이 아니면 `...`(Ellipsis) 표식.
+    """
+    if node is None:
+        return ...
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return ...
+
+
 class Evaluator:
     """모듈 수준 이름을 따라가며 상수를 평가한다.
 

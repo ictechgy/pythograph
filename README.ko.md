@@ -2,6 +2,11 @@
 
 <img src="https://raw.githubusercontent.com/ictechgy/pythograph/main/icon.png" alt="pythograph의 푸른박새 마스코트" width="112" height="112" align="right">
 
+[![PyPI](https://img.shields.io/pypi/v/pythograph)](https://pypi.org/project/pythograph/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pythograph)](https://pypi.org/project/pythograph/)
+[![CI](https://github.com/ictechgy/pythograph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ictechgy/pythograph/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/pypi/l/pythograph)](https://github.com/ictechgy/pythograph/blob/main/LICENSE)
+
 [English](README.md)
 
 Python 서비스(Django, Django REST framework, Flask, SQLAlchemy)의 정적 사실을

@@ -40,7 +40,7 @@ from pythograph.persistence.names import (
     django_generated_name,
     django_strip_quotes,
 )
-from pythograph.source.evaluate import UNKNOWN, Evaluator
+from pythograph.source.evaluate import UNKNOWN, Evaluator, literal_value
 from pythograph.source.project import SourceModule
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable
 
@@ -639,7 +639,7 @@ class DjangoCatalog:
         Returns:
             값, 읽지 못하면 `...`.
         """
-        literal = _literal(node)
+        literal = literal_value(node)
         if literal is not ...:
             return literal
         value = self.evaluator.value(path, node)
@@ -1115,18 +1115,3 @@ def _placeholder(value: object, model: DjangoModel) -> str | None:
     app = model.label[0] if model.label else ""
     name = model.model_name
     return value.replace("%(class)s", name).replace("%(model_name)s", name).replace("%(app_label)s", app.lower())
-
-
-def _literal(node: ast.expr) -> object:
-    """리터럴 식만 값으로 바꾼다.
-
-    Args:
-        node: 식.
-
-    Returns:
-        값, 리터럴이 아니면 `...`.
-    """
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return ...

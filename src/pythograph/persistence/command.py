@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -152,9 +153,9 @@ def _scan_module(
     DjangoDeclarations(django, scopes, extraction).run()
     DjangoQueries(django, symbols, scopes, extraction, sql).run()
     SqlAlchemyQueries(sqlalchemy, scopes, extraction, sql).run()
-    packages = _imported_packages(module.tree)
+    packages = _imported_packages(scopes.nodes)
     if packages & _DB_PACKAGES:
-        for node in ast.walk(module.tree):
+        for node in scopes.nodes:
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -162,24 +163,24 @@ def _scan_module(
                 and node.args
             ):
                 sql.sink(node.args[0], explicit=False)
-    sql.fallback(module.tree)
+    sql.fallback()
     for package in sorted(packages & _UNSUPPORTED_PACKAGES):
         extraction.add_gap("unsupported-db-packages:", f"{{count}} files import {package}, which is not interpreted")
     for package in sorted(packages & _NON_RELATIONAL):
         extraction.add_gap("non-relational-stores:", f"{{count}} files import {package}, a non-relational store")
 
 
-def _imported_packages(tree: ast.Module) -> set[str]:
+def _imported_packages(nodes: Iterable[ast.AST]) -> set[str]:
     """모듈이 import하는 최상위 패키지 이름을 모은다.
 
     Args:
-        tree: 모듈 구문 트리.
+        nodes: 모듈 전체 노드(`ModuleScopes.nodes`).
 
     Returns:
         패키지 이름 집합.
     """
     found: set[str] = set()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             found.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:

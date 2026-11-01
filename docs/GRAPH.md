@@ -315,10 +315,14 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   기본 제외 테스트의 미시도는 파싱 실패가 아니다. `unparsedFiles`는 호환성을 위해 기존 정점 대상 누락 수를 유지한다.
 - 실제 파서 문법 거부가 있으면 `sourceAnalysis.parser`와 모든 순회 모드의 `python-parser:` 한계에 실행 구현·버전과
   거부 수를 싣는다. 거부는 문법 오류와 새 Python 문법을 구분하지 못한다. `pyproject.toml`의 `[project].requires-python`은
-  링크를 따라가지 않고 최대 64 KiB만 읽는다. Python 3.11 이상에서는 표준 TOML 파서로 읽고, 단일 `>=숫자버전`만
-  실행 버전과 하한 비교한다. `runtime-below-minimum`은 대상 요구 버전으로 다시 실행해야 한다는 환경 진단이다.
-  `minimum-not-newer`도 전체 호환 판정은 아니며, 복잡한 조건은 `not-evaluated`, Python 3.10은
-  `metadata-parser-unavailable`, 없거나 읽지 못한·잘못된 메타데이터는 `not-declared`·`metadata-unreadable`·`metadata-invalid`다.
+  링크를 따라가지 않고 최대 64 KiB만 읽는다. Python 3.11 이상에서는 표준 TOML 파서로 읽고, 쉼표로 이은 PEP 440 조건
+  중 하한(`>=V`, `~=V`, `==V`·`==V.*`, 배타적인 `>V`)만 실행 버전과 비교한다(`>=3.11,<4`, `~=3.11`, `>3.10`). 상한
+  (`<`·`<=`, `==V`, `==V.*`·`~=V`의 접두사 끝)은 최소 버전을 정하지 않아 실행 버전과 비교하지 않고, 하한과 겹치지 않아
+  만족할 수 없는 요구(`>=3.10,<3.9`)인지만 본다. 버전은 숫자 세 자리까지의 최종 릴리스만 읽는다.
+  `runtime-below-minimum`은 대상 요구 버전으로 다시 실행해야 한다는 환경 진단이다.
+  `minimum-not-newer`도 전체 호환 판정은 아니며, 하한이 없거나 만족할 수 없는 요구이거나 실행 버전이 `!=` 조건에
+  걸리거나(실제 최소 버전이 더 새로울 수 있다) 사전 릴리스·epoch·로컬 버전·`===`·`==`·`!=` 밖의 `.*`처럼 읽지 않는
+  조건이 하나라도 있으면 `not-evaluated`, Python 3.10은 `metadata-parser-unavailable`, 없거나 읽지 못한·잘못된 메타데이터는 `not-declared`·`metadata-unreadable`·`metadata-invalid`다.
   진단은 새 소스를 파싱하지 않고 사실·`graphRevision`·교환 형식 버전을 바꾸지 않는다.
 - 같은 입력·실행 파서이면 같은 바이트다(`--generated-at`으로 시각 고정).
 

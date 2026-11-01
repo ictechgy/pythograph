@@ -20,7 +20,7 @@ from pythograph.routes.client.constants import ModuleConstants
 from pythograph.source import project as project_module
 from pythograph.source import syntax
 from pythograph.source.bindings import module_bindings
-from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, UNKNOWN, Evaluator, value_size
+from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, UNKNOWN, Evaluator, literal_value, value_size
 from pythograph.source.project import Project, ReadFailure, SourceModule, is_test_path
 from pythograph.source.symbols import (
     ExternalSymbol,
@@ -163,6 +163,37 @@ def test_evaluator_caps_constructed_values(make_project: Callable[[dict[str, str
     assert evaluator.value("big.py", index.values["LONG"]) == "a" * (MAX_EVALUATED_LENGTH + 1)
     assert value_size([["ab", "c"], ["ab", "c"]]) == 2 + 2 * (2 + 3)
     assert value_size(["a" * 10], limit=5) == 6
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("'name'", "name"),
+        ("-1", -1),
+        ("['get', 'post']", ["get", "post"]),
+        ("{'detail': True, 'methods': ('get',)}", {"detail": True, "methods": ("get",)}),
+        ("None", None),
+        ("...", ...),
+        ("NAME", ...),
+        ("'a' + NAME", ...),
+        ("build()", ...),
+        ("[NAME]", ...),
+        # 해시할 수 없는 키는 literal_eval에서 TypeError다.
+        ("{[1]: 2}", ...),
+    ],
+)
+def test_literal_value_reads_only_literals(source: str, expected: object) -> None:
+    """Django·DRF 선언 해석이 함께 쓰는 리터럴 판독은 이름을 따라가지 않고 리터럴이 아니면 `...`를 돌려준다."""
+    assert literal_value(ast.parse(source, mode="eval").body) == expected
+
+
+def test_literal_value_bounds_missing_and_deep_nodes() -> None:
+    """없는 인자와 재귀 한도를 넘는 리터럴도 예외 없이 `...`로 낸다."""
+    deep = ast.parse("[" * 50 + "]" * 50, mode="eval").body
+    for _ in range(sys.getrecursionlimit()):
+        deep = ast.List(elts=[deep], ctx=ast.Load())
+    assert literal_value(None) is ...
+    assert literal_value(deep) is ...
 
 
 def test_evaluator_does_not_evaluate_rebound_module_names(make_project: Callable[[dict[str, str]], Path]) -> None:

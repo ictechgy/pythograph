@@ -29,7 +29,7 @@ pythograph는 `v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows
 
    ```sh
    uv sync
-   uv run ruff check src tests && uv run ruff format --check src tests
+   uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
    uv run mypy
    uv run pytest --cov
    uv run python scripts/verify_cli_contract.py
@@ -48,7 +48,7 @@ pythograph는 `v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows
    git push origin v0.1.0
    ```
 
-6. Actions의 "Release" 실행을 확인한다. `verify`(ubuntu·macOS × Python 3.10·3.13) → `build`(태그·버전 대조, 고정한 빌드 백엔드로
+6. Actions의 "Release" 실행을 확인한다. `verify`(ubuntu·macOS × Python 3.10·3.13과 ubuntu × Python 3.14) → `build`(태그·버전 대조, 고정한 빌드 백엔드로
    sdist·wheel, 깨끗한 가상 환경에 wheel을 설치해 `--version`과 CLI 계약 확인) → `publish`(환경 `pypi` 승인 후 게시) 순서다.
 7. 게시 뒤 확인:
 
@@ -60,6 +60,10 @@ pythograph는 `v<버전>` 태그를 push하면 GitHub Actions(`.github/workflows
 8. (선택) GitHub Releases에 태그 기준 릴리스 노트를 만든다(CHANGELOG 해당 절을 붙인다).
 9. README·README.ko의 설치 절에서 "아직 PyPI에 없다"는 문장을 지우고 `uv tool install pythograph`·`pipx install pythograph`를
    기본으로 바꾼다.
+10. [isthmus](https://github.com/ictechgy/isthmus)에 새 버전의 호환 검증과 producer 핀 갱신을 요청한다(이슈 또는 PR).
+    isthmus의 `compatibility.json`과 `docs/COMPATIBILITY.md`는 isthmus가 게시본을 직접 검증한 뒤에만 바꾸므로(재현:
+    `node scripts/verify-python-producer.mjs <isthmus-main.js> <pythograph-executable>`), 요청하지 않으면 그 표가 이전
+    pythograph 버전에 머문다. 이 저장소에서는 isthmus 파일을 고치지 않는다.
 
 ## 빌드 도구 고정
 

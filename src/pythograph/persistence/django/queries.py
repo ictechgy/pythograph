@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 from pythograph.persistence.django.catalog import DjangoCatalog, DjangoModel, ResolvedField, ReverseRelation
@@ -156,13 +157,13 @@ class DjangoQueries:
         self.scopes = scopes
         self.extraction = extraction
         self.sql = sql
-        self.imports_django = _imports_django(scopes.index.module.tree)
+        self.imports_django = _imports_django(scopes.nodes)
 
     # ------------------------------------------------------------------ 순회
 
     def run(self) -> None:
         """모듈의 모든 속성 접근과 호출을 살핀다."""
-        for node in ast.walk(self.scopes.index.module.tree):
+        for node in self.scopes.nodes:
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
                 self._attribute(node)
             elif isinstance(node, ast.Call):
@@ -979,16 +980,16 @@ def _method_name(name: str) -> str:
 _ASYNC_BASES = QUERYSET_METHODS | INSTANCE_METHODS | _OTHER_METHODS | frozenset(_INSTANCE_METHODS)
 
 
-def _imports_django(tree: ast.Module) -> bool:
+def _imports_django(nodes: Iterable[ast.AST]) -> bool:
     """모듈이 django를 import하는지 본다.
 
     Args:
-        tree: 모듈 구문 트리.
+        nodes: 모듈 전체 노드(`ModuleScopes.nodes`).
 
     Returns:
         import하면 True.
     """
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "django":
             return True
         if isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "django" for alias in node.names):

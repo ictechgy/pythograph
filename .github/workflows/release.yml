@@ -22,6 +22,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ['3.10', '3.13']
+        # 대상 코드를 실행 중인 인터프리터의 ast로 파싱하므로 최신 Python도 검증한다. 순수 Python 도구라 OS 차이가 작아
+        # macOS 잡은 늘리지 않는다.
+        include:
+          - os: ubuntu-latest
+            python: '3.14'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:

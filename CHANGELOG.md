@@ -10,12 +10,25 @@
 
 - 다른 모듈에서 가져온 DRF 라우터의 `router.urls`를 정적으로 해석한다. import 이후의
   외부 등록 변경과 순환 import는 확정 경로로 추측하지 않고 기존 한계 보고를 유지한다.
+- 그래프 파서 진단이 `requires-python`의 흔한 형식(`>=3.11,<4`, `~=3.11`, `>3.10`, `==3.11.*`)에서도 하한을 읽어
+  `runtime-below-minimum`·`minimum-not-newer`를 판정한다. 전에는 문자열 전체가 `>=숫자버전` 하나일 때만 읽고 나머지는
+  `not-evaluated`였다. 상한은 실행 버전과 비교하지 않는다. 상한이 하한과 겹치지 않아 만족할 수 없는 요구(`>=3.10,<3.9`),
+  실행 버전이 `!=` 조건에 걸리는 경우, 사전 릴리스·epoch·로컬 버전처럼 읽지 않는 조건이 있는 경우는 계속
+  `not-evaluated`다. 상태 값 집합과 사실·`graphRevision`은 바뀌지 않는다.
 
 - 그래프 누락 진단에 정점 대상·추가 테스트 문맥·전체 파싱 시도의 분모와 이유를 구분한
   `statistics.sourceAnalysis`를 더한다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며
   `source-budget:`는 두 범위와 겹칠 수 있는 실행 전체 예산 실패 수다. 기존 `unparsedFiles`·64 MiB 상한·그래프 사실과
   `graphRevision`은 유지한다. 실제 파서 거부가 있으면 실행 Python과 정식 프로젝트 최소 버전을 함께 진단하며,
   새 문법을 소스 자체의 문법 오류로 단정하거나 미지원 런타임의 분석을 지원 완료로 판정하지 않는다.
+
+### Changed
+
+- `schema`가 모듈마다 구문 트리를 한 번만 펼쳐 Django·SQLAlchemy 사용, SQL 텍스트, docstring·import 판독이 함께 쓴다.
+  전에는 판독기마다 같은 트리를 따로 `ast.walk`해 사용 판독 단계에서 모듈 하나를 최대 일곱 번 훑었다
+  (netbox `schema` 중앙값 4.64 → 3.58 s, 최대 RSS 약 279 MiB로 같음). 출력은 같다.
+- Python 3.14를 CI와 릴리스 검증(ubuntu)에 더하고 패키지 분류자에 `Programming Language :: Python :: 3.14`를 싣는다.
+  분석 대상 코드는 실행 중인 인터프리터의 `ast`로 파싱하므로 3.14 문법을 쓰는 프로젝트는 3.14로 실행해야 한다.
 
 ## [0.3.0] - 2026-10-24
 
