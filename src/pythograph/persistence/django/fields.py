@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-from pythograph.source.evaluate import UNKNOWN, Evaluator
+from pythograph.source.evaluate import UNKNOWN, Evaluator, literal_value
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable
 
 #: 필드 클래스를 따라가는 최대 상속 깊이다.
@@ -143,7 +143,7 @@ def read_field(symbols: SymbolTable, path: str, statement: ast.stmt) -> FieldSpe
     evaluator = Evaluator(symbols)
     options = {name: _option(evaluator, path, keywords[name]) for name in _LITERAL_OPTIONS if name in keywords}
     # `Field(verbose_name, name, …)`의 `name`은 필드 이름을 바꾼다(`Field.set_attributes_from_name`).
-    renamed = _literal(keywords["name"]) if "name" in keywords else None
+    renamed = literal_value(keywords["name"]) if "name" in keywords else None
     name = renamed if isinstance(renamed, str) and renamed else target.id
     return FieldSpec(name, kind, path, target, relation_target, options, keywords.get("through"))
 
@@ -181,7 +181,7 @@ def _option(evaluator: Evaluator, path: str, node: ast.expr) -> object:
     Returns:
         값, 읽지 못하면 `...`.
     """
-    literal = _literal(node)
+    literal = literal_value(node)
     if literal is not ...:
         return literal
     value = evaluator.value(path, node)
@@ -202,21 +202,6 @@ def _assignment(statement: ast.stmt) -> tuple[ast.Name | None, ast.expr | None]:
     if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
         return statement.target, statement.value
     return None, None
-
-
-def _literal(node: ast.expr) -> object:
-    """리터럴 식만 값으로 바꾼다.
-
-    Args:
-        node: 식.
-
-    Returns:
-        값, 리터럴이 아니면 `...`.
-    """
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return ...
 
 
 @dataclass(frozen=True)

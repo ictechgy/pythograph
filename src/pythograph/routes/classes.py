@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 
+from pythograph.source.evaluate import literal_value
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable
 
 #: 상속 사슬을 따라가는 최대 깊이다.
@@ -559,9 +560,9 @@ def _read_action(
     """
     keywords = {keyword.arg: keyword.value for keyword in (call.keywords if call else []) if keyword.arg}
     complete = call is not None and not call.args and all(keyword.arg for keyword in call.keywords)
-    detail = _literal(keywords.get("detail"))
-    methods_value = _literal(keywords.get("methods")) if "methods" in keywords else ["get"]
-    url_path_value = _literal(keywords.get("url_path")) if "url_path" in keywords else function.name
+    detail = literal_value(keywords.get("detail"))
+    methods_value = literal_value(keywords.get("methods")) if "methods" in keywords else ["get"]
+    url_path_value = literal_value(keywords.get("url_path")) if "url_path" in keywords else function.name
     if not isinstance(detail, bool):
         complete = False
     methods: dict[str, str] = {}
@@ -607,23 +608,6 @@ def _merge_mapping(
                     action.methods[decorator.attr.lower()] = function.name
 
 
-def _literal(node: ast.expr | None) -> object:
-    """리터럴 식만 값으로 바꾼다(이름은 따라가지 않는다).
-
-    Args:
-        node: 식.
-
-    Returns:
-        값, 리터럴이 아니면 `...`(Ellipsis) 표식.
-    """
-    if node is None:
-        return ...
-    try:
-        return ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return ...
-
-
 def attribute_literal(info: ClassInfo, name: str) -> object:
     """클래스 속성 값을 리터럴로 읽는다.
 
@@ -635,4 +619,4 @@ def attribute_literal(info: ClassInfo, name: str) -> object:
         값, 없으면 None, 리터럴이 아니면 `...`.
     """
     found = info.attributes.get(name)
-    return None if found is None else _literal(found[1])
+    return None if found is None else literal_value(found[1])
