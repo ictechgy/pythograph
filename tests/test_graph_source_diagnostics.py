@@ -160,6 +160,21 @@ def test_parser_diagnostics_report_runtime_and_requirement_without_claiming_inva
         (">=3.8,!=3.8.*", (3, 8, 10), "not-evaluated"),
         (">=3.8,!=3.8.10", (3, 8, 10), "not-evaluated"),
         (">=3.8,!=3.8.10", (3, 8, 11), "minimum-not-newer"),
+        # 상한이 하한과 겹치지 않는(만족할 수 없는) 요구에는 최소 지원 버전이 없다. 실행 버전이 하한보다 낮아도
+        # 다시 실행할 런타임을 안내하지 않는다.
+        (">=3.10,<3.9", (3, 13, 1), "not-evaluated"),
+        (">=3.10,<3.9", (3, 8, 0), "not-evaluated"),
+        (">=3.10,<3.10", (3, 13, 1), "not-evaluated"),
+        (">=3.10,<=3.9.5", (3, 13, 1), "not-evaluated"),
+        (">3.10,<=3.10", (3, 13, 1), "not-evaluated"),
+        ("==3.9.*,>=3.10", (3, 13, 1), "not-evaluated"),
+        ("==3.9,>=3.10", (3, 13, 1), "not-evaluated"),
+        ("~=3.8,>=4", (4, 1, 0), "not-evaluated"),
+        ("~=3.11.2,>=3.12", (3, 13, 1), "not-evaluated"),
+        # 상한과 하한이 한 점에서 만나면 만족할 수 있다.
+        (">=3.10,<=3.10", (3, 10, 0), "minimum-not-newer"),
+        ("==3.10,<=3.10.0", (3, 9, 0), "runtime-below-minimum"),
+        ("~=3.11.2,<3.11.3", (3, 11, 2), "minimum-not-newer"),
         # 하한이 없거나 해석하지 않는 형식이면 판정하지 않는다.
         ("", (3, 13, 0), "not-evaluated"),
         ("<4", (3, 13, 0), "not-evaluated"),

@@ -26,8 +26,11 @@ MAX_METADATA_BYTES = 64 * 1024
 #: 버전, `===`는 읽지 않는다) 끝 `.*`는 `==`·`!=`에서만 유효하다. 전체 호환 판정 대신 하한만 비교하려고 쓴다.
 _CLAUSE = re.compile(r"(~=|==|!=|<=|>=|<|>)\s*([0-9]{1,4}(?:\.[0-9]{1,4}){0,2})(\.\*)?")
 
-#: 하한을 주는 연산자다(`>`만 배타적이다). `~=V`는 `>=V` 하한을, `==V`·`==V.*`는 V를 하한으로 갖는다.
-_LOWER_BOUNDS = frozenset({">=", "~=", "==", ">"})
+#: 버전 경계 하나: (세 자리로 채운 릴리스, 경계 자신을 포함하는지)다.
+_Bound = tuple[tuple[int, ...], bool]
+
+#: `!=` 제외 조건 하나: (적힌 릴리스, 끝 `.*` 접두사 비교인지)다.
+_Exclusion = tuple[tuple[int, ...], bool]
 
 
 class SourceCounts(TypedDict):
@@ -130,35 +133,82 @@ def requirement_status(requirement: str, runtime: tuple[int, int, int]) -> str:
 
     다른 조건은 허용 집합을 좁히기만 하므로, 실행 버전이 어느 하한에도 못 미치면 실제 최소 지원 버전에도 못 미친다.
     반대로 하한을 모두 넘어도 `!=` 조건에 걸리면 실제 최소 지원 버전(`>=3.8,!=3.8.*`이면 3.9)이 실행 버전보다
-    새로울 수 있다. 상한(`<`·`<=`)은 최소 버전과 무관하므로 비교하지 않는다(`minimum-not-newer`는 호환 판정이 아니다).
+    새로울 수 있다. 상한은 최소 버전을 정하지 않으므로 실행 버전과 비교하지 않고(`minimum-not-newer`는 호환 판정이
+    아니다), 어느 상한이 하한과 겹치지 않아 만족할 수 없는 요구인지만 본다. 그런 요구에는 최소 지원 버전이 없다.
 
     Args:
         requirement: 정식 메타데이터의 `requires-python` 문자열.
         runtime: 실행 Python의 (major, minor, micro) 최종 릴리스 버전.
 
     Returns:
-        `runtime-below-minimum`, `minimum-not-newer`, 또는 하한이 없거나 모르는 조건이 있으면 `not-evaluated`.
+        `runtime-below-minimum`, `minimum-not-newer`, 또는 하한이 없거나 만족할 수 없거나 모르는 조건이 있으면
+        `not-evaluated`.
     """
-    bounds: list[tuple[tuple[int, ...], bool]] = []
-    excluded = False
+    clauses = _clauses(requirement)
+    if clauses is None:
+        return "not-evaluated"
+    lower, upper, exclusions = clauses
+    if not lower or _unsatisfiable(lower, upper):
+        return "not-evaluated"
+    if any(runtime < version or (runtime == version and not closed) for version, closed in lower):
+        return "runtime-below-minimum"
+    excluded = any(
+        runtime[: len(release)] == release if prefix else runtime == _padded(release) for release, prefix in exclusions
+    )
+    return "not-evaluated" if excluded else "minimum-not-newer"
+
+
+def _clauses(requirement: str) -> tuple[list[_Bound], list[_Bound], list[_Exclusion]] | None:
+    """조건을 하한·상한·`!=` 제외로 나눈다.
+
+    `==V`는 V 한 점이라 하한과 상한이 모두 V다. `==V.*`는 V로 시작하는 버전이고 `~=V`는 `>=V, ==V[:-1].*`이므로,
+    둘 다 접두사의 마지막 자리를 하나 올린 값이 배타적 상한이다.
+
+    Args:
+        requirement: `requires-python` 문자열.
+
+    Returns:
+        (하한, 상한, 제외) 목록, 읽지 않는 형식이 하나라도 있으면 None.
+    """
+    lower: list[_Bound] = []
+    upper: list[_Bound] = []
+    exclusions: list[_Exclusion] = []
     for text in requirement.split(","):
         clause = _CLAUSE.fullmatch(text.strip())
         if clause is None:
-            return "not-evaluated"
+            return None
         operator, version, wildcard = clause.groups()
         release = tuple(int(part) for part in version.split("."))
         if (wildcard and operator not in ("==", "!=")) or (operator == "~=" and len(release) < 2):
-            return "not-evaluated"
-        padded = release + (0,) * (3 - len(release))
+            return None
         if operator == "!=":
-            excluded = excluded or (runtime[: len(release)] == release if wildcard else runtime == padded)
-        elif operator in _LOWER_BOUNDS:
-            bounds.append((padded, operator != ">"))
-    if not bounds:
-        return "not-evaluated"
-    if any(runtime < bound or (runtime == bound and not inclusive) for bound, inclusive in bounds):
-        return "runtime-below-minimum"
-    return "not-evaluated" if excluded else "minimum-not-newer"
+            exclusions.append((release, bool(wildcard)))
+        elif operator in (">=", ">"):
+            lower.append((_padded(release), operator == ">="))
+        elif operator in ("<=", "<"):
+            upper.append((_padded(release), operator == "<="))
+        elif operator == "==" and not wildcard:
+            lower.append((_padded(release), True))
+            upper.append((_padded(release), True))
+        else:
+            prefix = release if operator == "==" else release[:-1]
+            lower.append((_padded(release), True))
+            upper.append((_padded((*prefix[:-1], prefix[-1] + 1)), False))
+    return lower, upper, exclusions
+
+
+def _unsatisfiable(lower: list[_Bound], upper: list[_Bound]) -> bool:
+    """어느 상한이 어느 하한보다 낮거나, 같은 점에서 한쪽이라도 그 점을 빼서 둘 다 만족할 버전이 없는지 본다."""
+    return any(
+        top < bottom or (top == bottom and not (top_closed and bottom_closed))
+        for top, top_closed in upper
+        for bottom, bottom_closed in lower
+    )
+
+
+def _padded(release: tuple[int, ...]) -> tuple[int, ...]:
+    """PEP 440 비교처럼 빠진 뒷자리를 0으로 채워 세 자리로 맞춘다."""
+    return release + (0,) * (3 - len(release))
 
 
 def source_lines(project: Project, statistics: dict[str, object]) -> list[str]:
