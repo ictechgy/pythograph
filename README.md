@@ -121,7 +121,7 @@ Example (synthetic, compacted; the real output is key-sorted JSON with two-space
   "platform": "python",
   "roles": ["server"],
   "target": "http",
-  "tool": { "name": "pythograph", "version": "0.2.0" },
+  "tool": { "name": "pythograph", "version": "<version>" },
   "version": 1
 }
 ```
@@ -443,7 +443,7 @@ symbols, tests excluded from symbols but read as supplemental context, and all p
 `supplemental-test-files:` cover disjoint scopes; `source-budget:` is a run-wide total that can overlap both. Unrequested
 tests are counted as not attempted. Actual parser syntax rejections also report the running Python and a bounded, static
 reading of `[project].requires-python`. A newer declared minimum remains an environment blocker; parser rejection alone
-cannot distinguish invalid syntax from syntax newer than the running Python. See [graph diagnostics](docs/GRAPH.md).
+cannot distinguish invalid syntax from syntax newer than the running Python. See [graph diagnostics](https://github.com/ictechgy/pythograph/blob/main/docs/GRAPH.md).
 
 One run parses at most 64 MiB of Python source in total, counting only the modules it parses successfully. A module
 that would push the total past this budget is not parsed and is reported like a file that fails to parse
@@ -582,7 +582,7 @@ are checked while reading. These boundaries and explicit omissions are documente
 Captures use Git-selected inputs; `bound` assumes those selected sources form the whole program. Ignored
 runtime writers may therefore change ordinary graph results. Materialization rejects paths that alias on
 the destination filesystem instead of merging their identities.
-See [change analysis](docs/CHANGE-IMPACT.md) for the capture budget and remaining framework gaps.
+See [change analysis](https://github.com/ictechgy/pythograph/blob/main/docs/CHANGE-IMPACT.md) for the capture budget and remaining framework gaps.
 
 ## License
 
