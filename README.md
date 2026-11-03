@@ -52,7 +52,7 @@ pythograph --version
 ```
 
 To try unreleased changes, install from GitHub (`uv tool install git+https://github.com/ictechgy/pythograph`, or pin a
-release tag such as `@v0.3.0`). A wheel built from a checkout (`uv build`) installs the same way:
+release tag such as `@v0.3.1`). A wheel built from a checkout (`uv build`) installs the same way:
 `uv tool install dist/pythograph-<version>-py3-none-any.whl`. The release steps are in
 [RELEASING.md](https://github.com/ictechgy/pythograph/blob/main/RELEASING.md) (Korean).
 
