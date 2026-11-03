@@ -19,9 +19,9 @@ isthmus joins the documents.
 
 The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
 and pythograph has no runtime dependencies and uses no network. The only program it starts is git at the project root,
-to read `revision` for `graph`, `reach`, and `impact`; git runs without the filter commands that the repository's git
-configuration defines, never fetches the objects that a partial clone lacks, and never runs inside submodules (see
-[Security](#security)).
+to read `revision` for `graph`, `reach`, and `impact`, and to capture the compared sources for `change-impact`; git runs
+without the filter commands that the repository's git configuration defines, never fetches the objects that a partial
+clone lacks, and never runs inside submodules (see [Security](#security)).
 
 ## Status
 
@@ -31,6 +31,7 @@ configuration defines, never fetches the objects that a partial clone lacks, and
 | `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
 | `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`bound`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
 | `pythograph routes --role client`: requests, httpx, aiohttp, and urllib calls plus declared HTTP wrappers → `route-call` facts | Implemented |
+| `pythograph change-impact`: Git base/head (or working tree) captures → separate before/after `language-traversal` reports ([rules](https://github.com/ictechgy/pythograph/blob/main/docs/CHANGE-IMPACT.md), Korean) | Implemented |
 
 isthmus-cli 0.10.0 (npm) is the first release that accepts `platform: "python"` http documents (server `route-decl`
 including `registration-order`, and client `route-call`), persistence documents, and python `language-traversal`
@@ -527,9 +528,12 @@ sandbox against concurrent changes to the filesystem. The analyzed Python code i
 
 ## Security
 
-pythograph starts one external program: `git`, only to read the `revision` of `graph`, `reach`, and `impact` when
-`--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`, and
-`git rev-parse`, run at the project root). It runs the first `git` in an absolute `PATH` entry and skips one that
+pythograph starts one external program: `git`, at the project root. `graph`, `reach`, and `impact` run it to read the
+`revision` when `--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`,
+and `git rev-parse`). `change-impact` runs it to capture the compared sources: `git rev-parse` on the `--base` and
+`--head` you give (with `--end-of-options`), `git ls-tree` and one `git cat-file --batch` for a commit, and
+`git ls-files --cached --others --exclude-standard` and `git rev-parse --show-object-format` for the working tree,
+each preceded by the same `git config` listing. It runs the first `git` in an absolute `PATH` entry and skips one that
 lives inside the project or directly in the current directory. A `.git` directory that arrives with an archive or a
 copy can define commands that git runs while it reads the work tree (see "SECURITY" in git(1)). pythograph closes the
 ways it knows these git calls can reach such commands:

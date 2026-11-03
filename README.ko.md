@@ -17,8 +17,8 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 언어에서 본 것만 보고하고, 조인은 isthmus가 한다.
 
 분석 대상 프로젝트는 표준 라이브러리 `ast`로만 파싱한다. import하거나 실행하지 않으며, pythograph는 런타임
-의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 `graph`·`reach`·`impact`가 `revision`을 읽으려고 프로젝트
-루트에서 실행하는 git 하나다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고, 부분 clone에 빠진 객체를
+의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 프로젝트 루트에서 실행하는 git 하나다. `graph`·`reach`·
+`impact`는 `revision`을 읽으려고, `change-impact`는 비교할 소스를 캡처하려고 실행한다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고, 부분 clone에 빠진 객체를
 받아 오지 않으며, 서브모듈 안에서는 돌지 않는다([보안](#보안)).
 
 ## 상태
@@ -29,6 +29,7 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 | `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
 | `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`bound`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
 | `pythograph routes --role client`: requests·httpx·aiohttp·urllib 호출과 선언한 HTTP 래퍼 → `route-call` 사실 | 구현됨 |
+| `pythograph change-impact`: Git base/head(또는 작업 트리) 캡처 → 분리된 before/after `language-traversal` 보고서([규칙](docs/CHANGE-IMPACT.md)) | 구현됨 |
 
 isthmus-cli 0.10.0(npm)은 `platform: "python"`의 http 문서(서버 `route-decl`·`registration-order`, 클라이언트 `route-call`)·
 persistence 문서와 python `language-traversal` 분석을 받는 첫 릴리스다([isthmus 호환](#isthmus-호환) 참고).
@@ -428,9 +429,12 @@ Flask-SQLAlchemy 3 규칙은 길이와 관계없이 적용합니다.
 
 ## 보안
 
-pythograph가 띄우는 외부 프로그램은 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를 실행하고 프로젝트 루트에
-`.git`이 있을 때만, `revision`을 읽으려고 프로젝트 루트에서 `git config`·`git ls-files`·`git status`·`git rev-parse`를
-실행한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
+pythograph가 띄우는 외부 프로그램은 프로젝트 루트에서 실행하는 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를
+실행하고 프로젝트 루트에 `.git`이 있으면 `revision`을 읽으려고 `git config`·`git ls-files`·`git status`·`git rev-parse`를
+실행한다. `change-impact`는 비교할 소스를 캡처하려고 사용자가 준 `--base`·`--head`에 `git rev-parse`(`--end-of-options`
+포함)를, 커밋에는 `git ls-tree`와 `git cat-file --batch` 한 번을, 작업 트리에는
+`git ls-files --cached --others --exclude-standard`와 `git rev-parse --show-object-format`을 실행하며, 각 명령 앞에 같은
+`git config` 조회를 한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
 압축본·사본과 함께 온 `.git` 디렉터리는 git이 작업 트리를 읽으며 실행할 명령을 정할 수 있다(git(1)의 "SECURITY").
 pythograph는 이 git 호출이 그런 명령에 닿는 것으로 아는 경로를 막는다.
 

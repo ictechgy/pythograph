@@ -428,9 +428,21 @@ def _provenance(value: Capture) -> dict[str, object]:
 
 
 def _analyze(
-    value: Capture, destination: Path, paths: set[str], request: TraversalRequest, project_identity: str
+    value: Capture, destination: Path, paths: set[str], request: TraversalRequest, identity: tuple[str, datetime]
 ) -> dict[str, object]:
-    """한 캡처만 materialize하고 파일 seed에서 기존 순회 엔진으로 경로를 만든다."""
+    """한 캡처만 materialize하고 파일 seed에서 기존 순회 엔진으로 경로를 만든다.
+
+    Args:
+        value: 캡처.
+        destination: materialize할 새 디렉터리.
+        paths: seed로 쓸 바뀐 파일.
+        request: 순회 요청.
+        identity: (원래 프로젝트 정규 경로, 문서 generatedAt).
+
+    Returns:
+        한 시점의 결과.
+    """
+    project_identity, stamp = identity
     _materialize_capture(value, destination)
     graph = build_graph(Project.open(destination, source_omissions=value.omissions), include_tests=True)
     if value.omissions:
@@ -448,7 +460,7 @@ def _analyze(
     roots = tuple(node.id for node in nodes)
     traversal_request = TraversalRequest(roots, "dependents", request.max_depth, request.max_reached, request.dispatch)
     result = traverse(graph, traversal_request)
-    header = GraphHeader(__version__, datetime.now(timezone.utc), project_identity, value.revision)
+    header = GraphHeader(__version__, stamp, project_identity, value.revision)
     document = build_traversal_document(
         TraversalInput(header, graph, "dependents", request.dispatch, roots, frozenset(), result)
     )
@@ -557,8 +569,22 @@ def _materialize_capture(value: Capture, destination: Path) -> None:
         raise InputError("capture cannot preserve paths on destination filesystem") from error
 
 
-def analyze_change(root: Path, base: str, head: str | None, request: TraversalRequest) -> dict[str, object]:
-    """캡처 비용을 포함해 두 시점을 분석한다. 빈 결과도 항상 불완전한 검토 근거다."""
+def analyze_change(
+    root: Path, base: str, head: str | None, request: TraversalRequest, generated_at: datetime | None = None
+) -> dict[str, object]:
+    """캡처 비용을 포함해 두 시점을 분석한다. 빈 결과도 항상 불완전한 검토 근거다.
+
+    Args:
+        root: 저장소 루트.
+        base: 이전 시점 revision.
+        head: 이후 시점 revision(없으면 작업 트리).
+        request: 순회 요청(root는 바뀐 파일 선언으로 채운다).
+        generated_at: 두 순회 문서의 고정 generatedAt(없으면 현재 시각).
+
+    Returns:
+        보고서.
+    """
+    stamp = generated_at or datetime.now(timezone.utc)
     started = time.perf_counter()
     project_identity = root.resolve().as_posix()
     before, after = capture(root, base), capture(root, head)
@@ -572,14 +598,14 @@ def analyze_change(root: Path, base: str, head: str | None, request: TraversalRe
             Path(temporary) / "before",
             {row["path"] for row in changes if row["status"] != "added"},
             request,
-            project_identity,
+            (project_identity, stamp),
         )
         current = _analyze(
             after,
             Path(temporary) / "after",
             {row["path"] for row in changes if row["status"] != "deleted"},
             request,
-            project_identity,
+            (project_identity, stamp),
         )
     return {
         "format": "pythograph-change-impact",

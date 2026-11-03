@@ -27,6 +27,11 @@
   `capture byte budget exceeded`로 실패했다. 이제 `.py`·`pyproject.toml`·`setup.cfg`만 바이트를 캡처하고 나머지는 git blob id로
   바뀜·rename 후보를 비교한다(`input.identityOnlyFiles`, `limits.hashBytes` 추가). 커밋 캡처는 파일마다 `cat-file`을 두 번
   띄우던 것을 `ls-tree -l`과 `cat-file --batch` 한 번으로 바꿨다(파일 501개 2캡처에서 git 프로세스 약 4,000개 → 상수 개).
+- `change-impact`의 `--max-depth`·`--max-reached`가 `int()`로 읽어 `1_0`·` 8`·`+8`을 받았다. `reach`·`impact`와 같은 정수
+  문법으로 검증한다. `--generated-at`을 더해 두 순회 문서의 `generatedAt`을 고정할 수 있다(`cost`만 실행마다 다르다).
+- README·README.ko·AGENTS의 보안·상태 설명이 git을 `revision` 읽기에만 쓴다고 적었다. `change-impact`가 실행하는 git
+  명령(`rev-parse`·`ls-tree`·`cat-file --batch`·`ls-files`)과 상태 표 행을 더했고 CLI 계약 검사에 `change-impact`의
+  0/2/64와 `cost` 밖 결정성을 넣었다.
 
 ## [0.3.1] - 2026-11-03
 

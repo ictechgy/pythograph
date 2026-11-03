@@ -31,7 +31,9 @@ serializer/permission callback은 일부 누락될 수 있다. 선언 없는 설
 비교한다(`input.identityOnlyFiles`). 커밋 쪽은 `ls-tree`의 객체 id를 쓰고, 작업 트리 쪽은 같은 nofollow 검사로 파일을 흘려
 읽어 `git hash-object --no-filters`와 같은 id를 구한다(합산 4 GiB, `limits.hashBytes`). 초과는 부분 분석 없이 코드 2다.
 보고서 상한은 16 Mi 문자다.
-`cost`는 준비와 전체 분석 시간을 포함한다. ignored 파일, symlink, submodule은 포함하지 않는다. 작업 트리는 두 번
+`cost`는 준비와 전체 분석 시간을 포함한다. `--generated-at <timestamp>`는 두 순회 문서의 `generatedAt`을 고정하므로 같은
+입력이면 `cost` 밖의 출력이 같다(`cost`는 실측 밀리초라 실행마다 다르다). `--max-depth`·`--max-reached`는 `reach`·`impact`와
+같은 정수 문법이다(`1_0`·공백·부호·앞자리 0은 사용법 오류 64). ignored 파일, symlink, submodule은 포함하지 않는다. 작업 트리는 두 번
 읽은 내용이 같을 때만 분석하지만 파일 시스템 원자적 snapshot은 아니다. 분석 후 새 편집은 재분석해야 한다.
 작은 fixture 결과를 전체 앱의 정확도나 실제 실패 예측으로 일반화하지 않는다.
 

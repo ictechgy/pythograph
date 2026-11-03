@@ -17,9 +17,11 @@
   규칙은 `docs/PERSISTENCE.md`), `pythograph graph`·`reach`·`impact`(호출 그래프 → isthmus `language-traversal` v1,
   근거 등급 `direct`·`bound`·`candidate` — 기본 `--dispatch direct`, `bound`는 선택, id는 routes·schema `symbol.usr`와 같은
   문자열, 규칙은 `docs/GRAPH.md`), `pythograph routes --role client`(requests·httpx·aiohttp·urllib 호출과 `http-wrappers`
-  래퍼 → http `route-call`, 규칙은 `docs/HTTP-CLIENTS.md`). 구현된 것과 계획을 구분해 적는다.
+  래퍼 → http `route-call`, 규칙은 `docs/HTTP-CLIENTS.md`), `pythograph change-impact`(Git base/head·작업 트리 캡처 →
+  분리된 before/after 순회 보고서, 규칙은 `docs/CHANGE-IMPACT.md`). 구현된 것과 계획을 구분해 적는다.
 - 런타임 의존성 없음. 분석은 표준 라이브러리 `ast`로만 한다. 프레임워크 동작은 설치본 소스를 스크래치에서 ast로 읽어
-  만든 표(`graph/framework_table.py`)로만 쓴다. `revision`을 읽으려고 프로젝트 루트의 git만 실행한다. 분석 대상 프로젝트를 import·실행하지 않고
+  만든 표(`graph/framework_table.py`)로만 쓴다. `revision`을 읽거나 `change-impact`의 비교 소스를 캡처하려고 프로젝트 루트의
+  git만 실행한다(filter·지연 fetch·서브모듈 차단은 `graph/revision.py`를 지난다). 분석 대상 프로젝트를 import·실행하지 않고
   네트워크를 쓰지 않는다. 개발 도구(pytest·ruff·mypy)만 dev 의존성이다.
 - 프레임워크 규칙은 추측하지 않고 공식 소스로 확인해 `docs/HTTP-ROUTES.md`에 출처와 함께 적는다.
 - 정규 경로 템플릿과 http limitation 스코프는 isthmus 공유 벡터(`conformance/`, `conformance.lock`)와 맞춘다.

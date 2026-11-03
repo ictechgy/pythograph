@@ -77,7 +77,7 @@ def verify_basics(executable: str) -> None:
     verify(run(executable, ["--help"]).stdout.startswith("Usage: pythograph"), "help")
     verify(run(executable, ["help", "routes"]).stdout.startswith("Usage: pythograph routes"), "routes help")
     verify(run(executable, ["help", "schema"]).stdout.startswith("Usage: pythograph schema"), "schema help")
-    for command in ("graph", "reach", "impact"):
+    for command in ("graph", "reach", "impact", "change-impact"):
         verify(run(executable, ["help", command]).stdout.startswith(f"Usage: pythograph {command}"), f"{command} help")
     for arguments in (
         [],
@@ -94,6 +94,9 @@ def verify_basics(executable: str) -> None:
         ["reach", "--project", "."],
         ["impact", "--project", ".", "a\u0001b"],
         ["reach", "--project", ".", "--dispatch", "x", "a#b"],
+        ["change-impact"],
+        ["change-impact", "--project", ".", "--base", "HEAD", "--max-depth", "1_0"],
+        ["change-impact", "--project", ".", "--base", "HEAD", "--generated-at", "now"],
     ):
         verify(run(executable, arguments).returncode == 64, f"usage error {arguments}")
 
@@ -167,6 +170,39 @@ def verify_graph(executable: str) -> None:
     verify(missing.returncode == 64 and json.loads(missing.stdout)["roots"][0] == {"id": "nope#x"}, "root-not-found")
 
 
+def verify_change(executable: str) -> None:
+    """change-impact가 합성 Git 저장소에서 보고서를 쓰고, 고정 시각이면 cost 밖이 결정적이며, Git 저장소가 아니면 2인지
+    확인한다.
+
+    Args:
+        executable: 실행 파일.
+    """
+    directory = Path(tempfile.mkdtemp(prefix="pythograph-cli-change-"))
+    try:
+        identity = ["-c", "user.name=Contract", "-c", "user.email=contract@example.invalid"]
+        subprocess.run(["git", "init", "-q", str(directory)], check=True)
+        (directory / "value.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(directory), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(directory), *identity, "commit", "-qm", "contract"], check=True)
+        (directory / "value.py").write_text("def value():\n    return 2\n", encoding="utf-8")
+        arguments = ["change-impact", "--project", str(directory), "--base", "HEAD", "--generated-at", GENERATED_AT]
+        first, second = run(executable, arguments), run(executable, arguments)
+        verify(first.returncode == 0, "change-impact exit code")
+        documents = [json.loads(result.stdout) for result in (first, second)]
+        verify(documents[0]["format"] == "pythograph-change-impact", "change-impact shape")
+        for document in documents:
+            document.pop("cost")
+        verify(documents[0] == documents[1], "change-impact determinism outside cost")
+        outside = directory / "plain"
+        outside.mkdir()
+        verify(
+            run(executable, ["change-impact", "--project", str(outside), "--base", "HEAD"]).returncode == 2,
+            "not a repo",
+        )
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def verify_input_errors(executable: str) -> None:
     """읽을 수 없는 프로젝트는 2로 끝나는지 확인한다.
 
@@ -203,6 +239,7 @@ def main(argv: list[str]) -> None:
     verify_routes(executable)
     verify_schema(executable)
     verify_graph(executable)
+    verify_change(executable)
     verify_input_errors(executable)
     sys.stdout.write("CLI contract verified: 0/2/64 (1 reserved)\n")
 

@@ -228,3 +228,26 @@ def test_hash_budget_and_batch_output_are_checked(repository: Path, monkeypatch:
     monkeypatch.setattr(change_module, "_read_git", corrupt)
     with pytest.raises(InputError, match="unexpected object data"):
         capture(repository, "HEAD")
+
+
+@pytest.mark.parametrize("value", ["1_0", " 8", "+8", "08", "0"])
+def test_integer_options_use_the_traversal_grammar(repository: Path, value: str) -> None:
+    """`--max-depth`·`--max-reached`는 reach·impact와 같은 정수 문법이다(`int()`가 받는 `1_0`·공백·부호는 거부)."""
+    for option in ("--max-depth", "--max-reached"):
+        with pytest.raises(UsageError):
+            run(["change-impact", "--project", str(repository), "--base", "HEAD", option, value])
+
+
+def test_generated_at_fixes_traversal_timestamps(repository: Path) -> None:
+    """`--generated-at`이면 두 순회 문서의 generatedAt이 고정된다(cost만 실행마다 다르다)."""
+    (repository / "value.py").write_text("def value():\n    return 2\n", encoding="utf-8")
+    fixed = "2026-01-01T00:00:00.000Z"
+    first = report(repository, generated_at=fixed)
+    second = report(repository, generated_at=fixed)
+    for side in ("before", "after"):
+        assert first[side]["traversal"]["generatedAt"] == fixed
+    first.pop("cost")
+    second.pop("cost")
+    assert first == second
+    with pytest.raises(UsageError):
+        run(["change-impact", "--project", str(repository), "--base", "HEAD", "--generated-at", "yesterday"])
