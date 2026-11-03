@@ -428,7 +428,12 @@ def _provenance(value: Capture) -> dict[str, object]:
 
 
 def _analyze(
-    value: Capture, destination: Path, paths: set[str], request: TraversalRequest, identity: tuple[str, datetime]
+    value: Capture,
+    destination: Path,
+    paths: set[str],
+    request: TraversalRequest,
+    project_identity: str,
+    generated_at: datetime | None = None,
 ) -> dict[str, object]:
     """한 캡처만 materialize하고 파일 seed에서 기존 순회 엔진으로 경로를 만든다.
 
@@ -437,12 +442,13 @@ def _analyze(
         destination: materialize할 새 디렉터리.
         paths: seed로 쓸 바뀐 파일.
         request: 순회 요청.
-        identity: (원래 프로젝트 정규 경로, 문서 generatedAt).
+        project_identity: 원래 프로젝트 정규 경로.
+        generated_at: 순회 문서 generatedAt(없으면 현재 시각).
 
     Returns:
         한 시점의 결과.
     """
-    project_identity, stamp = identity
+    stamp = generated_at or datetime.now(timezone.utc)
     _materialize_capture(value, destination)
     graph = build_graph(Project.open(destination, source_omissions=value.omissions), include_tests=True)
     if value.omissions:
@@ -598,14 +604,16 @@ def analyze_change(
             Path(temporary) / "before",
             {row["path"] for row in changes if row["status"] != "added"},
             request,
-            (project_identity, stamp),
+            project_identity,
+            stamp,
         )
         current = _analyze(
             after,
             Path(temporary) / "after",
             {row["path"] for row in changes if row["status"] != "deleted"},
             request,
-            (project_identity, stamp),
+            project_identity,
+            stamp,
         )
     return {
         "format": "pythograph-change-impact",
