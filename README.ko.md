@@ -330,6 +330,12 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 앞서 완전히 순회한 디렉터리의 파일은 보존합니다. 읽지 못한 디렉터리 항목 수는 routes·schema·graph 한계에 남기고,
 보이지 않는 모듈에 의존하는 닫힌 세계 `bound` 증명도 막습니다. 이런 한계와 함께 성공한 명령은 여전히 불완전한 분석입니다.
 
+순회는 점 디렉터리(`.git`·`.venv`·`.tox` 등)와 `__pycache__`·`node_modules`·`site-packages`·`htmlcov`·`build`·`dist`·`env`·
+`venv` 이름의 디렉터리에 들어가지 않습니다. 다만 `build`·`dist`·`env`·`venv` 디렉터리가 `__init__.py`를 직접 담고
+`pyvenv.cfg`가 없으면 프로젝트 패키지로 보고 순회합니다. 이 이름의 디렉터리가 패키지가 아닌 `.py`를 직접 담으면 빌드
+산출물이나 가상 환경으로 보고 건너뛰되, 한계(graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema
+`scan-truncated:`)로 세고 닫힌 세계 `bound` 증명을 막습니다. 분석하려면 더 좁은 `--project`를 주세요.
+
 파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 프로젝트 상대 경로가 UTF-8이 아니거나 교환 형식이 금지하는
 문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)를 담은 파이썬 파일은 분석하지 않습니다. isthmus가 문서 전체를 거부하는
 출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`

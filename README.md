@@ -411,6 +411,13 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+The walk never enters dot directories (`.git`, `.venv`, `.tox`, …) or directories named `__pycache__`, `node_modules`,
+`site-packages`, `htmlcov`, `build`, `dist`, `env`, or `venv`. A `build`, `dist`, `env`, or `venv` directory that
+directly contains `__init__.py` and no `pyvenv.cfg` is a project package and is scanned. One of those names that
+directly holds other `.py` files is still skipped (as build output or a virtual environment) but counted in
+limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:` for
+schema) and prevents closed-world `bound` proofs; pass a narrower `--project` to analyze it.
+
 File paths become every fact's `location.path` and symbol id, so a Python file whose project-relative path is not
 valid UTF-8 or contains characters the exchange format forbids (C0/C1 control characters including NEL, U+2028, or
 U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:` for graph, `route-coverage:` or

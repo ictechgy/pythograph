@@ -84,6 +84,14 @@ SKIPPED_DIRECTORIES = frozenset(
     }
 )
 
+#: 건너뛰는 이름 중 실제 패키지 이름으로도 쓰는 이름이다. 이 이름의 디렉터리가 `__init__.py`를 직접 담고 가상 환경
+#: 표식(`pyvenv.cfg`)이 없으면 프로젝트 패키지로 보고 들어간다. 패키지가 아닌데 `.py`를 직접 담으면 들어가지 않고
+#: `Project.skipped_source_directories`로 세어 한계로 남긴다(setuptools `build/lib/…`·가상 환경은 직접 담지 않는다).
+PACKAGE_NAMED_SKIPS = frozenset({"venv", "env", "build", "dist"})
+
+#: 건너뛰는 이름 디렉터리가 `.py`를 직접 담는지 볼 때 읽는 항목 상한이다(넘으면 담은 것으로 본다).
+MAX_SKIP_PROBE_ENTRIES = 512
+
 
 @dataclass(frozen=True)
 class SourceModule:
@@ -133,6 +141,8 @@ class Project:
             명령이 고른다(`syntax.MAX_AST_DEPTH`·`syntax.MAX_EXTRACTION_AST_DEPTH`).
         forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
         skipped_module_roots: 상한(`MAX_MODULE_ROOTS`) 밖이라 모듈 루트로 쓰지 않은 `manage.py` 디렉터리 수.
+        skipped_source_directories: `PACKAGE_NAMED_SKIPS` 이름이라 들어가지 않았는데 패키지가 아닌 `.py`를 직접 담은
+            디렉터리 수.
         parsed_source_bytes: 지금까지 파싱에 성공한 모듈의 소스 바이트 합(`MAX_TOTAL_SOURCE_BYTES`와 비교한다).
         budget_skipped_modules: 파싱 총량 예산을 넘게 해 파싱하지 않은 모듈 수.
     """
@@ -148,6 +158,7 @@ class Project:
     forbidden_names: int = 0
     scan_errors: int = 0
     skipped_module_roots: int = 0
+    skipped_source_directories: int = 0
     parsed_source_bytes: int = 0
     budget_skipped_modules: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
@@ -260,7 +271,7 @@ class Project:
                 self._record_link(relative)
             return
         if entry.is_dir(follow_symlinks=False):
-            if _is_skipped_directory(entry.name):
+            if _is_skipped_directory(entry.name) and not self._is_named_package(relative, entry.name):
                 return
             if depth + 1 > MAX_SCAN_DEPTH:
                 self.scan_capped = True
@@ -268,6 +279,45 @@ class Project:
             pending.append((relative, depth + 1))
         elif entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
             self._collect(relative, found)
+
+    def _is_named_package(self, relative: str, name: str) -> bool:
+        """건너뛰는 이름(`build`·`dist`·`env`·`venv`)의 디렉터리가 프로젝트 패키지인지 본다. 아니면서 `.py`를 직접
+        담으면 센다.
+
+        Args:
+            relative: 디렉터리의 프로젝트 상대 경로.
+            name: 디렉터리 이름.
+
+        Returns:
+            들어가야 하면 True.
+        """
+        if name not in PACKAGE_NAMED_SKIPS:
+            return False
+        if self.is_file(f"{relative}/__init__.py") and not self.is_file(f"{relative}/pyvenv.cfg"):
+            return True
+        if not self.is_file(f"{relative}/pyvenv.cfg") and self._holds_python_files(relative):
+            self.skipped_source_directories += 1
+        return False
+
+    def _holds_python_files(self, relative: str) -> bool:
+        """디렉터리가 `.py` 일반 파일을 직접 담는지 본다(항목 상한을 넘으면 담은 것으로 본다).
+
+        Args:
+            relative: 디렉터리의 프로젝트 상대 경로.
+
+        Returns:
+            담으면 True.
+        """
+        try:
+            with self.scan_directory(relative) as iterator:
+                for count, entry in enumerate(iterator):
+                    if count >= MAX_SKIP_PROBE_ENTRIES:
+                        return True
+                    if entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
+                        return True
+        except OSError:
+            return False
+        return False
 
     def _collect(self, relative: str, found: list[str]) -> None:
         """파이썬 파일을 발견 목록에 넣는다. 교환 형식에 실을 수 없는 경로는 건너뛰고 센다.
@@ -644,6 +694,22 @@ def skipped_roots_reason(count: int) -> str:
         f"{count} directories containing manage.py are not used as module roots (only the {MAX_MODULE_ROOTS} "
         "shallowest are), so imports that only they would resolve are treated as external; pass a narrower "
         "--project to analyze them"
+    )
+
+
+def skipped_directories_reason(count: int) -> str:
+    """패키지가 아닌 소스를 담은 건너뛰기 이름 디렉터리 한계 문구다(접두사는 명령마다 붙인다).
+
+    Args:
+        count: 디렉터리 수.
+
+    Returns:
+        문구.
+    """
+    names = ", ".join(sorted(PACKAGE_NAMED_SKIPS)[:-1]) + ", or " + sorted(PACKAGE_NAMED_SKIPS)[-1]
+    return (
+        f"{count} directories named {names} hold Python files outside a package and were not scanned "
+        "(treated as build output or virtual environments); symbols in those files are missing"
     )
 
 

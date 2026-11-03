@@ -10,7 +10,7 @@ from typing import cast
 
 from pythograph.graph.model import DISPATCH_MODES
 from pythograph.graph.source_diagnostics import source_lines
-from pythograph.source.project import Project, skipped_roots_reason
+from pythograph.source.project import Project, skipped_directories_reason, skipped_roots_reason
 
 #: 프레임워크 표를 만든 설치본 버전이다.
 FRAMEWORK_VERSIONS = "Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3"
@@ -184,4 +184,6 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
         )
     if project.skipped_module_roots:
         lines.append(f"scan-incomplete: {skipped_roots_reason(project.skipped_module_roots)}")
+    if project.skipped_source_directories:
+        lines.append(f"scan-incomplete: {skipped_directories_reason(project.skipped_source_directories)}")
     return lines

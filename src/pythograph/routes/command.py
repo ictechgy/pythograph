@@ -14,7 +14,7 @@ from pythograph.routes.django.settings import discover_settings_modules
 from pythograph.routes.flask.extract import FlaskOptions, extract_flask, flask_detected
 from pythograph.routes.model import Extraction, RouteDecl, ScopeRange
 from pythograph.routes.versions import declared_majors, normalize_name, version_gap
-from pythograph.source.project import Project, ReadFailure, skipped_roots_reason
+from pythograph.source.project import Project, ReadFailure, skipped_directories_reason, skipped_roots_reason
 from pythograph.source.symbols import SymbolTable
 
 #: 계약 동사 집합 밖 method를 받는 등록의 limitation 문장 틀이다.
@@ -173,6 +173,8 @@ def _project_gaps(project: Project, extraction: Extraction) -> None:
         extraction.add_gap("route-coverage:", f"{project.skipped_links} symbolic links were not followed")
     if project.skipped_module_roots:
         extraction.add_gap("route-coverage:", skipped_roots_reason(project.skipped_module_roots))
+    if project.skipped_source_directories:
+        extraction.add_gap("route-coverage:", skipped_directories_reason(project.skipped_source_directories))
     _failed_modules(project, extraction)
     if extraction.framework is None:
         return

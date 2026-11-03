@@ -12,6 +12,10 @@
 - 모듈 수준에서 정의·import가 같은 이름을 다시 묶으면(`def fast` 뒤 `from x import run as fast`, `try`/`except ImportError`
   대체) 이름 해석기가 문장 순서와 무관하게 정의를 먼저 골라 실행되지 않을 수 있는 대상에 `direct` 간선을 냈다. 이제 모든 묶음이
   같은 대상이면 그 값, 모두 외부면 외부 결과, 그 밖에는 모르는 값(`local-value`)으로 센다.
+- 이름만 보고 건너뛰던 `build`·`dist`·`env`·`venv` 디렉터리가 `__init__.py`를 직접 담고 `pyvenv.cfg`가 없으면 프로젝트
+  패키지로 순회한다(`shop/build/views.py`의 블루프린트가 한계 없이 사라졌다). 패키지가 아닌 `.py`를 직접 담은 그런 디렉터리는
+  graph `scan-incomplete:`·routes `route-coverage:`·schema `scan-truncated:`로 세고 닫힌 세계 `bound` 증명을 막는다.
+  건너뛰는 이름 목록을 README에 적었다.
 
 ## [0.3.1] - 2026-11-03
 
