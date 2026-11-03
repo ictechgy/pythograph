@@ -44,6 +44,7 @@
   설치 뒤 CLI 계약을 확인하고, CI는 이 저장소에 `graph`를 돌려 파싱 실패 0을 확인한다(자기 분석).
 - README의 Ruff 명령에 `scripts`를, `pyproject.toml` 설명에 client 호출·호출 그래프·변경 영향을 더했고 RELEASING의 끝난 첫
   릴리스 단계를 버전 고정 예 갱신으로 바꿨다.
+- isthmus 공유 적합성 벡터를 `c76e105`로 다시 벤더링했다(`http-dispatch.json`에 `consumer` 전용 사례 4건 추가, 생산자 사례 수 같음).
 
 ## [0.3.1] - 2026-11-03
 

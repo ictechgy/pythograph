@@ -23,3 +23,5 @@ pythograph가 실행하는 사례(`appliesTo`에 `producer` 또는 `producer:pyt
 `producer:rustograph`), `scope.dynamic-*`(`dynamicScope` 검증 — pythograph는 아직 `dynamicScope`를 내지 않는다).
 
 2026-11-01: isthmus `1d6683ab2cd4f7804370c85d4869501042bc3dec`의 전체 벡터·SHA256SUMS·conformance.lock을 동기화했다. SQL relation 생산자 사례는 `tests/test_conformance.py`가 직접 실행하며 새 ruleId는 계속 명시적 분류를 요구한다.
+
+2026-11-03: isthmus `c76e105c77d4abb4a0036f37cf899b0a7e0fb162`로 다시 동기화했다. 바뀐 파일은 `http-dispatch.json`뿐이고 더한 사례 4건(`validate/strict-slash-prefix*`·`validate/non-strict-slash-prefix`)은 `consumer` 전용이라 생산자 실행 사례 수(149)는 같다.

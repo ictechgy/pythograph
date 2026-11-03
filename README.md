@@ -365,7 +365,7 @@ directory) measured route precision against each framework's resolver, relation-
 isthmus, handler-to-relation reachability, unresolved-call reasons, and runtime; the results and the fixed issues are in
 [DOGFOOD.md](https://github.com/ictechgy/pythograph/blob/main/DOGFOOD.md) (Korean).
 
-The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `1d6683a` and locked in
+The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `c76e105` and locked in
 `conformance.lock`) pass 100% of the `producer` and `producer:pythograph` cases (149: `template.grammar`,
 `template.normalize`, `scope.validate`, `scope.applies`, `dispatch.validate`, 14 SQL relation cases, and 57 url-compose cases for query tails,
 interpolation, normalization, stripping, masking, the `rfc3986`/`httpx-base-url`/`aiohttp-base-url` joins, and wrapper
