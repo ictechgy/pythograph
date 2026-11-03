@@ -347,6 +347,9 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 수를 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `scan-truncated:` 한계로 세고 닫힌
 세계 `bound` 증명도 막습니다. 그런 프로젝트는 `--project`를 좁혀 따로 분석하세요. 모듈 루트의 항목은 한 번만 읽으므로,
 이름을 풀 때는 그 이름의 첫 성분이 있는 루트에서만 파일시스템을 봅니다.
+`graph`·`reach`·`impact`는 쓰는 모듈의 암묵 루트(그 모듈을 담은 가장 바깥 패키지의 부모, 패키지가 아닌 스크립트는 그
+디렉터리) 아래에 같은 이름의 패키지·모듈이 있는 절대 import를 외부로 보지 않습니다. `manage.py` 없는
+`backend/app/api.py`의 `from app.models import load`는 `unresolved-import`로 세어 순회가 불완전할 수 있음을 알립니다.
 
 구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를

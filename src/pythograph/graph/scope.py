@@ -277,7 +277,7 @@ class Resolver:
         if binding.kind == "assign" and binding.value is not None:
             return self.value(scope, binding.value, depth + 1)
         if binding.kind == "import" and binding.binding is not None:
-            return self.symbol_value(self.symbols.resolve_binding(binding.binding), depth)
+            return self.symbol_value(self.symbols.resolve_binding(binding.binding), depth, scope.path)
         if binding.kind == "param":
             return self._parameter_value(scope, binding, depth)
         return UnknownValue(binding.reason or "opaque-local")
@@ -354,7 +354,7 @@ class Resolver:
             return rebound
         symbol = self.symbols.resolve_name(path, name)
         if symbol is not None:
-            return self.symbol_value(symbol, depth)
+            return self.symbol_value(symbol, depth, path)
         # 프로젝트 `*` import는 이름 해석기가 따라간다. 외부·`__all__` 미확정 모듈의 `*`를 만나면 그 이름(내장 이름
         # 포함)을 그 모듈이 가릴 수 있어 모른다.
         if self.symbols.star_blocked(path, name):
@@ -394,12 +394,13 @@ class Resolver:
             return ExternalResult()
         return UnknownValue("rebound-global")
 
-    def symbol_value(self, symbol: Symbol | None, depth: int) -> Value:
+    def symbol_value(self, symbol: Symbol | None, depth: int, origin: str | None = None) -> Value:
         """모듈 색인의 해석 결과를 값으로 바꾼다.
 
         Args:
             symbol: 해석 결과.
             depth: 재귀 깊이.
+            origin: 이름을 묶은 모듈 경로(외부 판정의 암묵 루트용, 모르면 None).
 
         Returns:
             값.
@@ -410,7 +411,7 @@ class Resolver:
         if isinstance(symbol, ModuleSymbol):
             return ModuleValue(symbol.path, symbol.dotted)
         if isinstance(symbol, ExternalSymbol):
-            return self._external_value(symbol.dotted)
+            return self._external_value(symbol.dotted, origin)
         if isinstance(symbol, ValueSymbol):
             module = self.index.definitions.get(f"{symbol.path}#<module>")
             if module is None:
@@ -425,17 +426,24 @@ class Resolver:
             return self._class_member(ClassValue(owner), symbol.name)
         return UnknownValue("unresolved-name")
 
-    def _external_value(self, dotted: str) -> Value:
+    def _external_value(self, dotted: str, origin: str | None = None) -> Value:
         """외부 점 경로를 값으로 바꾼다. 최상위 패키지가 프로젝트에 있으면 풀지 못한 import다.
+
+        `origin`(그 이름을 묶은 모듈)이 있으면 모듈 루트 밖 암묵 루트(`Project.unrooted_module`)도 본다 — `manage.py`
+        없는 `backend/app/api.py`의 `from app.models import load`는 외부가 아니다.
 
         Args:
             dotted: 점 경로.
+            origin: 이름을 묶은 모듈 경로(모르면 None).
 
         Returns:
             외부 값 또는 모름.
         """
         top = dotted.split(".")[0]
-        if self.symbols.project.resolve_module(top) is not None:
+        project = self.symbols.project
+        if project.resolve_module(top) is not None:
+            return UnknownValue("unresolved-import")
+        if origin is not None and project.unrooted_module(origin, top):
             return UnknownValue("unresolved-import")
         return ExternalValue(dotted)
 
@@ -452,7 +460,7 @@ class Resolver:
             값.
         """
         if isinstance(base, ModuleValue):
-            return self.symbol_value(self.symbols.member(ModuleSymbol(base.path, base.dotted), name), depth)
+            return self.symbol_value(self.symbols.member(ModuleSymbol(base.path, base.dotted), name), depth, base.path)
         if isinstance(base, ExternalValue):
             return ExternalValue(f"{base.dotted}.{name}")
         if isinstance(base, (ClassValue, InstanceValue)):

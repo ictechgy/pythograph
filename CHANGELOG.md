@@ -16,6 +16,9 @@
   패키지로 순회한다(`shop/build/views.py`의 블루프린트가 한계 없이 사라졌다). 패키지가 아닌 `.py`를 직접 담은 그런 디렉터리는
   graph `scan-incomplete:`·routes `route-coverage:`·schema `scan-truncated:`로 세고 닫힌 세계 `bound` 증명을 막는다.
   건너뛰는 이름 목록을 README에 적었다.
+- 모듈 루트(`manage.py` 디렉터리·프로젝트 루트·`src/`)로 풀지 못한 절대 import를 외부로 확정해, `manage.py` 없는
+  `backend/app/api.py`의 `from app.models import load` 호출이 미해석으로도 세지지 않고 사라졌다. 쓰는 모듈의 암묵 루트(가장 바깥
+  패키지의 부모) 아래에 같은 이름의 패키지·모듈이 있으면 `unresolved-import`로 센다.
 
 ## [0.3.1] - 2026-11-03
 

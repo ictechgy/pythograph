@@ -431,6 +431,10 @@ Imports that only the remaining directories would resolve are treated as externa
 limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:`
 for schema) and prevent closed-world `bound` proofs; pass a narrower `--project` to analyze them. Each module root's
 entries are read once, so resolving a name touches the filesystem only under roots that contain its first component.
+`graph`, `reach`, and `impact` do not treat an absolute import as external when a package or module of that name sits
+under the importing module's implicit root (the parent of its outermost package, or its own directory for a plain
+script), such as `from app.models import load` in `backend/app/api.py` without a `manage.py`: the call is counted as
+`unresolved-import` so the traversal reports that it may be incomplete.
 
 Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
 and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or

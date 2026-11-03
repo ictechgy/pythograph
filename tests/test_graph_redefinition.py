@@ -306,3 +306,37 @@ def test_external_fallback_imports_stay_external(make_project: MakeProject) -> N
         },
     )
     assert direct_reasons(graph, "codec.py#dump") == {}
+
+
+def test_package_outside_module_roots_is_unresolved_import(make_project: MakeProject) -> None:
+    """모듈 루트 밖 패키지(`backend/app`, `manage.py` 없음)로 가는 절대 import는 외부가 아니라 `unresolved-import`다."""
+    graph = graph_for(
+        make_project,
+        {
+            "backend/app/__init__.py": "",
+            "backend/app/models.py": """
+                def load():
+                    return 1
+            """,
+            "backend/app/api.py": """
+                from app.models import load
+                import app.models as models
+
+
+                def items():
+                    load()
+                    return models.load()
+            """,
+            "backend/app/sub/__init__.py": "",
+            "client.py": """
+                import requests
+
+
+                def fetch():
+                    return requests.get("/x")
+            """,
+        },
+    )
+    # `load()`는 풀지 못한 import, `models.load()`는 수신자 모듈을 모르므로 타입 모르는 수신자로 센다.
+    assert direct_reasons(graph, "backend/app/api.py#items") == {"unresolved-import": 1, "untyped-receiver": 1}
+    assert direct_reasons(graph, "client.py#fetch") == {}

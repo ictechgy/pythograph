@@ -166,6 +166,8 @@ class Project:
     _resolved_roots: list[str] = field(default_factory=list)
     _root_entries: dict[str, frozenset[str] | None] = field(default_factory=dict)
     _root_names: frozenset[str] = field(default_factory=frozenset)
+    _unrooted_modules: dict[tuple[str, str], bool] = field(default_factory=dict)
+    _python_file_set: frozenset[str] | None = None
     source_omissions: tuple[SourceOmission, ...] = ()
 
     @classmethod
@@ -608,6 +610,56 @@ class Project:
         if name not in self._resolved_modules:
             self._resolved_modules[name] = self._find_module(name)
         return self._resolved_modules[name]
+
+    def unrooted_module(self, origin: str, name: str) -> bool:
+        """모듈 루트로 풀지 못한 최상위 이름이 그 모듈의 암묵 루트 아래 프로젝트 모듈인지 본다(캐시).
+
+        암묵 루트는 `origin`을 담은 가장 바깥 패키지의 부모 디렉터리다(`backend/app/api.py`면 `backend`, 패키지가 아닌
+        `scripts/run.py`면 `scripts`). 파이썬은 실행 방식(`python -m`, 스크립트 디렉터리, `PYTHONPATH`)에 따라 그곳을
+        `sys.path`에 넣으므로, 그 아래 `name/__init__.py`나 `name.py`가 있으면 외부로 확정하지 않고 풀지 못한
+        import로 센다. 루트 규칙이 이미 보는 디렉터리는 `resolve_module`이 답하므로 보지 않는다.
+
+        Args:
+            origin: import를 쓰는 모듈의 프로젝트 상대 경로.
+            name: import한 최상위 이름.
+
+        Returns:
+            암묵 루트 아래 프로젝트 모듈이면 True.
+        """
+        root = self._implicit_root(origin)
+        if root in self.module_roots or not name.isidentifier():
+            return False
+        key = (root, name)
+        if key not in self._unrooted_modules:
+            self._unrooted_modules[key] = self.is_file(f"{root}/{name}/__init__.py") or self.is_file(
+                f"{root}/{name}.py"
+            )
+        return self._unrooted_modules[key]
+
+    def _implicit_root(self, origin: str) -> str:
+        """모듈을 담은 가장 바깥 패키지의 부모 디렉터리를 돌려준다(프로젝트 루트는 `""`).
+
+        Args:
+            origin: 모듈의 프로젝트 상대 경로.
+
+        Returns:
+            프로젝트 상대 디렉터리.
+        """
+        files = self._file_set()
+        directory = PurePosixPath(origin).parent
+        while directory.as_posix() != "." and (directory / "__init__.py").as_posix() in files:
+            directory = directory.parent
+        return "" if directory.as_posix() == "." else directory.as_posix()
+
+    def _file_set(self) -> frozenset[str]:
+        """순회한 파이썬 파일 집합을 돌려준다(캐시).
+
+        Returns:
+            프로젝트 상대 경로 집합.
+        """
+        if self._python_file_set is None:
+            self._python_file_set = frozenset(self.python_files())
+        return self._python_file_set
 
     def _find_module(self, name: str) -> str | None:
         """모듈 루트 순서대로 이름의 패키지·모듈 파일을 찾는다(`resolve_module`이 결과를 기억한다).
