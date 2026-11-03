@@ -166,6 +166,8 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | `INSTALLED_APPS`를 읽지 못함 | `framework-provided-routes:`(스코프 없음) |
 | Flask 정적 파일 | `framework-provided-routes:` + `templatePrefixes: [static_url_path]`, `methods: ["GET", "HEAD"]` |
 | 라우트를 따로 등록하는 Flask 확장(flask_restful·flask_restx·flask_smorest·connexion·flask_appbuilder·flask_admin) import | `route-coverage:`(스코프 없음) |
+| Flask 규칙·블루프린트·`register_blueprint`의 `subdomain`·`host`·`redirect_to`, 앱의 `host_matching`·`subdomain_matching`·`static_host` | 경로 사실은 그대로 내고 등록마다 `route-coverage:`(스코프 없음). host는 조인 키가 아니라 다른 호스트로 가는 같은 경로 호출과 이어질 수 있고, `redirect_to` 규칙은 핸들러 대신 리다이렉트로 끝날 수 있다 |
+| 지원하지 않는 서버 프레임워크(FastAPI·Starlette·Litestar·Sanic·Falcon·Tornado·`aiohttp.web`·Bottle·Pyramid·Quart) import | 그 라우트는 사실이 되지 않고, import한 모듈 수를 `route-coverage:`(스코프 없음)로 센다. Django·Flask 사실은 그대로다 |
 | Flask 블루프린트 등록 순환(자기 자신이나 등록 경로의 조상을 다시 등록. Flask는 그런 앱을 등록하다 실패한다) | 순환을 닫는 등록을 따라가지 않고 `route-coverage:`(스코프 없음). 순환에 닿기 전 등록의 사실은 그대로다 |
 | 같은 블루프린트를 여러 경로로 등록한 격자(Flask는 경로마다 규칙을 다시 등록한다) | 경로마다 펼친다. 펼친 하위 등록이 200,000개(사실 상한의 두 배)를 넘으면 나머지를 따라가지 않고 `route-coverage:`(스코프 없음). 펼치는 도중 계약 동사 사실이 100,000개를 넘으면 바로 멈추고 사실 상한 오류(종료 2)로 끝난다 |
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |

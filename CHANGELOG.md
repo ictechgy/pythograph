@@ -32,6 +32,11 @@
 - README·README.ko·AGENTS의 보안·상태 설명이 git을 `revision` 읽기에만 쓴다고 적었다. `change-impact`가 실행하는 git
   명령(`rev-parse`·`ls-tree`·`cat-file --batch`·`ls-files`)과 상태 표 행을 더했고 CLI 계약 검사에 `change-impact`의
   0/2/64와 `cost` 밖 결정성을 넣었다.
+- `routes --role server`가 FastAPI·Starlette 등 지원하지 않는 서버 프레임워크만 있는 프로젝트에 "Django settings나 Flask
+  앱이 없다"는 한계만 내고, 그런 모듈이 Flask 앱 옆에 있어도 알리지 않았다. 그 프레임워크를 import한 모듈 수를
+  `route-coverage:`로 센다.
+- Flask `subdomain`·`host`·`redirect_to`(규칙·블루프린트·등록)와 앱의 `host_matching`·`subdomain_matching`·`static_host`를 한계
+  없이 평범한 경로 사실로 냈다. 경로 사실은 유지하고 등록마다 `route-coverage:`로 센다.
 
 ## [0.3.1] - 2026-11-03
 
