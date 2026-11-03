@@ -132,7 +132,7 @@ def _add_definition(builder: GraphBuilder, definition: Definition) -> None:
 
 
 def _decorator_targets(builder: GraphBuilder, definition: Definition) -> list[Target]:
-    """정의 → 프로젝트 장식자(장식자 팩토리 호출이면 그 팩토리) 간선 대상이다.
+    """정의 → 프로젝트 장식자(장식자 팩토리 호출이면 그 팩토리) 간선 대상이다. 같은 점 경로의 모든 정의 장식자를 본다.
 
     Args:
         builder: 조립 상태.
@@ -141,15 +141,17 @@ def _decorator_targets(builder: GraphBuilder, definition: Definition) -> list[Ta
     Returns:
         대상 목록.
     """
-    node = definition.node
-    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or definition.parent is None:
+    if definition.parent is None:
         return []
     targets: list[Target] = []
-    for decorator in node.decorator_list:
-        expr = decorator.func if isinstance(decorator, ast.Call) else decorator
-        value = builder.resolver.value(definition.parent, expr)
-        if isinstance(value, (FunctionValue, ClassValue)):
-            targets.append(Target(value.definition.id, "decorator"))
+    for node in definition.nodes:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for decorator in node.decorator_list:
+            expr = decorator.func if isinstance(decorator, ast.Call) else decorator
+            value = builder.resolver.value(definition.parent, expr)
+            if isinstance(value, (FunctionValue, ClassValue)):
+                targets.append(Target(value.definition.id, "decorator"))
     return targets
 
 

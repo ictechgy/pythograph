@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from pythograph.graph.index import Definition, DefinitionIndex
+from pythograph.graph.index import Definition, DefinitionIndex, body_nodes
 from pythograph.graph.scope import Resolver
 from pythograph.graph.values import (
     ClassValue,
@@ -506,12 +506,13 @@ class _ProgramVisitor(ast.NodeVisitor):
 
     def run(self) -> None:
         """자기 범위 문장을 방문한다(첫 문장의 docstring은 문자열 언급에서 뺀다)."""
-        body = getattr(self.scope.node, "body", [])
-        statements = list(body) if isinstance(body, list) else []
-        if statements and _is_docstring(statements[0]):
-            statements = statements[1:]
-        for statement in statements:
-            self.visit(statement)
+        for node in body_nodes(self.scope):
+            body = getattr(node, "body", [])
+            statements = list(body) if isinstance(body, list) else []
+            if statements and _is_docstring(statements[0]):
+                statements = statements[1:]
+            for statement in statements:
+                self.visit(statement)
 
     def _hidden(self) -> frozenset[str]:
         """지금 감싼 람다 매개변수·컴프리헨션 변수 이름 전부다.

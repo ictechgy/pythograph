@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from pythograph.graph.framework_table import FRAMEWORK_CLASSES
-from pythograph.graph.index import Definition, DefinitionIndex
+from pythograph.graph.index import MODULE_NAME, Definition, DefinitionIndex, body_nodes, body_statements
 from pythograph.graph.mro import Linearizer, Member
 from pythograph.graph.values import (
     AttributeValue,
@@ -48,6 +48,7 @@ from pythograph.source.symbols import (
     SymbolTable,
     ValueSymbol,
     absolute_module,
+    symbol_id,
     uses_namespace,
 )
 from pythograph.source.syntax import parse_annotation
@@ -248,6 +249,7 @@ class Resolver:
         Returns:
             값.
         """
+        bindings = distinct_bindings(bindings)
         if len(bindings) != 1:
             return UnknownValue("rebound-local")
         key = (scope.id, name)
@@ -347,6 +349,9 @@ class Resolver:
         Returns:
             값.
         """
+        rebound = self._rebound_module_name(path, name, depth)
+        if rebound is not None:
+            return rebound
         symbol = self.symbols.resolve_name(path, name)
         if symbol is not None:
             return self.symbol_value(symbol, depth)
@@ -355,6 +360,39 @@ class Resolver:
         if self.symbols.star_blocked(path, name):
             return UnknownValue("star-import")
         return ExternalValue(f"builtins.{name}") if name in BUILTIN_NAMES else UnknownValue("unresolved-name")
+
+    def _rebound_module_name(self, path: str, name: str, depth: int) -> Value | None:
+        """모듈 수준에서 같은 이름을 두 번 이상 묶었으면(정의·import·대입이 섞임) 그 값을 정한다.
+
+        이름 해석기(`resolve_name`)는 문장 순서와 무관하게 정의 → import → 대입 순으로 하나를 고른다. `def fast` 뒤
+        `from x import run as fast`나 `try: import … except ImportError: import …`의 실행 대상은 그 선택과 다를 수 있다.
+        정의·import 묶음만 있고 다른 곳에서 다시 쓰지 않으며 모두 같은 대상을 가리키면 그 값, 모두 외부 값이면(프로젝트
+        대상이 없어 간선도 없다) 외부 결과, 그 밖에는 추측하지 않고 모르는 값(`rebound-global`)이다. 대입 묶음은 같은
+        식이라도 새 객체이고 다른 곳의 쓰기를 따져야 하므로 값을 합치지 않는다. 같은 정의를 조건부로 다시 정의한 것은
+        한 묶음이다.
+
+        Args:
+            path: 모듈 경로.
+            name: 이름.
+            depth: 재귀 깊이.
+
+        Returns:
+            값, 한 번만 묶였으면 None(평소 해석).
+        """
+        module = self.index.definitions.get(symbol_id(path, MODULE_NAME))
+        if module is None:
+            return None
+        bindings = distinct_bindings(self.bindings(module).names.get(name, []))
+        if len(bindings) < 2:
+            return None
+        values = [self._single_binding(module, binding, depth) for binding in bindings]
+        same = all(value == values[0] for value in values[1:]) and not isinstance(values[0], UnknownValue)
+        named = all(binding.kind in ("def", "import") for binding in bindings)
+        if same and named and self._unwritten_global(module, name):
+            return values[0]
+        if all(isinstance(value, (ExternalValue, ExternalResult)) for value in values):
+            return ExternalResult()
+        return UnknownValue("rebound-global")
 
     def symbol_value(self, symbol: Symbol | None, depth: int) -> Value:
         """모듈 색인의 해석 결과를 값으로 바꾼다.
@@ -458,7 +496,21 @@ class Resolver:
         Returns:
             그렇다면 True.
         """
-        if name in self.written_attributes or len(self.bindings(module).names.get(name, [])) > 1:
+        if len(self.bindings(module).names.get(name, [])) > 1:
+            return False
+        return self._unwritten_global(module, name)
+
+    def _unwritten_global(self, module: Definition, name: str) -> bool:
+        """모듈 전역을 다른 곳(속성 쓰기·`global` 대입·이름공간 사전)에서 다시 쓰지 않는지 본다.
+
+        Args:
+            module: 모듈 정의.
+            name: 이름.
+
+        Returns:
+            그렇다면 True.
+        """
+        if name in self.written_attributes:
             return False
         writers = self._global_writer_names().get(module.path, set())
         return name not in writers and _NAMESPACE_WRITE not in writers
@@ -658,6 +710,26 @@ class Resolver:
         return cached
 
 
+def distinct_bindings(bindings: list[Binding]) -> list[Binding]:
+    """같은 정의를 가리키는 `def` 묶음을 하나로 센다(조건부로 다시 정의한 함수·클래스는 한 정점이다).
+
+    Args:
+        bindings: 묶음 목록.
+
+    Returns:
+        중복을 뺀 목록(순서 유지).
+    """
+    result: list[Binding] = []
+    seen: set[int] = set()
+    for binding in bindings:
+        if binding.kind == "def" and binding.definition is not None:
+            if id(binding.definition) in seen:
+                continue
+            seen.add(id(binding.definition))
+        result.append(binding)
+    return result
+
+
 def _definition_value(definition: Definition) -> Value:
     """정의를 값으로 바꾼다.
 
@@ -689,7 +761,7 @@ def class_bindings(owner: Definition, name: str) -> int:
         횟수.
     """
     count = 0
-    pending: list[ast.AST] = list(getattr(owner.node, "body", []))
+    pending: list[ast.AST] = list(body_statements(owner))
     while pending:
         node = pending.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
@@ -784,14 +856,49 @@ def collect_bindings(index: DefinitionIndex, scope: Definition) -> ScopeBindings
         묶음.
     """
     result = ScopeBindings({}, set(), set())
-    node = scope.node
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        _collect_parameters(node.args, result)
-    body = getattr(node, "body", [])
+    nodes = body_nodes(scope)
+    for node in nodes:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _collect_parameters(node.args, result)
     collector = _BindingCollector(index, scope, result)
-    for statement in body:
+    for statement in body_statements(scope):
         collector.visit(statement)
+    if len(nodes) > 1:
+        _merge_parameters(result)
     return result
+
+
+def _merge_parameters(result: ScopeBindings) -> None:
+    """재정의한 함수의 같은 위치·같은 주석 매개변수 묶음을 하나로 합친다.
+
+    property getter/setter의 `self`처럼 정의마다 같은 매개변수는 값이 하나다. 위치나 주석이 다르면 어느 정의가
+    실행되는지 모르므로 묶음을 그대로 두어 값을 모르게 한다(`_binding_value`).
+
+    Args:
+        result: 채운 묶음.
+    """
+    for name, bindings in result.names.items():
+        if len(bindings) > 1 and all(binding.kind == "param" for binding in bindings):
+            first = bindings[0]
+            if all(_same_parameter(first, binding) for binding in bindings[1:]):
+                result.names[name] = [first]
+
+
+def _same_parameter(first: Binding, other: Binding) -> bool:
+    """두 매개변수 묶음의 위치와 주석이 같은지 본다.
+
+    Args:
+        first: 묶음.
+        other: 묶음.
+
+    Returns:
+        같으면 True.
+    """
+    if first.position != other.position:
+        return False
+    if first.value is None or other.value is None:
+        return first.value is None and other.value is None
+    return ast.dump(first.value) == ast.dump(other.value)
 
 
 def _collect_parameters(arguments: ast.arguments, result: ScopeBindings) -> None:

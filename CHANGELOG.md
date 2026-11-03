@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 같은 점 경로를 다시 정의한 함수·메서드·클래스(property setter, `@overload` 스텁 뒤 구현, `singledispatch`의
+  `@f.register def _`, 모듈·클래스·함수 안 조건부 정의)는 첫 정의 본문만 훑어 뒤 정의의 호출 간선이 한계 없이 사라졌다.
+  이제 모든 정의의 본문·장식자·이름 묶음을 한 정점에 모은다(`@overload` 스텁은 구현이 있으면 뺀다). 위치는 첫 정의 그대로다.
+- 모듈 수준에서 정의·import가 같은 이름을 다시 묶으면(`def fast` 뒤 `from x import run as fast`, `try`/`except ImportError`
+  대체) 이름 해석기가 문장 순서와 무관하게 정의를 먼저 골라 실행되지 않을 수 있는 대상에 `direct` 간선을 냈다. 이제 모든 묶음이
+  같은 대상이면 그 값, 모두 외부면 외부 결과, 그 밖에는 모르는 값(`local-value`)으로 센다.
+
 ## [0.3.1] - 2026-11-03
 
 - Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.

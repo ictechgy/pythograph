@@ -28,7 +28,9 @@ pythograph impact (reach와 같은 옵션)
 | `function`·`method`·`class` | `<경로>#<어휘적 점 경로>` | 모든 함수·메서드·클래스와 중첩 정의(`create_app.index`, `Model.Meta`). 람다·컴프리헨션은 감싼 정의의 일부다 |
 | `inherited-method` | `<등록 클래스 id>.<멤버>` | 클래스가 정의하지 않고 물려받은 멤버. 위치는 그 클래스다 |
 
-- 같은 점 경로를 두 번 정의하면(조건부 정의, property setter) 한 정점이다.
+- 같은 점 경로를 두 번 정의하면(조건부 정의, property setter, `@overload` 스텁과 구현, `singledispatch`의 `@f.register def _`) 한
+  정점이다. 위치는 첫 정의를 쓰고, 간선·이름 묶음·장식자 간선은 모든 정의의 본문에서 모은다(`@overload` 스텁은 구현이 따로 있으면
+  뺀다). 정의마다 같은 위치·주석인 매개변수(getter/setter의 `self`)는 한 묶음이다.
 - 상속 멤버 정점은 두 곳에서 만든다. (1) 뷰 클래스의 핸들러 이름(아래 [프레임워크 디스패치](#프레임워크-디스패치)) — routes가
   클래스 핸들러를 URL에 등록한 클래스 기준 id(`catalog/views.py#BrandView.get`)로 내므로 그 id가 정점이어야 한다. (2) 정확한
   수신자(생성자로 만든 인스턴스)의 물려받은 멤버 호출(`Plain("p").describe()` → `Plain.describe`).
@@ -65,7 +67,11 @@ pythograph impact (reach와 같은 옵션)
   단순 대입 값(`orders = OrderService()`는 정확한 인스턴스 — 아래 다시 쓰기 규칙), 프로젝트 모듈의 `from x import *`(뒤의 것이 앞의 것을 덮는다. 패키지 `__init__`의 `*`를 거듭 따라가고, 대상 모듈의 리터럴 `__all__` 또는 밑줄 없는 이름만 내보낸 것으로 본다 — 외부 모듈이나 `__all__`을 확정하지 못한 모듈의 `*`에 닿으면 그 모듈이 이름·내장 이름을 가릴 수 있어 `star-import`다). 풀지 못한 프로젝트 import
   (`from .missing import x`)는 외부로 보지 않고 `unresolved-import`다.
 - 지역 이름은 흐름을 따지지 않는다. 한 범위에서 두 번 이상 묶이거나 반복 변수·`with … as`·예외·풀기·match 캡처로 묶인 이름은
-  모르는 값(`local-value`)이다.
+  모르는 값(`local-value`)이다. 같은 정의를 조건부로 다시 정의한 것은 한 묶음이다.
+- 모듈 수준 이름도 문장 순서를 따지지 않는다. 정의·import·대입이 같은 이름을 두 번 이상 묶으면(`def fast` 뒤
+  `from x import run as fast`, `try: from a import run as fast except ImportError: def fast(): …`) 어느 쪽이 실행되는지 고르지
+  않고 모르는 값(`local-value`)이다. 정의·import 묶음이 모두 같은 대상을 가리키고 다른 곳에서 다시 쓰지 않으면 그 값이고,
+  모두 외부 값이면(`try: import simplejson as json except ImportError: import json`) 외부 결과다.
 - 수신자: 메서드 첫 매개변수(`self`는 그 클래스 또는 하위 클래스, `classmethod`의 `cls`), 프로젝트 클래스 주석
   (`Optional[X]`·`X | None`·`Annotated[X, …]`·문자열 주석 포함), 생성자 결과(정확한 클래스), 프로젝트 클래스 반환 주석,
   `type(self)`, 인자 없는 `super()`.
@@ -201,7 +207,7 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
 | `untyped-reference`·`untyped-init-call`·`super-with-arguments` | 타입 모르는 수신자의 `x.f`·`x.K` 값 사용(같은 이름 함수·클래스가 새어 나갈 수 있다), `x.__init__(...)`(모든 `__init__`), 인자 있는 `super(X, y).__init__`(MRO의 `__init__`) |
 | `dynamic-construction`·`dynamic-subclass`·`code-execution` | 타입 모르는 값의 `type(x)(...)`·`x.__class__(...)`(모든 생성자), 세 인자 `type(...)`·`types.new_class`(하위 클래스 목록이 완전하지 않아 `cls(...)`·모든 `__init__` 매개변수·인스턴스 속성 자리를 연다), `exec`·`eval`·`compile`(모든 함수·생성자) |
 | `computed-attribute-write`·`attribute-hook`·`shadowed-method`·`descriptor`·`property` | 계산된 이름의 쓰기(`setattr(x, name, v)`, `object.__setattr__`·`x.__setattr__`, `x.__dict__`, `vars(x)`, `x.__class__ = …`) 대상 클래스(정적 값이나 닫힌 수신자 흐름으로 안다), `__getattr__`·`__getattribute__`·`__setattr__`·`__delattr__` 훅, 인스턴스·클래스에 같은 이름을 써서 메서드를 가릴 수 있음(`SqlRepo.save = fake`), 서술자 값, property 호출 |
-| `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(색인은 첫 정의만 본다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
+| `redefined`·`rebound-attribute` | 같은 점 경로를 조건부로 다시 정의한 함수·클래스(정의마다 장식자·매개변수가 다를 수 있다), 클래스 본문이 두 번 또는 멤버 표가 모르는 방식(반복 변수·`with`·import)으로 묶은 속성 |
 | `test-source` | 테스트 소스의 호출 지점(별도 프로그램). 테스트 소스가 넘기는 목은 제품 흐름을 막지 않는다. 테스트가 아닌 모듈이 테스트 소스를 import하면 테스트 소스도 프로그램으로 훑는다(`wholeProgramTests`) |
 | `scan-incomplete` | 파싱하지 못한 파일·교환 형식이 쓸 수 없는 이름(UTF-8 아님·제어 문자·U+2028/2029)의 파일·소스를 가릴 수 있는 심볼릭 링크·파일 수 상한·모듈 루트로 쓰지 않은 `manage.py` 디렉터리(얕은 순 256개 밖, 그 디렉터리에서만 풀리는 import는 외부로 본다): 읽지 못한 코드가 모듈 수준 이름을 무엇이든 부를 수 있어 모듈 수준 함수·클래스·전역을 모두 연다(함수 안에 중첩된 정의는 닫힌 채다) |
 | `flow-budget`·`flow-cycle`·`flow-depth`·`lambda-scope` | 질의 단계 예산(20,000)·순환(`self.repo = self.repo or …`)·깊이(64)·람다·컴프리헨션 변수 |

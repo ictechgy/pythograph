@@ -1,7 +1,9 @@
 """그래프 정점이 될 선언 색인: 모듈·함수·메서드·클래스·중첩 정의와 클래스 멤버.
 
 id는 routes·schema와 같은 규칙(`<경로>#<어휘적 점 경로>`, `<locals>` 없음)이다. 같은 점 경로가 두 번 정의되면
-(조건부 정의, property setter) 한 정점으로 합친다. 람다·컴프리헨션은 정점이 아니다(감싼 선언의 일부다).
+(조건부 정의, property setter, `@overload` 스텁과 구현, `singledispatch` 등록 `_`) 한 정점으로 합친다. 정점의 위치·
+서명은 첫 정의를 쓰고, 간선·이름 묶음은 모든 정의의 본문에서 모은다(`body_nodes`). 람다·컴프리헨션은 정점이 아니다
+(감싼 선언의 일부다).
 """
 
 from __future__ import annotations
@@ -31,8 +33,9 @@ class Definition:
         kind: `module`·`function`·`method`·`class`.
         path: 프로젝트 상대 경로.
         module: 모듈 색인.
-        node: 정의 노드(모듈이면 `ast.Module`).
+        node: 첫 정의 노드(모듈이면 `ast.Module`). 위치·서명은 이 노드를 쓴다.
         parent: 바깥 선언(모듈 수준 정의는 모듈 정의).
+        redefinitions: 같은 점 경로의 뒤 정의 노드(소스 순서).
     """
 
     id: str
@@ -41,6 +44,16 @@ class Definition:
     module: ModuleIndex
     node: ast.AST
     parent: Definition | None
+    redefinitions: list[ast.AST] = field(default_factory=list)
+
+    @property
+    def nodes(self) -> list[ast.AST]:
+        """같은 점 경로의 모든 정의 노드를 소스 순서로 돌려준다.
+
+        Returns:
+            첫 정의와 뒤 정의 노드.
+        """
+        return [self.node, *self.redefinitions]
 
 
 @dataclass
@@ -136,6 +149,8 @@ class DefinitionIndex:
         if definition is None:
             definition = Definition(identifier, kind, parent.path, parent.module, node, parent)
             self.definitions[identifier] = definition
+        else:
+            definition.redefinitions.append(node)
         self.by_node[node] = definition
         if parent.kind == "class":
             self._add_member(parent, node, definition)
@@ -173,8 +188,9 @@ class DefinitionIndex:
             members = self.members[definition.id] = ClassMembers()
         if definition.id not in self._attributes_collected:
             self._attributes_collected.add(definition.id)
-            if isinstance(definition.node, ast.ClassDef):
-                _collect_attributes(definition.node.body, members.attributes)
+            for node in definition.nodes:
+                if isinstance(node, ast.ClassDef):
+                    _collect_attributes(node.body, members.attributes)
         return members
 
     def classes(self) -> list[Definition]:
@@ -196,6 +212,61 @@ class DefinitionIndex:
         """
         index = self.symbols.index(path)
         return index.module if index is not None else None
+
+
+def body_nodes(definition: Definition) -> list[ast.AST]:
+    """간선·이름 묶음을 모을 정의 노드를 돌려준다: 같은 점 경로의 모든 정의.
+
+    `@overload` 스텁은 구현이 따로 있으면 뺀다. 스텁 본문은 `...`이라 호출이 없고, 스텁마다 다른 매개변수 주석을
+    묶음에 더하면 구현 매개변수의 값을 모르게 되기 때문이다. 스텁뿐이면(구현이 다른 파일) 모두 쓴다.
+
+    Args:
+        definition: 정의.
+
+    Returns:
+        노드 목록(소스 순서).
+    """
+    nodes = definition.nodes
+    if len(nodes) == 1:
+        return nodes
+    implementations = [node for node in nodes if not is_overload_stub(node)]
+    return implementations or nodes
+
+
+def body_statements(definition: Definition) -> list[ast.stmt]:
+    """`body_nodes`의 본문 문장을 이어 돌려준다(모듈이면 모듈 본문).
+
+    Args:
+        definition: 정의.
+
+    Returns:
+        문장 목록(소스 순서).
+    """
+    statements: list[ast.stmt] = []
+    for node in body_nodes(definition):
+        body = getattr(node, "body", [])
+        if isinstance(body, list):
+            statements.extend(body)
+    return statements
+
+
+def is_overload_stub(node: ast.AST) -> bool:
+    """`@overload`(`typing.overload`·`typing_extensions.overload` 등 마지막 이름 기준) 장식 함수인지 본다.
+
+    Args:
+        node: 정의 노드.
+
+    Returns:
+        스텁이면 True.
+    """
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    for decorator in node.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        name = target.attr if isinstance(target, ast.Attribute) else target.id if isinstance(target, ast.Name) else ""
+        if name == "overload":
+            return True
+    return False
 
 
 def _definition_kind(parent: Definition, node: DefinitionNode) -> str:
