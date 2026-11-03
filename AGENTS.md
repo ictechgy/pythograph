@@ -55,7 +55,8 @@
 - 초기화는 `uv sync`. `.venv/`·`dist/`·캐시는 생성물이다.
 - 제품 변경은 모두 통과해야 한다: `uv run ruff check src tests scripts`, `uv run ruff format --check src tests scripts`,
   `uv run mypy`, `uv run pytest --cov`(라인·분기 합산 90%), `uv run python scripts/verify_cli_contract.py`
-  (종료 코드 0/2/64, 1은 예약). CI는 빌드한 wheel을 새 가상 환경에 설치해 같은 계약을 확인한다. 동작 변경에는
+  (종료 코드 0/2/64, 1은 예약). CI는 빌드한 wheel을 새 가상 환경에 설치해 같은 계약을 확인하고, 이 저장소에
+  `pythograph graph --project .`를 돌려 파싱하지 못한 파일이 0인지 본다(자기 분석). 동작 변경에는
   의미 있는 회귀 테스트를 둔다.
 - 라우트 출력이 바뀌면 golden(`PYTHOGRAPH_UPDATE_GOLDEN=1 uv run pytest tests/test_fixtures.py`)과 오라클 기록
   (스크래치 가상 환경에서 `python experiments/oracle/run_all.py`)을 함께 갱신하고 정밀도 100%를 확인한다.

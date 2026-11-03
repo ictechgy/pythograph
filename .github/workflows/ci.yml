@@ -54,6 +54,12 @@ jobs:
         run: uv run pytest --cov --cov-report=term-missing
       - name: CLI contract (development install)
         run: uv run python scripts/verify_cli_contract.py
+      # 자기 분석: 이 저장소의 소스(합성 fixture 포함)가 모두 파싱되고 그래프가 만들어지는지 확인한다. 공개 앱 도그푸딩은 DOGFOOD.md다.
+      - name: Self-analysis
+        shell: bash
+        run: |
+          uv run pythograph graph --project . --generated-at 2026-01-01T00:00:00.000Z --revision self > "$RUNNER_TEMP/self-graph.json"
+          uv run python -c "import json,sys; s=json.load(open(sys.argv[1]))['statistics']; assert s['unparsedFiles'] == 0, s['unparsedFiles']" "$RUNNER_TEMP/self-graph.json"
       - name: CLI contract (built wheel in a clean environment)
         shell: bash
         run: |

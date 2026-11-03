@@ -38,9 +38,17 @@
 - Flask `subdomain`·`host`·`redirect_to`(규칙·블루프린트·등록)와 앱의 `host_matching`·`subdomain_matching`·`static_host`를 한계
   없이 평범한 경로 사실로 냈다. 경로 사실은 유지하고 등록마다 `route-coverage:`로 센다.
 
+### Changed
+
+- CI·릴리스 검증에 Python 3.11·3.12를 더했다(분류자의 3.10–3.14 전부). 릴리스는 `twine check --strict`(twine 7.0.0)와 sdist
+  설치 뒤 CLI 계약을 확인하고, CI는 이 저장소에 `graph`를 돌려 파싱 실패 0을 확인한다(자기 분석).
+- README의 Ruff 명령에 `scripts`를, `pyproject.toml` 설명에 client 호출·호출 그래프·변경 영향을 더했고 RELEASING의 끝난 첫
+  릴리스 단계를 버전 고정 예 갱신으로 바꿨다.
+
 ## [0.3.1] - 2026-11-03
 
-- Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.
+- 다른 모듈에서 가져온 DRF 라우터 별칭·모듈 속성을 보존하고, 조건부이거나 밖에서 바뀌는 라우터 상태는 계속 모르는 값으로 둔다.
+  벤더링한 SQL 관계 적합성 사례를 실행하고 Ruff 검사에 `scripts`를 넣는다.
 
 ### Fixed
 

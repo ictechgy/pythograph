@@ -577,7 +577,7 @@ What this changes:
 
 ```sh
 uv sync
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy
 uv run pytest --cov          # line and branch coverage gate: 90%
 uv run python scripts/verify_cli_contract.py

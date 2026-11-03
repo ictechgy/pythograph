@@ -473,7 +473,7 @@ pythograph는 이 git 호출이 그런 명령에 닿는 것으로 아는 경로�
 
 ```sh
 uv sync
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy
 uv run pytest --cov          # 라인·분기 커버리지 게이트 90%
 uv run python scripts/verify_cli_contract.py
