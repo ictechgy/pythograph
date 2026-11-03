@@ -332,7 +332,9 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
   sources links the project hooks that the `as_view()` dispatch path (`dispatch`, `initial`, permission checks,
   `__init__`) and framework implementations (`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`) call. Objects the framework builds from class attributes (`serializer_class`,
-  `permission_classes`) count as `framework-callback` unresolved calls.
+  `permission_classes`) count as `framework-callback` unresolved calls. Celery tasks (`@shared_task`, `@app.task`) and
+  Django `@receiver` functions are called by workers and signal dispatch, so they have no graph callers and are counted
+  under `framework-dispatch:`; queuing a task (`task.delay(...)`, `apply_async`, `s`, `si`) is a `callback` edge to it.
 - **Snapshot size**: the `graph` snapshot is not an isthmus input, so it may be up to 256 Mi characters (about 2 bytes
   of extra memory per output character while encoding); `reach` and `impact` keep the 16 Mi isthmus input limit.
   The encoding is unchanged, so raising the cap alone changes no snapshot under 16 Mi characters.

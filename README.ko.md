@@ -264,7 +264,9 @@ pythograph impact (reach와 같은 옵션)
 - **프레임워크 디스패치**: Django 5.2.17·DRF 3.18.1·Flask 3.1.3 설치본 소스를 ast로 읽어 만든 표로 `as_view()` 디스패치 경로
   (`dispatch`·`initial`·권한·`__init__`)와 프레임워크 구현(`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`)이 부르는 프로젝트 훅을 잇는다. 프레임워크가 클래스 속성으로 만드는 객체
-  (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다.
+  (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다. Celery 태스크(`@shared_task`·`@app.task`)와
+  Django `@receiver` 함수는 워커·시그널 발송이 부르므로 그래프 호출자가 없고 `framework-dispatch:`로 센다. 태스크를 큐에 넣는
+  호출(`task.delay(...)`·`apply_async`·`s`·`si`)은 그 태스크로 가는 `callback` 간선이다.
 - **스냅샷 크기**: `graph` 스냅샷은 isthmus 입력이 아니라 256 Mi 문자까지 쓴다(직렬화 중 출력 문자당 약 2바이트를 더 쓴다).
   `reach`·`impact`는 isthmus 입력 상한 16 Mi 문자를 그대로 둔다. 직렬화 방식은 그대로라 상한을 올린 것만으로 16 Mi 문자 이하 스냅샷은 바뀌지 않는다.
 - **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),

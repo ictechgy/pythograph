@@ -19,6 +19,10 @@
 - 모듈 루트(`manage.py` 디렉터리·프로젝트 루트·`src/`)로 풀지 못한 절대 import를 외부로 확정해, `manage.py` 없는
   `backend/app/api.py`의 `from app.models import load` 호출이 미해석으로도 세지지 않고 사라졌다. 쓰는 모듈의 암묵 루트(가장 바깥
   패키지의 부모) 아래에 같은 이름의 패키지·모듈이 있으면 `unresolved-import`로 센다.
+- Celery 태스크의 `delay`·`apply_async`·`s`·`si` 등 큐 호출이 외부 호출로 사라져 `impact <태스크>`가 큐에 넣는 쪽을 놓쳤다. 이제
+  태스크로 가는 direct `callback` 간선이고, 태스크로 확인하지 못한 장식 함수의 같은 호출은 `framework-callback`으로 센다.
+  Celery 태스크·Django `@receiver` 수신자는 뷰 핸들러가 없어도 `framework-dispatch:` 한계로 알리고 스냅샷
+  `statistics.frameworkEntries`에 종류별 수를 싣는다(추가 필드).
 
 ## [0.3.1] - 2026-11-03
 

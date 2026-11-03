@@ -759,6 +759,7 @@
     "edgesByEvidence": {
       "direct": 32
     },
+    "frameworkEntries": {},
     "frameworkUnresolved": {
       "framework-callback": 6
     },

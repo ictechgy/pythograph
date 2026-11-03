@@ -154,6 +154,11 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
   목록인 속성 — `serializer_class`, `permission_classes`, `pagination_class` 등)는 따라가지 않는다. 그 속성을 읽는 경로마다
   `framework-callback` 미해석 호출로 센다(속성 간선으로 클래스 정점에는 닿는다). 시그널·미들웨어·설정에 이름으로 적은 클래스는
   모델링하지 않는다(`framework-dispatch:` 한계).
+- **태스크와 시그널 수신자**: Celery 태스크(`celery.shared_task`·`celery.task`로 풀리는 장식자, 또는 프로젝트 값이 아닌 `@x.task`·
+  `@x.shared_task`)와 Django `@receiver`(`django.dispatch.receiver`) 함수는 워커·시그널 발송이 부르므로 호출자가 없다. 수를
+  `statistics.frameworkEntries`(종류별)와 `framework-dispatch:` 한계로 싣는다. 장식한 프로젝트 함수의 `delay`·`apply_async`·`s`·
+  `si`·`signature`·`map`·`starmap`·`chunks` 호출은 태스크면 그 함수로 가는 direct `callback` 간선이고, 태스크로 확인하지 못한
+  장식 함수면 `framework-callback` 미해석 호출이다.
 - Django ORM 매니저 호출(`Order.objects.filter`)은 외부 호출이다. 그 relation-use 사실의 usr가 감싼 함수라서 순회가 그 함수에
   닿으면 trace가 사실을 잇는다.
 
