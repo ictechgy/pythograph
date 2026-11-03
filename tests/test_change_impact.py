@@ -9,6 +9,7 @@ import pytest
 
 from pythograph.cli.common import InputError, UsageError
 from pythograph.cli.main import run
+from pythograph.graph import change as change_module
 from pythograph.graph.change import analyze_change, capture, changed_files, content_digest
 from pythograph.graph.traversal import TraversalRequest
 
@@ -170,3 +171,60 @@ def test_staged_edit_reverted_in_worktree_uses_net_source_state(repository: Path
     assert result["changes"] == []
     assert result["before"]["input"]["contentDigest"] == result["after"]["input"]["contentDigest"]
     assert result["status"] == "incomplete"
+
+
+def test_non_python_files_use_blob_identity_outside_byte_budget(repository: Path) -> None:
+    """그래프가 읽지 않는 큰 파일은 바이트 예산에 넣지 않고 git blob id로 바뀜만 비교한다."""
+    blob = bytes(range(256)) * (5 * 4096 + 1)
+    (repository / "data.bin").write_bytes(blob)
+    (repository / "same.bin").write_bytes(b"unchanged")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "binary")
+    committed = capture(repository, "HEAD")
+    assert "data.bin" not in committed.files and "data.bin" in committed.others
+    assert committed.others["data.bin"] == git(repository, "rev-parse", "HEAD:data.bin").strip()
+    assert capture(repository).others == committed.others
+    (repository / "data.bin").write_bytes(blob + b"!")
+    (repository / "untracked.bin").write_bytes(blob)
+    result = report(repository)
+    rows = {row["path"]: row["status"] for row in result["changes"]}
+    assert rows == {"data.bin": "modified", "untracked.bin": "added"}
+    assert result["after"]["input"]["identityOnlyFiles"] == 3
+
+
+def test_commit_capture_reads_blobs_in_one_batch(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """커밋 캡처는 파일 수와 무관하게 git을 몇 번만 실행한다(파일마다 cat-file 두 번이 아니다)."""
+    for index in range(30):
+        (repository / f"module_{index}.py").write_text(f"def f{index}():\n    return {index}\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "many")
+    calls: list[tuple[str, ...]] = []
+    original = change_module._git
+
+    def counting(*args: object, **kwargs: object) -> bytes | None:
+        calls.append(tuple(str(item) for item in args[2:]))
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(change_module, "_git", counting)
+    captured = capture(repository, "HEAD")
+    assert len(captured.files) == 33
+    assert [call[0] for call in calls] == ["rev-parse", "ls-tree", "cat-file"]
+
+
+def test_hash_budget_and_batch_output_are_checked(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """비분석 파일 해시 예산 초과와 예상과 다른 일괄 읽기 출력은 부분 분석 없이 입력 오류다."""
+    (repository / "notes.txt").write_text("hello\n", encoding="utf-8")
+    with monkeypatch.context() as patched:
+        patched.setattr(change_module, "MAX_HASH_BYTES", 1)
+        with pytest.raises(InputError, match="hash budget"):
+            capture(repository)
+    original = change_module._read_git
+
+    def corrupt(root: Path, *args: str, **kwargs: object) -> bytes:
+        if args and args[0] == "cat-file":
+            return b"not a batch header\n"
+        return original(root, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(change_module, "_read_git", corrupt)
+    with pytest.raises(InputError, match="unexpected object data"):
+        capture(repository, "HEAD")

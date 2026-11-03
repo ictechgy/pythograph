@@ -23,6 +23,10 @@
   태스크로 가는 direct `callback` 간선이고, 태스크로 확인하지 못한 장식 함수의 같은 호출은 `framework-callback`으로 센다.
   Celery 태스크·Django `@receiver` 수신자는 뷰 핸들러가 없어도 `framework-dispatch:` 한계로 알리고 스냅샷
   `statistics.frameworkEntries`에 종류별 수를 싣는다(추가 필드).
+- `change-impact`가 그래프가 읽지 않는 추적 파일(이미지·데이터·번들)까지 바이트 예산에 넣어, 5 MB 바이너리 하나로 전체가
+  `capture byte budget exceeded`로 실패했다. 이제 `.py`·`pyproject.toml`·`setup.cfg`만 바이트를 캡처하고 나머지는 git blob id로
+  바뀜·rename 후보를 비교한다(`input.identityOnlyFiles`, `limits.hashBytes` 추가). 커밋 캡처는 파일마다 `cat-file`을 두 번
+  띄우던 것을 `ls-tree -l`과 `cat-file --batch` 한 번으로 바꿨다(파일 501개 2캡처에서 git 프로세스 약 4,000개 → 상수 개).
 
 ## [0.3.1] - 2026-11-03
 

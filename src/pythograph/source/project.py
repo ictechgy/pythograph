@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import BinaryIO
 
 from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, tree_overflow
 from pythograph.source.text import is_contract_safe
@@ -524,6 +525,22 @@ class Project:
 
     def _read_bytes(self, relative: str, limit: int) -> bytes:
         """검증한 일반 파일 핸들에서만 제한된 바이트를 읽어 검사·열기 사이 링크 교체를 막는다."""
+        with self.open_regular(relative) as source:
+            return source.read(limit + 1)
+
+    @contextmanager
+    def open_regular(self, relative: str) -> Iterator[BinaryIO]:
+        """링크가 아닌 일반 파일을 부모 핸들 기준 O_NOFOLLOW로 열고, 연 핸들이 검사한 파일과 같은지 확인한다.
+
+        Args:
+            relative: 프로젝트 상대 경로.
+
+        Yields:
+            읽기 전용 이진 파일.
+
+        Raises:
+            OSError: 일반 파일이 아니거나, 링크이거나, 검사·열기 사이에 바뀌었다.
+        """
         expected = self._checked_stat(relative)
         if not stat.S_ISREG(expected.st_mode):
             raise OSError("not a regular file")
@@ -540,7 +557,7 @@ class Project:
                     raise OSError("file changed while opening")
                 if not os.path.samestat(actual, self._checked_stat(relative)):
                     raise OSError("path changed while opening")
-                return source.read(limit + 1)
+                yield source
 
     def module_name(self, relative: str) -> str:
         """파일 경로에서 모듈 이름을 만든다. 파일을 담은 가장 긴 모듈 루트를 기준으로 한다.

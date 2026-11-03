@@ -328,7 +328,13 @@ def _lies_within(directory: str, project_info: os.stat_result) -> bool:
     return True
 
 
-def _git(executable: str, project: Path, *arguments: str, output_limit: int | None = None) -> bytes | None:
+def _git(
+    executable: str,
+    project: Path,
+    *arguments: str,
+    output_limit: int | None = None,
+    input_data: bytes | None = None,
+) -> bytes | None:
     """분석 대상 설정의 filter 드라이버를 덮고 지연 fetch를 끈 채 git 명령 하나를 실행한다.
 
     바로 앞에서 설정을 다시 모아(`_repository_settings`) 그때의 드라이버를 덮고, promisor 원격이 보이면
@@ -341,6 +347,7 @@ def _git(executable: str, project: Path, *arguments: str, output_limit: int | No
         project: 작업 디렉터리.
         arguments: git 하위 명령과 인자.
         output_limit: 지정하면 설정 조회와 본 명령의 stdout·stderr 합을 읽는 중 제한한다.
+        input_data: 본 명령의 표준 입력(`cat-file --batch`의 객체 id 목록). `output_limit`과 함께만 쓴다.
 
     Returns:
         표준 출력 바이트, 설정을 모으지 못했거나 git이 실패하면 None.
@@ -360,7 +367,7 @@ def _git(executable: str, project: Path, *arguments: str, output_limit: int | No
     completed = (
         _run_git(executable, project, *isolated)
         if output_limit is None
-        else _run_git(executable, project, *isolated, output_limit=output_limit)
+        else _run_git(executable, project, *isolated, output_limit=output_limit, input_data=input_data)
     )
     if completed is None:
         return None
@@ -493,7 +500,7 @@ def _neutralizing_arguments(names: tuple[str, ...]) -> list[str]:
 
 
 def _run_git(
-    executable: str, project: Path, *arguments: str, output_limit: int | None = None
+    executable: str, project: Path, *arguments: str, output_limit: int | None = None, input_data: bytes | None = None
 ) -> subprocess.CompletedProcess[bytes] | None:
     """공통 설정과 줄인 환경으로 git 프로세스 하나를 실행한다.
 
@@ -505,6 +512,7 @@ def _run_git(
         project: 작업 디렉터리.
         arguments: git 인자(덮는 `-c`·`--no-lazy-fetch`와 하위 명령).
         output_limit: 지정하면 stdout·stderr 합산 바이트를 읽는 중 제한한다(초과는 실패).
+        input_data: 표준 입력 바이트(`output_limit`이 있을 때만 쓴다. 없으면 표준 입력은 비어 있다).
 
     Returns:
         끝난 프로세스, git을 실행하지 못했거나 시간이 지나면 None.
@@ -513,7 +521,7 @@ def _run_git(
     environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1", "LC_ALL": "C"})
     command = [executable, *_GIT_CONFIG, *arguments]
     if output_limit is not None:
-        return _run_git_bounded(command, project, environment, output_limit)
+        return _run_git_bounded(command, project, environment, output_limit, input_data)
     try:
         return subprocess.run(
             command,
@@ -529,13 +537,15 @@ def _run_git(
 
 
 def _run_git_bounded(
-    command: list[str], project: Path, environment: dict[str, str], limit: int
+    command: list[str], project: Path, environment: dict[str, str], limit: int, input_data: bytes | None = None
 ) -> subprocess.CompletedProcess[bytes] | None:
     """작은 청크를 동시에 배수하며 출력 예산·시간을 지킨다. 직접 소유한 자식만 정리한다.
 
     reader는 프로세스에 신호를 보내거나 wait하지 않는다. 부모만 Popen의 아직 수거하지 않은 자식을 kill/wait하므로
     수거 뒤 재사용된 PID·프로세스 그룹에 신호를 보내지 않는다. stderr도 같은 예산에 포함하고 어느 실패도 성공 출력으로
     바꾸지 않는다. 기존 revision 조회 호출의 호환 경로와 별도로 change 캡처가 명시적으로 요청한다.
+    `input_data`가 있으면 별도 writer가 표준 입력에 쓰고 닫는다. 출력 배수와 동시에 써야 큰 출력이 파이프를 채워도
+    교착하지 않는다. 쓰기 실패(자식이 먼저 끝남)는 실패다.
     """
     if limit < 0:
         return None
@@ -573,7 +583,7 @@ def _run_git_bounded(
             command,
             cwd=project,
             env=environment,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL if input_data is None else subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -581,14 +591,18 @@ def _run_git_bounded(
         return None
     assert process.stdout is not None and process.stderr is not None
     readers = [
-        threading.Thread(target=drain, args=(stream, index), daemon=True)
-        for index, stream in enumerate((process.stdout, process.stderr))
+        *(
+            threading.Thread(target=drain, args=(stream, index), daemon=True)
+            for index, stream in enumerate((process.stdout, process.stderr))
+        ),
+        *_writers(process, input_data, failed, drained),
     ]
     deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
     try:
         for reader in readers:
             reader.start()
-        if not drained.wait(max(0, deadline - time.monotonic())) or failed.is_set():
+        # 출력이 끝난 뒤에도 쓰기 실패가 늦게 기록될 수 있으므로 writer가 끝난 것을 확인하고 판정한다.
+        if not drained.wait(max(0, deadline - time.monotonic())) or not _done(readers[2:], deadline) or failed.is_set():
             return None
         code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
         return subprocess.CompletedProcess(command, code, b"".join(chunks[0]), b"".join(chunks[1]))
@@ -605,3 +619,55 @@ def _run_git_bounded(
         for reader in readers:
             if reader.ident is not None:
                 reader.join(timeout=1)
+
+
+def _writers(
+    process: subprocess.Popen[bytes], data: bytes | None, failed: threading.Event, drained: threading.Event
+) -> list[threading.Thread]:
+    """표준 입력 writer 스레드 목록을 만든다(시작은 호출자가 한다). 입력이 없으면 비어 있다.
+
+    Args:
+        process: 표준 입력을 파이프로 연 자식.
+        data: 쓸 바이트.
+        failed: 실패 표시.
+        drained: 대기를 끝낼 표시.
+
+    Returns:
+        스레드 0개 또는 1개.
+    """
+    if data is None:
+        return []
+    assert process.stdin is not None
+    return [threading.Thread(target=_feed, args=(process.stdin, data, failed, drained), daemon=True)]
+
+
+def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: threading.Event) -> None:
+    """표준 입력에 모두 쓰고 닫는다. 실패하면(자식이 먼저 끝남) 결과를 쓰지 않도록 표시한다.
+
+    Args:
+        stream: 자식의 표준 입력.
+        data: 쓸 바이트.
+        failed: 실패 표시.
+        drained: 대기를 끝낼 표시.
+    """
+    try:
+        with stream:
+            stream.write(data)
+    except (OSError, ValueError):
+        failed.set()
+        drained.set()
+
+
+def _done(writers: list[threading.Thread], deadline: float) -> bool:
+    """writer가 모두 기한 안에 끝났는지 본다(없으면 True).
+
+    Args:
+        writers: 표준 입력 writer.
+        deadline: `time.monotonic` 기한.
+
+    Returns:
+        끝났으면 True.
+    """
+    for writer in writers:
+        writer.join(max(0, deadline - time.monotonic()))
+    return not any(writer.is_alive() for writer in writers)
