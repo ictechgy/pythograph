@@ -144,7 +144,8 @@ def _shared(project: Project, statistics: dict[str, object]) -> list[str]:
     if entries:
         tasks, receivers = entries.get(CELERY_TASK, 0), entries.get(SIGNAL_RECEIVER, 0)
         lines.append(
-            f"framework-dispatch: {tasks} Celery tasks and {receivers} Django signal receivers are called by the "
+            f"framework-dispatch: {tasks} task-queue functions (Celery decorators or any non-project @<x>.task, so "
+            f"other task libraries are included) and {receivers} Django signal receivers are called by the "
             "framework (workers, signal dispatch), not by project calls, so they have no graph callers; queuing a "
             "task (delay, apply_async, s, si) is a callback edge to it, and the same call on another decorated "
             "function counts as framework-callback"

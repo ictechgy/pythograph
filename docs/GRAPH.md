@@ -163,7 +163,8 @@ view·viewset·mixin·serializer, Flask `View`·`MethodView`)마다 C3 선형화
   모델링하지 않는다(`framework-dispatch:` 한계).
 - **태스크와 시그널 수신자**: Celery 태스크(`celery.shared_task`·`celery.task`로 풀리는 장식자, 또는 프로젝트 값이 아닌 `@x.task`·
   `@x.shared_task`)와 Django `@receiver`(`django.dispatch.receiver`) 함수는 워커·시그널 발송이 부르므로 호출자가 없다. 수를
-  `statistics.frameworkEntries`(종류별)와 `framework-dispatch:` 한계로 싣는다. 장식한 프로젝트 함수의 `delay`·`apply_async`·`s`·
+  `statistics.frameworkEntries`(종류별)와 `framework-dispatch:` 한계로 싣는다. 프로젝트 값이 아닌 `@x.task`는 이름만 보는
+  휴리스틱이라 Huey·Prefect 같은 다른 태스크 라이브러리의 장식자도 같이 센다(`celery-task` 키·한계의 "task-queue functions"). 장식한 프로젝트 함수의 `delay`·`apply_async`·`s`·
   `si`·`signature`·`map`·`starmap`·`chunks` 호출은 태스크면 그 함수로 가는 direct `callback` 간선이고, 태스크로 확인하지 못한
   장식 함수면 `framework-callback` 미해석 호출이다.
 - Django ORM 매니저 호출(`Order.objects.filter`)은 외부 호출이다. 그 relation-use 사실의 usr가 감싼 함수라서 순회가 그 함수에

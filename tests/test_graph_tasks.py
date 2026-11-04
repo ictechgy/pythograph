@@ -84,7 +84,7 @@ def test_framework_entry_functions_are_reported(make_project: MakeProject) -> No
     graph = graph_for(make_project)
     assert graph.statistics["frameworkEntries"] == {"celery-task": 2, "django-signal-receiver": 1}
     lines = [line for line in graph.limitations["direct"] if line.startswith("framework-dispatch:")]
-    assert lines and "2 Celery tasks" in lines[0] and "1 Django signal receivers" in lines[0], lines
+    assert lines and "2 task-queue functions" in lines[0] and "1 Django signal receivers" in lines[0], lines
 
 
 def test_unconfirmed_task_decorator_queue_call_is_counted(make_project: MakeProject) -> None:
