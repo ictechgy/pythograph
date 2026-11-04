@@ -17,9 +17,11 @@
   규칙은 `docs/PERSISTENCE.md`), `pythograph graph`·`reach`·`impact`(호출 그래프 → isthmus `language-traversal` v1,
   근거 등급 `direct`·`bound`·`candidate` — 기본 `--dispatch direct`, `bound`는 선택, id는 routes·schema `symbol.usr`와 같은
   문자열, 규칙은 `docs/GRAPH.md`), `pythograph routes --role client`(requests·httpx·aiohttp·urllib 호출과 `http-wrappers`
-  래퍼 → http `route-call`, 규칙은 `docs/HTTP-CLIENTS.md`). 구현된 것과 계획을 구분해 적는다.
+  래퍼 → http `route-call`, 규칙은 `docs/HTTP-CLIENTS.md`), `pythograph change-impact`(Git base/head·작업 트리 캡처 →
+  분리된 before/after 순회 보고서, 규칙은 `docs/CHANGE-IMPACT.md`). 구현된 것과 계획을 구분해 적는다.
 - 런타임 의존성 없음. 분석은 표준 라이브러리 `ast`로만 한다. 프레임워크 동작은 설치본 소스를 스크래치에서 ast로 읽어
-  만든 표(`graph/framework_table.py`)로만 쓴다. `revision`을 읽으려고 프로젝트 루트의 git만 실행한다. 분석 대상 프로젝트를 import·실행하지 않고
+  만든 표(`graph/framework_table.py`)로만 쓴다. `revision`을 읽거나 `change-impact`의 비교 소스를 캡처하려고 프로젝트 루트의
+  git만 실행한다(filter·지연 fetch·서브모듈 차단은 `graph/revision.py`를 지난다). 분석 대상 프로젝트를 import·실행하지 않고
   네트워크를 쓰지 않는다. 개발 도구(pytest·ruff·mypy)만 dev 의존성이다.
 - 프레임워크 규칙은 추측하지 않고 공식 소스로 확인해 `docs/HTTP-ROUTES.md`에 출처와 함께 적는다.
 - 정규 경로 템플릿과 http limitation 스코프는 isthmus 공유 벡터(`conformance/`, `conformance.lock`)와 맞춘다.
@@ -53,7 +55,8 @@
 - 초기화는 `uv sync`. `.venv/`·`dist/`·캐시는 생성물이다.
 - 제품 변경은 모두 통과해야 한다: `uv run ruff check src tests scripts`, `uv run ruff format --check src tests scripts`,
   `uv run mypy`, `uv run pytest --cov`(라인·분기 합산 90%), `uv run python scripts/verify_cli_contract.py`
-  (종료 코드 0/2/64, 1은 예약). CI는 빌드한 wheel을 새 가상 환경에 설치해 같은 계약을 확인한다. 동작 변경에는
+  (종료 코드 0/2/64, 1은 예약). CI는 빌드한 wheel을 새 가상 환경에 설치해 같은 계약을 확인하고, 이 저장소에
+  `pythograph graph --project .`를 돌려 파싱하지 못한 파일이 0인지 본다(자기 분석). 동작 변경에는
   의미 있는 회귀 테스트를 둔다.
 - 라우트 출력이 바뀌면 golden(`PYTHOGRAPH_UPDATE_GOLDEN=1 uv run pytest tests/test_fixtures.py`)과 오라클 기록
   (스크래치 가상 환경에서 `python experiments/oracle/run_all.py`)을 함께 갱신하고 정밀도 100%를 확인한다.

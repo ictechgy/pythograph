@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from pythograph.graph.exposure import ALL_MODULES, AttributeWrite, ProgramFacts
 from pythograph.graph.framework_table import FRAMEWORK_CLASSES
-from pythograph.graph.index import Definition, DefinitionIndex
+from pythograph.graph.index import Definition, DefinitionIndex, body_statements
 from pythograph.graph.scope import Binding, Resolver, class_bindings
 from pythograph.graph.values import (
     ClassValue,
@@ -413,8 +413,7 @@ class FlowAnalyzer:
         """
         names = self._nonlocals.get(scope.id)
         if names is None:
-            body = getattr(scope.node, "body", [])
-            statements = body if isinstance(body, list) else []
+            statements = body_statements(scope)
             names = frozenset(
                 item
                 for statement in statements

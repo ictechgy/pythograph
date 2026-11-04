@@ -13,8 +13,9 @@ from pythograph.routes.django.extract import DjangoOptions, extract_django
 from pythograph.routes.django.settings import discover_settings_modules
 from pythograph.routes.flask.extract import FlaskOptions, extract_flask, flask_detected
 from pythograph.routes.model import Extraction, RouteDecl, ScopeRange
+from pythograph.routes.unsupported import unsupported_framework_gap
 from pythograph.routes.versions import declared_majors, normalize_name, version_gap
-from pythograph.source.project import Project, ReadFailure, skipped_roots_reason
+from pythograph.source.project import Project, ReadFailure, skipped_directories_reason, skipped_roots_reason
 from pythograph.source.symbols import SymbolTable
 
 #: 계약 동사 집합 밖 method를 받는 등록의 limitation 문장 틀이다.
@@ -72,6 +73,9 @@ def extract_routes(project: Project, options: RouteOptions) -> Extraction:
             "no Django settings module or Flask application was found, so no routes were extracted; for a Django "
             "project whose manage.py, wsgi.py, and asgi.py do not name the settings module, pass --settings <module>",
         )
+    unsupported = unsupported_framework_gap(project, options.include_tests)
+    if unsupported is not None:
+        extraction.add_gap("route-coverage:", unsupported)
     _drop_methods_outside_contract(extraction)
     _project_gaps(project, extraction)
     return extraction
@@ -173,6 +177,8 @@ def _project_gaps(project: Project, extraction: Extraction) -> None:
         extraction.add_gap("route-coverage:", f"{project.skipped_links} symbolic links were not followed")
     if project.skipped_module_roots:
         extraction.add_gap("route-coverage:", skipped_roots_reason(project.skipped_module_roots))
+    if project.skipped_source_directories:
+        extraction.add_gap("route-coverage:", skipped_directories_reason(project.skipped_source_directories))
     _failed_modules(project, extraction)
     if extraction.framework is None:
         return

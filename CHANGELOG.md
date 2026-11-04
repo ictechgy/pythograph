@@ -4,9 +4,63 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 같은 점 경로를 다시 정의한 함수·메서드·클래스(property setter, `@overload` 스텁 뒤 구현, `singledispatch`의
+  `@f.register def _`, 모듈·클래스·함수 안 조건부 정의)는 첫 정의 본문만 훑어 뒤 정의의 호출 간선이 한계 없이 사라졌다.
+  이제 모든 정의의 본문·장식자·이름 묶음을 한 정점에 모은다. `typing`·`typing_extensions`의 `@overload` 스텁만(모듈 import로
+  출처 확인) 구현이 있으면 빼고, plum이나 프로젝트의 등록 장식자 `overload`로 장식한 본문은 구현으로 훑는다. 일부 정의에서만
+  묶이거나 `global`·`nonlocal`로 선언된 이름은 다른 정의의 참조로 새지 않게 모르는 값(`local-value`)으로 센다. 위치는 첫 정의
+  그대로다.
+- 모듈 수준에서 정의·import가 같은 이름을 다시 묶으면(`def fast` 뒤 `from x import run as fast`, `try`/`except ImportError`
+  대체) 이름 해석기가 문장 순서와 무관하게 정의를 먼저 골라 실행되지 않을 수 있는 대상에 `direct` 간선을 냈다. 이제 모든 묶음이
+  같은 대상이면 그 값, 모두 외부면 평소 해석(외부 기반 클래스의 프레임워크 정점·routes usr 유지), 그 밖에는 모르는 값
+  (`local-value`)으로 센다. 다른 모듈이 그 이름을 import하거나 모듈 속성으로 읽을 때(`from pkg import parse`, `pkg.parse()`)와
+  재수출 사슬의 중간 모듈이 다시 묶을 때도 같은 판정을 쓴다.
+- 이름만 보고 건너뛰던 `build`·`dist`·`env`·`venv` 디렉터리가 `__init__.py`를 직접 담고 `pyvenv.cfg`가 없으면 프로젝트
+  패키지로 순회한다(`shop/build/views.py`의 블루프린트가 한계 없이 사라졌다). 패키지가 아닌 `.py`를 직접 담은 그런 디렉터리는
+  graph `scan-incomplete:`·routes `route-coverage:`·schema `scan-truncated:`로 세고 닫힌 세계 `bound` 증명을 막는다. 한 단계 아래
+  일반 패키지만 둔 namespace 배치(`shop/build/handlers/__init__.py`)도 같이 세고, setuptools 산출물(`build/lib/…` 등) 아래 패키지와
+  `.py` 없이 항목만 많은 산출물 디렉터리는 세지 않는다. 건너뛰는 이름 목록을 README에 적었다.
+- 모듈 루트(`manage.py` 디렉터리·프로젝트 루트·`src/`)로 풀지 못한 절대 import를 외부로 확정해, `manage.py` 없는
+  `backend/app/api.py`의 `from app.models import load` 호출이 미해석으로도 세지지 않고 사라졌다. 쓰는 모듈의 암묵 루트(가장 바깥
+  패키지의 부모) 아래에 같은 이름의 패키지·모듈이 있으면 `unresolved-import`로 센다.
+- Celery 태스크의 `delay`·`apply_async`·`s`·`si` 등 큐 호출이 외부 호출로 사라져 `impact <태스크>`가 큐에 넣는 쪽을 놓쳤다. 이제
+  태스크로 가는 direct `callback` 간선이고, 태스크로 확인하지 못한 장식 함수의 같은 호출은 `framework-callback`으로 센다.
+  Celery 태스크(프로젝트 밖 `@<x>.task`는 이름만 보므로 다른 태스크 라이브러리도 포함)·Django `@receiver` 수신자는 뷰 핸들러가
+  없어도 `framework-dispatch:` 한계로 알리고 스냅샷
+  `statistics.frameworkEntries`에 종류별 수를 싣는다(추가 필드).
+- `change-impact`가 그래프가 읽지 않는 추적 파일(이미지·데이터·번들)까지 바이트 예산에 넣어, 5 MB 바이너리 하나로 전체가
+  `capture byte budget exceeded`로 실패했다. 이제 `.py`·`pyproject.toml`·`setup.cfg`·`pyvenv.cfg`만 바이트를 캡처하고 나머지는 git blob id로
+  바뀜·rename 후보를 비교한다(`input.identityOnlyFiles`, `limits.hashBytes` 추가). 커밋 캡처는 파일마다 `cat-file`을 두 번
+  띄우던 것을 `ls-tree -l`과 `cat-file --batch` 한 번으로 바꿨다(파일 501개 2캡처에서 git 프로세스 약 4,000개 → 상수 개).
+- `change-impact`의 `--max-depth`·`--max-reached`가 `int()`로 읽어 `1_0`·` 8`·`+8`을 받았다. `reach`·`impact`와 같은 정수
+  문법으로 검증한다. `--generated-at`을 더해 두 순회 문서의 `generatedAt`을 고정할 수 있다(`cost`만 실행마다 다르다).
+- README·README.ko·AGENTS의 보안·상태 설명이 git을 `revision` 읽기에만 쓴다고 적었다. `change-impact`가 실행하는 git
+  명령(`rev-parse`·`ls-tree`·`cat-file --batch`·`ls-files`)과 상태 표 행을 더했고 CLI 계약 검사에 `change-impact`의
+  0/2/64와 `cost` 밖 결정성을 넣었다.
+- `routes --role server`가 FastAPI·Starlette 등 지원하지 않는 서버 프레임워크만 있는 프로젝트에 "Django settings나 Flask
+  앱이 없다"는 한계만 내고, 그런 모듈이 Flask 앱 옆에 있어도 알리지 않았다. 그 프레임워크를 import한 모듈 수를
+  `route-coverage:`로 센다. 최상위 이름이 프로젝트 안 패키지로 풀리면(프로젝트의 `bottle/`) 세지 않는다.
+- Flask `subdomain`·`host`·`redirect_to`(규칙·블루프린트·등록)와 앱의 `host_matching`·`subdomain_matching`·`static_host`를 한계
+  없이 평범한 경로 사실로 냈다. 경로 사실은 유지하고 등록마다 `route-coverage:`로 센다. 끈 리터럴(`False`·`None`·빈 문자열)로
+  준 옵션은 Flask 기본값과 같아 세지 않는다.
+
+### Changed
+
+- CI·릴리스 검증에 Python 3.11·3.12를 더했다(분류자의 3.10–3.14 전부). 릴리스는 `twine check --strict`(twine 7.0.0)와 sdist
+  설치 뒤 CLI 계약을 확인하고, CI는 이 저장소에 `graph`를 돌려 파싱 실패 0을 확인한다(자기 분석).
+- README의 Ruff 명령에 `scripts`를, `pyproject.toml` 설명에 client 호출·호출 그래프·변경 영향을 더했고 RELEASING의 끝난 첫
+  릴리스 단계를 버전 고정 예 갱신으로 바꿨다.
+- `change-impact` 문서의 `input.files`는 이제 바이트를 캡처한 분석 파일(`.py`·`pyproject.toml`·`setup.cfg`·`pyvenv.cfg`) 수만 센다(이전에는
+  모든 추적 파일). 나머지 추적 파일은 새 `input.identityOnlyFiles`로 센다. 비분석 파일을 바이트 대신 경로·git blob id로 해시하므로
+  같은 입력이라도 `input.contentDigest` 값이 0.3.1과 다르다 — 버전이 다른 실행의 digest를 서로 비교하지 않는다.
+- isthmus 공유 적합성 벡터를 `c76e105`로 다시 벤더링했다(`http-dispatch.json`에 `consumer` 전용 사례 4건 추가, 생산자 사례 수 같음).
+
 ## [0.3.1] - 2026-11-03
 
-- Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.
+- 다른 모듈에서 가져온 DRF 라우터 별칭·모듈 속성을 보존하고, 조건부이거나 밖에서 바뀌는 라우터 상태는 계속 모르는 값으로 둔다.
+  벤더링한 SQL 관계 적합성 사례를 실행하고 Ruff 검사에 `scripts`를 넣는다.
 
 ### Fixed
 

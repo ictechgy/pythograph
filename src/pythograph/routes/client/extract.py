@@ -56,7 +56,13 @@ from pythograph.routes.client.wrappers import (
 )
 from pythograph.routes.django.urlconf import node_location
 from pythograph.routes.versions import declared_minimum
-from pythograph.source.project import Project, ReadFailure, is_test_path, skipped_roots_reason
+from pythograph.source.project import (
+    Project,
+    ReadFailure,
+    is_test_path,
+    skipped_directories_reason,
+    skipped_roots_reason,
+)
 from pythograph.source.symbols import SymbolTable
 
 #: 호출 측 커버리지 접두사다.
@@ -823,6 +829,8 @@ def _project_gaps(project: Project, extraction: ClientExtraction) -> None:
         extraction.add_gap(COVERAGE, f"{project.skipped_links} symbolic links were not followed")
     if project.skipped_module_roots:
         extraction.add_gap(COVERAGE, skipped_roots_reason(project.skipped_module_roots))
+    if project.skipped_source_directories:
+        extraction.add_gap(COVERAGE, skipped_directories_reason(project.skipped_source_directories))
     for _, module in sorted(project.parsed_modules().items()):
         if isinstance(module, ReadFailure):
             extraction.add_gap(COVERAGE, "{count} Python files could not be analyzed: " + module.reason)

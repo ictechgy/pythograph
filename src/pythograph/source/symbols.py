@@ -60,11 +60,17 @@ class ImportBinding:
 
 @dataclass(frozen=True)
 class ProjectSymbol:
-    """프로젝트 안의 함수·클래스 정의."""
+    """프로젝트 안의 함수·클래스 정의.
+
+    `via`는 정의에 닿기까지 거친 모듈 수준 묶음(쓰는 쪽 모듈부터, 정의한 모듈의 이름 포함)이다. 같은 대상을 가리키면
+    거친 경로와 무관하게 같은 결과이므로 비교에 넣지 않는다. graph 해석기는 거친 모듈 중 하나라도 그 이름을 다시
+    묶으면(`try: from a import f / except: from b import f`) 확정하지 않는다(`graph.scope`).
+    """
 
     path: str
     qualname: str
     node: ast.AST
+    via: Route = field(default=(), compare=False)
 
     @property
     def id(self) -> str:
@@ -78,9 +84,13 @@ class ProjectSymbol:
 
 @dataclass(frozen=True)
 class ExternalSymbol:
-    """프로젝트 밖의 이름(점 경로). 모듈일 수도 있고 모듈 안의 이름일 수도 있다."""
+    """프로젝트 밖의 이름(점 경로). 모듈일 수도 있고 모듈 안의 이름일 수도 있다.
+
+    `via`는 `ProjectSymbol.via`와 같은 뜻이며 비교에 넣지 않는다.
+    """
 
     dotted: str
+    via: Route = field(default=(), compare=False)
 
 
 #: 해석 경로에서 거친 모듈 수준 묶음 (모듈 경로, 이름)의 목록이다(쓰는 쪽 모듈부터).
@@ -247,7 +257,7 @@ class SymbolTable:
             return None
         if name in index.definitions:
             node = index.definitions[name]
-            return ProjectSymbol(path, index.qualname(node), node)
+            return ProjectSymbol(path, index.qualname(node), node, ((path, name),))
         if name in index.imports:
             return _through(((path, name),), self.resolve_binding(index.imports[name], hops + 1))
         if name in index.values:
@@ -396,7 +406,7 @@ class SymbolTable:
             해석 결과, 모르면 None.
         """
         if isinstance(base, ExternalSymbol):
-            return ExternalSymbol(f"{base.dotted}.{name}")
+            return ExternalSymbol(f"{base.dotted}.{name}", base.via)
         if isinstance(base, ModuleSymbol):
             found = self.resolve_name(base.path, name, hops + 1)
             if found is None:
@@ -426,6 +436,10 @@ def _through(route: Route, symbol: Symbol | None) -> Symbol | None:
         return ValueSymbol(symbol.path, symbol.name, symbol.node, (*route, *symbol.via))
     if isinstance(symbol, ModuleSymbol):
         return ModuleSymbol(symbol.path, symbol.dotted, (*route, *symbol.via))
+    if isinstance(symbol, ProjectSymbol):
+        return ProjectSymbol(symbol.path, symbol.qualname, symbol.node, (*route, *symbol.via))
+    if isinstance(symbol, ExternalSymbol):
+        return ExternalSymbol(symbol.dotted, (*route, *symbol.via))
     return symbol
 
 

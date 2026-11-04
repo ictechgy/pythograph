@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import BinaryIO
 
 from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, tree_overflow
 from pythograph.source.text import is_contract_safe
@@ -84,6 +85,19 @@ SKIPPED_DIRECTORIES = frozenset(
     }
 )
 
+#: 건너뛰는 이름 중 실제 패키지 이름으로도 쓰는 이름이다. 이 이름의 디렉터리가 `__init__.py`를 직접 담고 가상 환경
+#: 표식(`pyvenv.cfg`)이 없으면 프로젝트 패키지로 보고 들어간다. 패키지가 아닌데 `.py`를 직접 담으면 들어가지 않고
+#: `Project.skipped_source_directories`로 세어 한계로 남긴다(setuptools `build/lib/…`·가상 환경은 직접 담지 않는다).
+PACKAGE_NAMED_SKIPS = frozenset({"venv", "env", "build", "dist"})
+
+#: 건너뛰는 이름 디렉터리가 소스를 담는지 볼 때 읽는 직접 항목 상한이다(넘으면 담은 것으로 본다). 산출물만 많은
+#: `dist/`(휠·sdist 수백 개)를 담은 것으로 잘못 세지 않도록 한 디렉터리 목록으로는 넉넉히 잡는다.
+MAX_SKIP_PROBE_ENTRIES = 65536
+
+#: setuptools가 `build/` 아래에 만드는 산출물 디렉터리 이름 접두사다(`lib.<플랫폼>`, `temp.*`, `bdist.*`, `scripts-*`,
+#: 그리고 `lib`). 그 아래 패키지는 소스 복사본이므로 건너뛰기 이름 디렉터리의 소스로 세지 않는다.
+BUILD_OUTPUT_PREFIXES = ("lib.", "temp.", "bdist.", "scripts-")
+
 
 @dataclass(frozen=True)
 class SourceModule:
@@ -133,6 +147,8 @@ class Project:
             명령이 고른다(`syntax.MAX_AST_DEPTH`·`syntax.MAX_EXTRACTION_AST_DEPTH`).
         forbidden_names: 경로(디렉터리 성분 포함)에 계약 금지 문자(제어 문자·U+2028/2029)가 있어 건너뛴 파이썬 파일 수.
         skipped_module_roots: 상한(`MAX_MODULE_ROOTS`) 밖이라 모듈 루트로 쓰지 않은 `manage.py` 디렉터리 수.
+        skipped_source_directories: `PACKAGE_NAMED_SKIPS` 이름이라 들어가지 않았는데 패키지가 아닌 `.py`를 직접 담은
+            디렉터리 수.
         parsed_source_bytes: 지금까지 파싱에 성공한 모듈의 소스 바이트 합(`MAX_TOTAL_SOURCE_BYTES`와 비교한다).
         budget_skipped_modules: 파싱 총량 예산을 넘게 해 파싱하지 않은 모듈 수.
     """
@@ -148,6 +164,7 @@ class Project:
     forbidden_names: int = 0
     scan_errors: int = 0
     skipped_module_roots: int = 0
+    skipped_source_directories: int = 0
     parsed_source_bytes: int = 0
     budget_skipped_modules: int = 0
     _skipped_link_paths: set[str] = field(default_factory=set)
@@ -155,6 +172,8 @@ class Project:
     _resolved_roots: list[str] = field(default_factory=list)
     _root_entries: dict[str, frozenset[str] | None] = field(default_factory=dict)
     _root_names: frozenset[str] = field(default_factory=frozenset)
+    _unrooted_modules: dict[tuple[str, str], bool] = field(default_factory=dict)
+    _python_file_set: frozenset[str] | None = None
     source_omissions: tuple[SourceOmission, ...] = ()
 
     @classmethod
@@ -260,7 +279,7 @@ class Project:
                 self._record_link(relative)
             return
         if entry.is_dir(follow_symlinks=False):
-            if _is_skipped_directory(entry.name):
+            if _is_skipped_directory(entry.name) and not self._is_named_package(relative, entry.name):
                 return
             if depth + 1 > MAX_SCAN_DEPTH:
                 self.scan_capped = True
@@ -268,6 +287,65 @@ class Project:
             pending.append((relative, depth + 1))
         elif entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
             self._collect(relative, found)
+
+    def _is_named_package(self, relative: str, name: str) -> bool:
+        """건너뛰는 이름(`build`·`dist`·`env`·`venv`)의 디렉터리가 프로젝트 패키지인지 본다. 아니면서 `.py`를 직접
+        담으면 센다.
+
+        Args:
+            relative: 디렉터리의 프로젝트 상대 경로.
+            name: 디렉터리 이름.
+
+        Returns:
+            들어가야 하면 True.
+        """
+        if name not in PACKAGE_NAMED_SKIPS:
+            return False
+        if self.is_file(f"{relative}/__init__.py") and not self.is_file(f"{relative}/pyvenv.cfg"):
+            return True
+        if not self.is_file(f"{relative}/pyvenv.cfg") and self._holds_python_files(relative):
+            self.skipped_source_directories += 1
+        return False
+
+    def _holds_python_files(self, relative: str) -> bool:
+        """디렉터리가 소스를 담는지 본다: `.py` 일반 파일이나 한 단계 아래 일반 패키지(`__init__.py`).
+
+        한 단계 아래 패키지는 `build/__init__.py` 없이 `build/handlers/__init__.py`를 둔 namespace 배치다. setuptools
+        산출물(`build/lib/…` 등, `_is_build_output`)과 가상 환경 하위(`lib/python3.x/…`)는 직접 패키지를 담지 않으므로
+        세지 않는다. 직접 항목이 상한을 넘으면 다 보지 못했으므로 담은 것으로 본다.
+
+        Args:
+            relative: 디렉터리의 프로젝트 상대 경로.
+
+        Returns:
+            담으면 True.
+        """
+        try:
+            with self.scan_directory(relative) as iterator:
+                for count, entry in enumerate(iterator):
+                    if count >= MAX_SKIP_PROBE_ENTRIES:
+                        return True
+                    if entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
+                        return True
+                    if self._is_child_package(relative, entry):
+                        return True
+        except OSError:
+            return False
+        return False
+
+    def _is_child_package(self, relative: str, entry: os.DirEntry[str]) -> bool:
+        """건너뛰기 이름 디렉터리 바로 아래 항목이 산출물이 아닌 일반 패키지 디렉터리인지 본다.
+
+        Args:
+            relative: 건너뛰기 이름 디렉터리의 프로젝트 상대 경로.
+            entry: 그 디렉터리의 항목.
+
+        Returns:
+            일반 패키지면 True.
+        """
+        if not entry.is_dir(follow_symlinks=False) or _is_build_output(entry.name):
+            return False
+        return self.is_file(f"{relative}/{entry.name}/__init__.py")
 
     def _collect(self, relative: str, found: list[str]) -> None:
         """파이썬 파일을 발견 목록에 넣는다. 교환 형식에 실을 수 없는 경로는 건너뛰고 센다.
@@ -472,6 +550,22 @@ class Project:
 
     def _read_bytes(self, relative: str, limit: int) -> bytes:
         """검증한 일반 파일 핸들에서만 제한된 바이트를 읽어 검사·열기 사이 링크 교체를 막는다."""
+        with self.open_regular(relative) as source:
+            return source.read(limit + 1)
+
+    @contextmanager
+    def open_regular(self, relative: str) -> Iterator[BinaryIO]:
+        """링크가 아닌 일반 파일을 부모 핸들 기준 O_NOFOLLOW로 열고, 연 핸들이 검사한 파일과 같은지 확인한다.
+
+        Args:
+            relative: 프로젝트 상대 경로.
+
+        Yields:
+            읽기 전용 이진 파일.
+
+        Raises:
+            OSError: 일반 파일이 아니거나, 링크이거나, 검사·열기 사이에 바뀌었다.
+        """
         expected = self._checked_stat(relative)
         if not stat.S_ISREG(expected.st_mode):
             raise OSError("not a regular file")
@@ -488,7 +582,7 @@ class Project:
                     raise OSError("file changed while opening")
                 if not os.path.samestat(actual, self._checked_stat(relative)):
                     raise OSError("path changed while opening")
-                return source.read(limit + 1)
+                yield source
 
     def module_name(self, relative: str) -> str:
         """파일 경로에서 모듈 이름을 만든다. 파일을 담은 가장 긴 모듈 루트를 기준으로 한다.
@@ -558,6 +652,56 @@ class Project:
         if name not in self._resolved_modules:
             self._resolved_modules[name] = self._find_module(name)
         return self._resolved_modules[name]
+
+    def unrooted_module(self, origin: str, name: str) -> bool:
+        """모듈 루트로 풀지 못한 최상위 이름이 그 모듈의 암묵 루트 아래 프로젝트 모듈인지 본다(캐시).
+
+        암묵 루트는 `origin`을 담은 가장 바깥 패키지의 부모 디렉터리다(`backend/app/api.py`면 `backend`, 패키지가 아닌
+        `scripts/run.py`면 `scripts`). 파이썬은 실행 방식(`python -m`, 스크립트 디렉터리, `PYTHONPATH`)에 따라 그곳을
+        `sys.path`에 넣으므로, 그 아래 `name/__init__.py`나 `name.py`가 있으면 외부로 확정하지 않고 풀지 못한
+        import로 센다. 루트 규칙이 이미 보는 디렉터리는 `resolve_module`이 답하므로 보지 않는다.
+
+        Args:
+            origin: import를 쓰는 모듈의 프로젝트 상대 경로.
+            name: import한 최상위 이름.
+
+        Returns:
+            암묵 루트 아래 프로젝트 모듈이면 True.
+        """
+        root = self._implicit_root(origin)
+        if root in self.module_roots or not name.isidentifier():
+            return False
+        key = (root, name)
+        if key not in self._unrooted_modules:
+            self._unrooted_modules[key] = self.is_file(f"{root}/{name}/__init__.py") or self.is_file(
+                f"{root}/{name}.py"
+            )
+        return self._unrooted_modules[key]
+
+    def _implicit_root(self, origin: str) -> str:
+        """모듈을 담은 가장 바깥 패키지의 부모 디렉터리를 돌려준다(프로젝트 루트는 `""`).
+
+        Args:
+            origin: 모듈의 프로젝트 상대 경로.
+
+        Returns:
+            프로젝트 상대 디렉터리.
+        """
+        files = self._file_set()
+        directory = PurePosixPath(origin).parent
+        while directory.as_posix() != "." and (directory / "__init__.py").as_posix() in files:
+            directory = directory.parent
+        return "" if directory.as_posix() == "." else directory.as_posix()
+
+    def _file_set(self) -> frozenset[str]:
+        """순회한 파이썬 파일 집합을 돌려준다(캐시).
+
+        Returns:
+            프로젝트 상대 경로 집합.
+        """
+        if self._python_file_set is None:
+            self._python_file_set = frozenset(self.python_files())
+        return self._python_file_set
 
     def _find_module(self, name: str) -> str | None:
         """모듈 루트 순서대로 이름의 패키지·모듈 파일을 찾는다(`resolve_module`이 결과를 기억한다).
@@ -644,6 +788,22 @@ def skipped_roots_reason(count: int) -> str:
         f"{count} directories containing manage.py are not used as module roots (only the {MAX_MODULE_ROOTS} "
         "shallowest are), so imports that only they would resolve are treated as external; pass a narrower "
         "--project to analyze them"
+    )
+
+
+def skipped_directories_reason(count: int) -> str:
+    """패키지가 아닌 소스를 담은 건너뛰기 이름 디렉터리 한계 문구다(접두사는 명령마다 붙인다).
+
+    Args:
+        count: 디렉터리 수.
+
+    Returns:
+        문구.
+    """
+    names = ", ".join(sorted(PACKAGE_NAMED_SKIPS)[:-1]) + ", or " + sorted(PACKAGE_NAMED_SKIPS)[-1]
+    return (
+        f"{count} directories named {names} hold Python files outside a package and were not scanned "
+        "(treated as build output or virtual environments); symbols in those files are missing"
     )
 
 
@@ -748,6 +908,18 @@ def _is_skipped_directory(name: str) -> bool:
         건너뛰면 True.
     """
     return name.startswith(".") or name in SKIPPED_DIRECTORIES
+
+
+def _is_build_output(name: str) -> bool:
+    """setuptools가 `build/` 아래에 만드는 산출물 디렉터리 이름인지 본다(`BUILD_OUTPUT_PREFIXES`, 그리고 `lib`).
+
+    Args:
+        name: 디렉터리 이름.
+
+    Returns:
+        산출물이면 True.
+    """
+    return name == "lib" or name.startswith(BUILD_OUTPUT_PREFIXES)
 
 
 def _link_may_hide_sources(name: str) -> bool:

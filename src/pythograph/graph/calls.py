@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pythograph.graph.framework import framework_closure
 from pythograph.graph.index import Definition
 from pythograph.graph.scope import Resolver
+from pythograph.graph.tasks import CELERY_TASK, TASK_METHODS, TaskClassifier, is_decorated
 from pythograph.graph.values import (
     AttributeValue,
     ClassValue,
@@ -193,6 +194,7 @@ class CallResolver:
         self.resolver = resolver
         self.names = names
         self.requests: dict[str, InheritedRequest] = {}
+        self.tasks = TaskClassifier(resolver)
 
     def resolve(self, scope: Definition, call: ast.Call, shadowed: bool) -> CallOutcome:
         """호출 지점 하나를 해석한다.
@@ -243,6 +245,8 @@ class CallResolver:
         Returns:
             해석 결과.
         """
+        if isinstance(receiver, FunctionValue) and name in TASK_METHODS and is_decorated(receiver.definition):
+            return self._task_call(receiver)
         if not isinstance(member, UnknownValue):
             return self.callee(member)
         if isinstance(receiver, (InstanceValue, ClassValue)) and not receiver.exact:
@@ -252,6 +256,22 @@ class CallResolver:
         if member.reason in ("instance-attribute", "function-attribute", "untyped-receiver"):
             return self._untyped_attribute(name, reason_name(member.reason))
         return CallOutcome("unresolved", reason=reason_name(member.reason))
+
+    def _task_call(self, receiver: FunctionValue) -> CallOutcome:
+        """장식한 프로젝트 함수의 큐 호출(`task.delay(…)`)을 해석한다.
+
+        Celery 태스크면 그 본문이 나중에 실행되므로 태스크로 가는 `callback` 간선이다. 태스크로 확인하지 못한
+        장식자(RQ·dramatiq·자체 장식자)면 추측하지 않고 `framework-callback`으로 센다.
+
+        Args:
+            receiver: 장식한 프로젝트 함수 값.
+
+        Returns:
+            해석 결과.
+        """
+        if self.tasks.kind(receiver.definition) == CELERY_TASK:
+            return CallOutcome("resolved", [Target(receiver.definition.id, "callback")])
+        return CallOutcome("unresolved", reason="framework-callback")
 
     def callee(self, value: Value, depth: int = 0) -> CallOutcome:
         """피호출 값을 해석한다.

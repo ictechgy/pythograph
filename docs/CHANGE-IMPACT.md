@@ -26,8 +26,14 @@ POSIX realpath 규칙에 따라 원래 `--project`의 정규 경로를 보존한
 serializer/permission callback은 일부 누락될 수 있다. 선언 없는 설정·API·DB 계약 변경은 `unmappedFiles`로 남으며
 영향을 추측해 pass로 바꾸지 않는다.
 
-캡처 상한은 20,000파일, 파일당 4 MiB, 총 128 MiB다. 초과는 부분 분석 없이 코드 2다. 보고서 상한은 16 Mi 문자다.
-`cost`는 준비와 전체 분석 시간을 포함한다. ignored 파일, symlink, submodule은 포함하지 않는다. 작업 트리는 두 번
+캡처 상한은 20,000파일이다. 그래프가 읽는 파일(`.py`, `pyproject.toml`, `setup.cfg`, 건너뛰기 판정의 `pyvenv.cfg`)만 바이트를 캡처하며 파일당 4 MiB,
+총 128 MiB다. 그 밖의 추적·비무시 파일(이미지·데이터·번들)은 바이트를 담지 않고 git blob id로만 바뀜·rename 후보를
+비교한다(`input.identityOnlyFiles`). 커밋 쪽은 `ls-tree`의 객체 id를 쓰고, 작업 트리 쪽은 같은 nofollow 검사로 파일을 흘려
+읽어 `git hash-object --no-filters`와 같은 id를 구한다(합산 4 GiB, `limits.hashBytes`). 초과는 부분 분석 없이 코드 2다.
+보고서 상한은 16 Mi 문자다.
+`cost`는 준비와 전체 분석 시간을 포함한다. `--generated-at <timestamp>`는 두 순회 문서의 `generatedAt`을 고정하므로 같은
+입력이면 `cost` 밖의 출력이 같다(`cost`는 실측 밀리초라 실행마다 다르다). `--max-depth`·`--max-reached`는 `reach`·`impact`와
+같은 정수 문법이다(`1_0`·공백·부호·앞자리 0은 사용법 오류 64). ignored 파일, symlink, submodule은 포함하지 않는다. 작업 트리는 두 번
 읽은 내용이 같을 때만 분석하지만 파일 시스템 원자적 snapshot은 아니다. 분석 후 새 편집은 재분석해야 한다.
 작은 fixture 결과를 전체 앱의 정확도나 실제 실패 예측으로 일반화하지 않는다.
 
@@ -53,6 +59,8 @@ Git이 고른 캡처 안에서만 사실을 계산한다. 의도적으로 선택
 파일 시스템의 case·Unicode 별칭 때문에 같은 디렉터리나 파일로 합쳐지면 코드 2·빈 stdout으로 거부한다.
 모든 POSIX 경로를 소문자나 Unicode 정규형으로 바꾸지는 않으며, 실제로 별개인 파일 시스템에서는 두 경로를 보존한다.
 
-캡처가 실행하는 각 Git 명령은 설정 조회부터 stdout·stderr 합산 128 MiB를 읽는 중 제한한다. 초과·읽기 오류·기존
+커밋 캡처는 분석 파일 blob을 `git cat-file --batch` 한 번으로 읽는다(필터·textconv 없음). 캡처마다 Git 실행은 파일 수와
+무관하게 `rev-parse`·`ls-tree`·`cat-file`(작업 트리는 `ls-files`와 필요하면 `rev-parse --show-object-format`)과 각 명령 앞의
+설정 조회뿐이다. 캡처가 실행하는 각 Git 명령은 설정 조회부터 stdout·stderr 합산 128 MiB를 읽는 중 제한한다. 초과·읽기 오류·기존
 60초 시간 초과는 입력 실패다. 바이트 길이를 다 모은 뒤 검사하는 메모리 제한이 아니다. 직접 소유한 Git 자식만
 정리하며 다른 프로세스 그룹을 중단하지 않는다. 이 상한은 명령별 출력 바이트이고 전체 준비 시간·OS RSS 상한은 아니다.
