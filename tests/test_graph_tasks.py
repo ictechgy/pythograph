@@ -85,3 +85,30 @@ def test_framework_entry_functions_are_reported(make_project: MakeProject) -> No
     assert graph.statistics["frameworkEntries"] == {"celery-task": 2, "django-signal-receiver": 1}
     lines = [line for line in graph.limitations["direct"] if line.startswith("framework-dispatch:")]
     assert lines and "2 Celery tasks" in lines[0] and "1 Django signal receivers" in lines[0], lines
+
+
+def test_unconfirmed_task_decorator_queue_call_is_counted(make_project: MakeProject) -> None:
+    """Celery로 확인하지 못한 장식자(RQ `@job`)의 `.delay`는 callback 간선이 아니라 `framework-callback`으로 센다."""
+    graph = build_graph(
+        Project.open(
+            make_project(
+                {
+                    "jobs.py": """
+                        from rq.decorators import job
+
+
+                        @job("default")
+                        def notify(x):
+                            return x
+
+
+                        def enqueue(x):
+                            return notify.delay(x)
+                    """,
+                }
+            )
+        ),
+        False,
+    )
+    assert not [edge for edge in graph.edges if edge.source == "jobs.py#enqueue" and edge.target == "jobs.py#notify"]
+    assert graph.node_map()["jobs.py#enqueue"].reasons.get("framework-callback") == 1
