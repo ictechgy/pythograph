@@ -26,7 +26,7 @@ POSIX realpath 규칙에 따라 원래 `--project`의 정규 경로를 보존한
 serializer/permission callback은 일부 누락될 수 있다. 선언 없는 설정·API·DB 계약 변경은 `unmappedFiles`로 남으며
 영향을 추측해 pass로 바꾸지 않는다.
 
-캡처 상한은 20,000파일이다. 그래프가 읽는 파일(`.py`, `pyproject.toml`, `setup.cfg`)만 바이트를 캡처하며 파일당 4 MiB,
+캡처 상한은 20,000파일이다. 그래프가 읽는 파일(`.py`, `pyproject.toml`, `setup.cfg`, 건너뛰기 판정의 `pyvenv.cfg`)만 바이트를 캡처하며 파일당 4 MiB,
 총 128 MiB다. 그 밖의 추적·비무시 파일(이미지·데이터·번들)은 바이트를 담지 않고 git blob id로만 바뀜·rename 후보를
 비교한다(`input.identityOnlyFiles`). 커밋 쪽은 `ls-tree`의 객체 id를 쓰고, 작업 트리 쪽은 같은 nofollow 검사로 파일을 흘려
 읽어 `git hash-object --no-filters`와 같은 id를 구한다(합산 4 GiB, `limits.hashBytes`). 초과는 부분 분석 없이 코드 2다.

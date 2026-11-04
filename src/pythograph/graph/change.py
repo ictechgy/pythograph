@@ -38,8 +38,9 @@ MAX_TOTAL_BYTES = 128 * 1024 * 1024
 #: 작업 트리의 비분석 파일 git blob id를 구하려고 흘려 읽는 바이트 합의 상한이다(메모리에 담지 않는다).
 MAX_HASH_BYTES = 4 * 1024 * 1024 * 1024
 
-#: 그래프가 읽는 파이썬 소스 밖의 파일 이름이다(패키지 판정·`requires-python`). 이 파일과 `.py`만 바이트를 캡처한다.
-_ANALYZED_MANIFESTS = frozenset({"pyproject.toml", "setup.cfg"})
+#: 그래프가 읽는 파이썬 소스 밖의 파일 이름이다(패키지 판정·`requires-python`, 그리고 건너뛰기 이름 디렉터리가 가상
+#: 환경인지 보는 `pyvenv.cfg`). 이 파일과 `.py`만 바이트를 캡처한다. 펼친 체크아웃에 없으면 graph와 다르게 판정한다.
+_ANALYZED_MANIFESTS = frozenset({"pyproject.toml", "setup.cfg", "pyvenv.cfg"})
 
 #: `git cat-file --batch` 출력의 객체 머리 형식이다.
 _BATCH_HEADER = re.compile(rb"([0-9a-f]{40}|[0-9a-f]{64}) blob ([0-9]+)\n")

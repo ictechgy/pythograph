@@ -251,3 +251,16 @@ def test_generated_at_fixes_traversal_timestamps(repository: Path) -> None:
     assert first == second
     with pytest.raises(UsageError):
         run(["change-impact", "--project", str(repository), "--base", "HEAD", "--generated-at", "yesterday"])
+
+
+def test_virtualenv_marker_is_captured_like_graph_reads_it(repository: Path) -> None:
+    """graph 건너뛰기 판정이 보는 `pyvenv.cfg`를 바이트로 캡처해 커밋한 가상 환경을 두 명령이 같게 다룬다."""
+    (repository / "venv").mkdir()
+    (repository / "venv" / "__init__.py").write_text("", encoding="utf-8")
+    (repository / "venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (repository / "venv" / "hidden.py").write_text("def hidden():\n    return 1\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "venv")
+    committed = capture(repository, "HEAD")
+    assert "venv/pyvenv.cfg" in committed.files
+    assert capture(repository).files["venv/pyvenv.cfg"] == committed.files["venv/pyvenv.cfg"]
