@@ -12,7 +12,7 @@ import ast
 from dataclasses import dataclass, field
 
 from pythograph.source.project import Project, SourceModule, is_test_path
-from pythograph.source.symbols import ModuleIndex, SymbolTable, symbol_id
+from pythograph.source.symbols import ImportBinding, ModuleIndex, SymbolTable, symbol_id
 
 #: 함수 정의 노드 타입이다.
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
@@ -217,8 +217,9 @@ class DefinitionIndex:
 def body_nodes(definition: Definition) -> list[ast.AST]:
     """간선·이름 묶음을 모을 정의 노드를 돌려준다: 같은 점 경로의 모든 정의.
 
-    `@overload` 스텁은 구현이 따로 있으면 뺀다. 스텁 본문은 `...`이라 호출이 없고, 스텁마다 다른 매개변수 주석을
-    묶음에 더하면 구현 매개변수의 값을 모르게 되기 때문이다. 스텁뿐이면(구현이 다른 파일) 모두 쓴다.
+    `typing`·`typing_extensions`의 `@overload` 스텁은 구현이 따로 있으면 뺀다(`is_overload_stub`). 스텁 본문은
+    `...`이라 호출이 없고, 스텁마다 다른 매개변수 주석을 묶음에 더하면 구현 매개변수의 값을 모르게 되기 때문이다.
+    스텁뿐이면(구현이 다른 파일) 모두 쓴다.
 
     Args:
         definition: 정의.
@@ -229,7 +230,7 @@ def body_nodes(definition: Definition) -> list[ast.AST]:
     nodes = definition.nodes
     if len(nodes) == 1:
         return nodes
-    implementations = [node for node in nodes if not is_overload_stub(node)]
+    implementations = [node for node in nodes if not is_overload_stub(node, definition.module)]
     return implementations or nodes
 
 
@@ -250,23 +251,63 @@ def body_statements(definition: Definition) -> list[ast.stmt]:
     return statements
 
 
-def is_overload_stub(node: ast.AST) -> bool:
-    """`@overload`(`typing.overload`·`typing_extensions.overload` 등 마지막 이름 기준) 장식 함수인지 본다.
+#: 타입 검사기용 `overload`를 내보내는 모듈이다. 그 장식 함수만 본문이 실행되지 않는 스텁이다.
+TYPING_MODULES = frozenset({"typing", "typing_extensions"})
+
+
+def is_overload_stub(node: ast.AST, module: ModuleIndex) -> bool:
+    """`typing`·`typing_extensions`의 `overload`로 장식한 스텁인지 본다.
+
+    이름만 보지 않는다. plum의 `overload`나 프로젝트가 직접 정의한 등록 장식자는 본문이 실제 구현이라 빼면 간선을
+    잃는다. 모듈 수준 import(조건문 안 포함, 별칭 포함)로 출처가 확인될 때만 스텁이다.
 
     Args:
         node: 정의 노드.
+        module: 정의가 있는 모듈의 색인.
 
     Returns:
         스텁이면 True.
     """
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return False
-    for decorator in node.decorator_list:
-        target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        name = target.attr if isinstance(target, ast.Attribute) else target.id if isinstance(target, ast.Name) else ""
-        if name == "overload":
-            return True
+    return any(_typing_overload(decorator, module) for decorator in node.decorator_list)
+
+
+def _typing_overload(decorator: ast.expr, module: ModuleIndex) -> bool:
+    """장식자 식이 `typing`·`typing_extensions`의 `overload`를 가리키는지 본다.
+
+    `@overload`(`from typing import overload`, 별칭 포함)와 `@typing.overload`·`@t.overload`(`import typing as t`)를
+    인정한다. 모듈이 그 이름을 정의나 대입으로 다시 묶으면 출처를 모르므로 스텁이 아니다.
+
+    Args:
+        decorator: 장식자 식.
+        module: 모듈 색인.
+
+    Returns:
+        가리키면 True.
+    """
+    if isinstance(decorator, ast.Name):
+        binding = _module_import(module, decorator.id)
+        return binding is not None and binding.module in TYPING_MODULES and binding.attribute == "overload"
+    if isinstance(decorator, ast.Attribute) and decorator.attr == "overload" and isinstance(decorator.value, ast.Name):
+        binding = _module_import(module, decorator.value.id)
+        return binding is not None and binding.module in TYPING_MODULES and binding.attribute is None
     return False
+
+
+def _module_import(module: ModuleIndex, name: str) -> ImportBinding | None:
+    """모듈 수준 이름이 import로만 묶였으면 그 묶음을 돌려준다.
+
+    Args:
+        module: 모듈 색인.
+        name: 이름.
+
+    Returns:
+        import 묶음, 정의·대입으로도 묶였거나 import가 아니면 None.
+    """
+    if name in module.definitions or name in module.values:
+        return None
+    return module.imports.get(name)
 
 
 def _definition_kind(parent: Definition, node: DefinitionNode) -> str:

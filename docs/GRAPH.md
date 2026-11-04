@@ -29,8 +29,11 @@ pythograph impact (reach와 같은 옵션)
 | `inherited-method` | `<등록 클래스 id>.<멤버>` | 클래스가 정의하지 않고 물려받은 멤버. 위치는 그 클래스다 |
 
 - 같은 점 경로를 두 번 정의하면(조건부 정의, property setter, `@overload` 스텁과 구현, `singledispatch`의 `@f.register def _`) 한
-  정점이다. 위치는 첫 정의를 쓰고, 간선·이름 묶음·장식자 간선은 모든 정의의 본문에서 모은다(`@overload` 스텁은 구현이 따로 있으면
-  뺀다). 정의마다 같은 위치·주석인 매개변수(getter/setter의 `self`)는 한 묶음이다.
+  정점이다. 위치는 첫 정의를 쓰고, 간선·이름 묶음·장식자 간선은 모든 정의의 본문에서 모은다(`typing`·`typing_extensions`의
+  `@overload` 스텁은 구현이 따로 있으면 뺀다 — 출처를 모듈 import로 확인하므로 plum의 `overload`나 프로젝트의 등록 장식자는 구현으로
+  본다). 정의마다 같은 위치·주석인 매개변수(getter/setter의 `self`)는 한 묶음이다. 일부 정의에서만 묶이거나 `global`·`nonlocal`로
+  선언된 이름은 어느 정의의 참조인지 모르므로 모르는 값(`local-value`)이다 — 한 정의의 지역 `helper = Alt`가 다른 정의의 전역
+  `helper()`를 `Alt`로 풀지 않는다.
 - 상속 멤버 정점은 두 곳에서 만든다. (1) 뷰 클래스의 핸들러 이름(아래 [프레임워크 디스패치](#프레임워크-디스패치)) — routes가
   클래스 핸들러를 URL에 등록한 클래스 기준 id(`catalog/views.py#BrandView.get`)로 내므로 그 id가 정점이어야 한다. (2) 정확한
   수신자(생성자로 만든 인스턴스)의 물려받은 멤버 호출(`Plain("p").describe()` → `Plain.describe`).
@@ -73,7 +76,11 @@ pythograph impact (reach와 같은 옵션)
 - 모듈 수준 이름도 문장 순서를 따지지 않는다. 정의·import·대입이 같은 이름을 두 번 이상 묶으면(`def fast` 뒤
   `from x import run as fast`, `try: from a import run as fast except ImportError: def fast(): …`) 어느 쪽이 실행되는지 고르지
   않고 모르는 값(`local-value`)이다. 정의·import 묶음이 모두 같은 대상을 가리키고 다른 곳에서 다시 쓰지 않으면 그 값이고,
-  모두 외부 값이면(`try: import simplejson as json except ImportError: import json`) 외부 결과다.
+  모두 외부 값이면(`try: import simplejson as json except ImportError: import json`,
+  `try: from django.views.generic import ListView except ImportError: ListView = object`) 프로젝트 간선이 없으므로 평소 해석
+  (정의 → import → 대입 순)을 그대로 쓴다 — 외부 기반 클래스의 프레임워크 정점과 routes usr가 유지된다. 다른 모듈이 그 이름을
+  import하거나(`from pkg import parse`) 모듈 속성으로 읽어도(`pkg.parse()`), 재수출 사슬의 어느 모듈이든 그 이름을 다시 묶었으면
+  같은 판정을 쓴다.
 - 수신자: 메서드 첫 매개변수(`self`는 그 클래스 또는 하위 클래스, `classmethod`의 `cls`), 프로젝트 클래스 주석
   (`Optional[X]`·`X | None`·`Annotated[X, …]`·문자열 주석 포함), 생성자 결과(정확한 클래스), 프로젝트 클래스 반환 주석,
   `type(self)`, 인자 없는 `super()`.

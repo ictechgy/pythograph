@@ -367,9 +367,9 @@ class Resolver:
         이름 해석기(`resolve_name`)는 문장 순서와 무관하게 정의 → import → 대입 순으로 하나를 고른다. `def fast` 뒤
         `from x import run as fast`나 `try: import … except ImportError: import …`의 실행 대상은 그 선택과 다를 수 있다.
         정의·import 묶음만 있고 다른 곳에서 다시 쓰지 않으며 모두 같은 대상을 가리키면 그 값, 모두 외부 값이면(프로젝트
-        대상이 없어 간선도 없다) 외부 결과, 그 밖에는 추측하지 않고 모르는 값(`rebound-global`)이다. 대입 묶음은 같은
+        대상이 없어 간선도 없다) 평소 해석, 그 밖에는 추측하지 않고 모르는 값(`rebound-global`)이다. 대입 묶음은 같은
         식이라도 새 객체이고 다른 곳의 쓰기를 따져야 하므로 값을 합치지 않는다. 같은 정의를 조건부로 다시 정의한 것은
-        한 묶음이다.
+        한 묶음이다. 다른 모듈이 이 이름을 import하거나 모듈 속성으로 읽을 때도 같은 판정을 쓴다(`_rebound_route`).
 
         Args:
             path: 모듈 경로.
@@ -377,7 +377,7 @@ class Resolver:
             depth: 재귀 깊이.
 
         Returns:
-            값, 한 번만 묶였으면 None(평소 해석).
+            값, 한 번만 묶였거나 모두 외부 값이면 None(평소 해석).
         """
         module = self.index.definitions.get(symbol_id(path, MODULE_NAME))
         if module is None:
@@ -385,14 +385,47 @@ class Resolver:
         bindings = distinct_bindings(self.bindings(module).names.get(name, []))
         if len(bindings) < 2:
             return None
-        values = [self._single_binding(module, binding, depth) for binding in bindings]
+        if depth > MAX_VALUE_DEPTH:
+            return UnknownValue("depth-limit")
+        # 재수출 사슬이 서로를 가리키면(`a.f`가 `b.f`를, `b.f`가 `a.f`를 다시 묶음) 판정이 돌기만 하므로 모른다.
+        key = (symbol_id(path, "<rebound>"), name)
+        if key in self._active:
+            return UnknownValue("recursive-binding")
+        self._active.add(key)
+        try:
+            values = [self._single_binding(module, binding, depth + 1) for binding in bindings]
+        finally:
+            self._active.discard(key)
         same = all(value == values[0] for value in values[1:]) and not isinstance(values[0], UnknownValue)
         named = all(binding.kind in ("def", "import") for binding in bindings)
         if same and named and self._unwritten_global(module, name):
             return values[0]
         if all(isinstance(value, (ExternalValue, ExternalResult)) for value in values):
-            return ExternalResult()
+            # 프로젝트 대상이 없어 간선은 어느 쪽이든 없다. 평소 해석(정의 → import → 대입)을 그대로 써서 외부 기반
+            # 클래스(`try: from django.views.generic import ListView / except: ListView = object`)의 프레임워크
+            # 정점과 routes usr를 지킨다.
+            return None
         return UnknownValue("rebound-global")
+
+    def _rebound_route(self, symbol: Symbol | None, depth: int) -> Value | None:
+        """해석 결과가 거쳐 온 모듈 수준 묶음 중 다시 묶인 이름이 있으면 그 값을 정한다.
+
+        다른 모듈에서 `from pkg import parse`·`pkg.parse`로 닿은 이름도 `pkg`가 `parse`를 섞어 묶었으면
+        (`try: from pkg._speedups import parse / except ImportError: from pkg._pure import parse`) 같은 모듈 안 참조와
+        똑같이 확정하지 않는다. 쓰는 쪽에 가까운 묶음부터 본다.
+
+        Args:
+            symbol: 해석 결과.
+            depth: 재귀 깊이.
+
+        Returns:
+            다시 묶인 묶음의 값, 거친 묶음이 모두 한 번씩만 묶였으면 None.
+        """
+        for path, name in getattr(symbol, "via", ()):
+            rebound = self._rebound_module_name(path, name, depth + 1)
+            if rebound is not None:
+                return rebound
+        return None
 
     def symbol_value(self, symbol: Symbol | None, depth: int, origin: str | None = None) -> Value:
         """모듈 색인의 해석 결과를 값으로 바꾼다.
@@ -405,6 +438,9 @@ class Resolver:
         Returns:
             값.
         """
+        rebound = self._rebound_route(symbol, depth)
+        if rebound is not None:
+            return rebound
         if isinstance(symbol, ProjectSymbol):
             definition = self.index.by_node.get(symbol.node)
             return _definition_value(definition) if definition else UnknownValue("excluded-source")
@@ -863,17 +899,68 @@ def collect_bindings(index: DefinitionIndex, scope: Definition) -> ScopeBindings
     Returns:
         묶음.
     """
-    result = ScopeBindings({}, set(), set())
     nodes = body_nodes(scope)
-    for node in nodes:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            _collect_parameters(node.args, result)
-    collector = _BindingCollector(index, scope, result)
-    for statement in body_statements(scope):
-        collector.visit(statement)
-    if len(nodes) > 1:
-        _merge_parameters(result)
+    if len(nodes) == 1:
+        return _node_bindings(index, scope, nodes[0])
+    per_node = [_node_bindings(index, scope, node) for node in nodes]
+    result = ScopeBindings({}, set(), set())
+    for bindings in per_node:
+        for name, items in bindings.names.items():
+            result.names.setdefault(name, []).extend(items)
+        result.globals |= bindings.globals
+        result.nonlocals |= bindings.nonlocals
+    _merge_parameters(result)
+    _mark_partial_names(result, per_node)
     return result
+
+
+def _node_bindings(index: DefinitionIndex, scope: Definition, node: ast.AST) -> ScopeBindings:
+    """정의 노드 하나(재정의 중 하나)의 매개변수와 본문 묶음을 모은다.
+
+    Args:
+        index: 선언 색인.
+        scope: 노드가 속한 정의.
+        node: 정의 노드(모듈·클래스·함수).
+
+    Returns:
+        묶음.
+    """
+    result = ScopeBindings({}, set(), set())
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        _collect_parameters(node.args, result)
+    collector = _BindingCollector(index, scope, result)
+    body = getattr(node, "body", [])
+    for statement in body if isinstance(body, list) else []:
+        collector.visit(statement)
+    return result
+
+
+def _mark_partial_names(result: ScopeBindings, per_node: list[ScopeBindings]) -> None:
+    """재정의 중 일부에서만 묶이거나 `global`·`nonlocal`로 선언된 이름을 모르는 값으로 표시한다.
+
+    간선은 정의별로 나누지 않고 한 정점에 모으므로, 한 정의의 지역 이름(`helper = Alt`)을 합친 묶음에 그대로 두면
+    다른 정의의 같은 이름 참조(전역 `helper()`)가 그 지역 값으로 풀려 거짓 간선이 생기고 진짜 간선은 사라진다.
+    어느 정의의 참조인지 모르므로 추측하지 않고 `rebound-local`(출력 `local-value`)로 센다. 모든 정의에서 같은 쪽으로
+    묶인 이름은 기존 규칙(같은 매개변수는 합치고 그 밖에 둘 이상이면 모름)을 그대로 따른다.
+
+    Args:
+        result: 합친 묶음(고친다).
+        per_node: 정의 노드별 묶음.
+    """
+    partial: set[str] = set()
+    for sets in (
+        [set(bindings.names) for bindings in per_node],
+        [bindings.globals for bindings in per_node],
+        [bindings.nonlocals for bindings in per_node],
+    ):
+        anywhere: set[str] = set()
+        for names in sets:
+            anywhere |= names
+        partial |= anywhere - set(sets[0]).intersection(*sets[1:])
+    for name in sorted(partial):
+        result.globals.discard(name)
+        result.nonlocals.discard(name)
+        result.names.setdefault(name, []).append(Binding("opaque", reason="rebound-local"))
 
 
 def _merge_parameters(result: ScopeBindings) -> None:
