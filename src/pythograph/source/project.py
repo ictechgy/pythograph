@@ -90,8 +90,13 @@ SKIPPED_DIRECTORIES = frozenset(
 #: `Project.skipped_source_directories`로 세어 한계로 남긴다(setuptools `build/lib/…`·가상 환경은 직접 담지 않는다).
 PACKAGE_NAMED_SKIPS = frozenset({"venv", "env", "build", "dist"})
 
-#: 건너뛰는 이름 디렉터리가 `.py`를 직접 담는지 볼 때 읽는 항목 상한이다(넘으면 담은 것으로 본다).
-MAX_SKIP_PROBE_ENTRIES = 512
+#: 건너뛰는 이름 디렉터리가 소스를 담는지 볼 때 읽는 직접 항목 상한이다(넘으면 담은 것으로 본다). 산출물만 많은
+#: `dist/`(휠·sdist 수백 개)를 담은 것으로 잘못 세지 않도록 한 디렉터리 목록으로는 넉넉히 잡는다.
+MAX_SKIP_PROBE_ENTRIES = 65536
+
+#: setuptools가 `build/` 아래에 만드는 산출물 디렉터리 이름 접두사다(`lib.<플랫폼>`, `temp.*`, `bdist.*`, `scripts-*`,
+#: 그리고 `lib`). 그 아래 패키지는 소스 복사본이므로 건너뛰기 이름 디렉터리의 소스로 세지 않는다.
+BUILD_OUTPUT_PREFIXES = ("lib.", "temp.", "bdist.", "scripts-")
 
 
 @dataclass(frozen=True)
@@ -303,7 +308,11 @@ class Project:
         return False
 
     def _holds_python_files(self, relative: str) -> bool:
-        """디렉터리가 `.py` 일반 파일을 직접 담는지 본다(항목 상한을 넘으면 담은 것으로 본다).
+        """디렉터리가 소스를 담는지 본다: `.py` 일반 파일이나 한 단계 아래 일반 패키지(`__init__.py`).
+
+        한 단계 아래 패키지는 `build/__init__.py` 없이 `build/handlers/__init__.py`를 둔 namespace 배치다. setuptools
+        산출물(`build/lib/…` 등, `_is_build_output`)과 가상 환경 하위(`lib/python3.x/…`)는 직접 패키지를 담지 않으므로
+        세지 않는다. 직접 항목이 상한을 넘으면 다 보지 못했으므로 담은 것으로 본다.
 
         Args:
             relative: 디렉터리의 프로젝트 상대 경로.
@@ -318,9 +327,25 @@ class Project:
                         return True
                     if entry.name.endswith(".py") and entry.is_file(follow_symlinks=False):
                         return True
+                    if self._is_child_package(relative, entry):
+                        return True
         except OSError:
             return False
         return False
+
+    def _is_child_package(self, relative: str, entry: os.DirEntry[str]) -> bool:
+        """건너뛰기 이름 디렉터리 바로 아래 항목이 산출물이 아닌 일반 패키지 디렉터리인지 본다.
+
+        Args:
+            relative: 건너뛰기 이름 디렉터리의 프로젝트 상대 경로.
+            entry: 그 디렉터리의 항목.
+
+        Returns:
+            일반 패키지면 True.
+        """
+        if not entry.is_dir(follow_symlinks=False) or _is_build_output(entry.name):
+            return False
+        return self.is_file(f"{relative}/{entry.name}/__init__.py")
 
     def _collect(self, relative: str, found: list[str]) -> None:
         """파이썬 파일을 발견 목록에 넣는다. 교환 형식에 실을 수 없는 경로는 건너뛰고 센다.
@@ -883,6 +908,18 @@ def _is_skipped_directory(name: str) -> bool:
         건너뛰면 True.
     """
     return name.startswith(".") or name in SKIPPED_DIRECTORIES
+
+
+def _is_build_output(name: str) -> bool:
+    """setuptools가 `build/` 아래에 만드는 산출물 디렉터리 이름인지 본다(`BUILD_OUTPUT_PREFIXES`, 그리고 `lib`).
+
+    Args:
+        name: 디렉터리 이름.
+
+    Returns:
+        산출물이면 True.
+    """
+    return name == "lib" or name.startswith(BUILD_OUTPUT_PREFIXES)
 
 
 def _link_may_hide_sources(name: str) -> bool:

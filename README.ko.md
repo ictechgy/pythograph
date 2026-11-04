@@ -335,9 +335,12 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 
 순회는 점 디렉터리(`.git`·`.venv`·`.tox` 등)와 `__pycache__`·`node_modules`·`site-packages`·`htmlcov`·`build`·`dist`·`env`·
 `venv` 이름의 디렉터리에 들어가지 않습니다. 다만 `build`·`dist`·`env`·`venv` 디렉터리가 `__init__.py`를 직접 담고
-`pyvenv.cfg`가 없으면 프로젝트 패키지로 보고 순회합니다. 이 이름의 디렉터리가 패키지가 아닌 `.py`를 직접 담으면 빌드
-산출물이나 가상 환경으로 보고 건너뛰되, 한계(graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema
-`scan-truncated:`)로 세고 닫힌 세계 `bound` 증명을 막습니다. 분석하려면 더 좁은 `--project`를 주세요.
+`pyvenv.cfg`가 없으면 프로젝트 패키지로 보고 순회합니다. 이 이름의 디렉터리가 패키지가 아닌 `.py`를 직접 담거나 한 단계 아래에
+일반 패키지를 담으면(`shop/build/__init__.py` 없이 `shop/build/handlers/__init__.py`를 둔 namespace 배치) 빌드 산출물이나 가상
+환경으로 보고 건너뛰되, 한계(graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema
+`scan-truncated:`)로 세고 닫힌 세계 `bound` 증명을 막습니다. 분석하려면 더 좁은 `--project`를 주세요. setuptools 산출물
+디렉터리(`build/lib/…`·`build/lib.<플랫폼>/…`·`build/temp.*`·`build/bdist.*`·`build/scripts-*`) 아래 패키지는 소스 복사본이라
+세지 않고, 항목만 많고 파이썬이 없는 산출물 디렉터리도 세지 않습니다.
 
 파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 프로젝트 상대 경로가 UTF-8이 아니거나 교환 형식이 금지하는
 문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)를 담은 파이썬 파일은 분석하지 않습니다. isthmus가 문서 전체를 거부하는

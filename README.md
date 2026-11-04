@@ -417,9 +417,12 @@ would otherwise rely on missing modules. A successful command with these limitat
 The walk never enters dot directories (`.git`, `.venv`, `.tox`, …) or directories named `__pycache__`, `node_modules`,
 `site-packages`, `htmlcov`, `build`, `dist`, `env`, or `venv`. A `build`, `dist`, `env`, or `venv` directory that
 directly contains `__init__.py` and no `pyvenv.cfg` is a project package and is scanned. One of those names that
-directly holds other `.py` files is still skipped (as build output or a virtual environment) but counted in
-limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:` for
-schema) and prevents closed-world `bound` proofs; pass a narrower `--project` to analyze it.
+directly holds other `.py` files, or a regular package one level down (a namespace layout such as
+`shop/build/handlers/__init__.py` without `shop/build/__init__.py`), is still skipped (as build output or a virtual
+environment) but counted in limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:` for
+schema) and prevents closed-world `bound` proofs; pass a narrower `--project` to analyze it. Packages under setuptools
+output directories (`build/lib/…`, `build/lib.<platform>/…`, `build/temp.*`, `build/bdist.*`, `build/scripts-*`) are
+copies of sources and are not counted, and an artifact directory with many entries but no Python is not counted.
 
 File paths become every fact's `location.path` and symbol id, so a Python file whose project-relative path is not
 valid UTF-8 or contains characters the exchange format forbids (C0/C1 control characters including NEL, U+2028, or

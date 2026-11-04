@@ -69,3 +69,25 @@ def test_routes_and_schema_report_skipped_source_directories(make_project: MakeP
     assert code == 0
     schema: dict[str, Any] = json.loads(out)
     assert any("directories named build, dist, env, or venv" in line for line in schema["limitations"])
+
+
+def test_namespace_package_under_skipped_name_is_counted(make_project: MakeProject) -> None:
+    """`build/__init__.py` 없이 한 단계 아래에 패키지를 둔 namespace 배치는 세고, setuptools 산출물은 세지 않는다."""
+    root = make_project(
+        {
+            "shop/__init__.py": "",
+            "shop/build/handlers/__init__.py": "",
+            "shop/build/handlers/views.py": "def handler():\n    return 1\n",
+            "build/lib/mypkg/__init__.py": "",
+            "build/lib.linux-x86_64-3.12/mypkg/__init__.py": "",
+            "build/bdist.linux-x86_64/mypkg/__init__.py": "",
+        }
+    )
+    assert Project.open(root).skipped_source_directories == 1
+
+
+def test_large_artifact_directory_without_python_is_not_counted(make_project: MakeProject) -> None:
+    """`.py` 없이 항목만 많은 `dist/`(512개 초과)는 소스를 담은 것으로 세지 않는다."""
+    files = {f"dist/pkg-{index}.whl": "wheel\n" for index in range(600)}
+    files["app.py"] = "def main():\n    return 1\n"
+    assert Project.open(make_project(files)).skipped_source_directories == 0
