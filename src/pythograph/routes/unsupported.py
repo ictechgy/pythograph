@@ -43,7 +43,7 @@ def unsupported_framework_gap(project: Project, include_tests: bool) -> str | No
         if not include_tests and is_test_path(path):
             continue
         module = project.module(path)
-        found = _frameworks(module.tree) if isinstance(module, SourceModule) else set()
+        found = _frameworks(module.tree, project) if isinstance(module, SourceModule) else set()
         if found:
             modules += 1
             names.update(found)
@@ -56,11 +56,14 @@ def unsupported_framework_gap(project: Project, include_tests: bool) -> str | No
     )
 
 
-def _frameworks(tree: ast.Module) -> set[str]:
+def _frameworks(tree: ast.Module, project: Project) -> set[str]:
     """모듈이 import한 지원하지 않는 서버 프레임워크 이름을 모은다.
+
+    최상위 이름이 프로젝트 안의 모듈·패키지로 풀리면(프로젝트의 `bottle/` 패키지) 그 프레임워크가 아니므로 세지 않는다.
 
     Args:
         tree: 모듈 구문 트리.
+        project: 분석 대상 프로젝트.
 
     Returns:
         프레임워크 이름 집합.
@@ -75,7 +78,7 @@ def _frameworks(tree: ast.Module) -> set[str]:
             continue
         for name in modules:
             framework = _framework_of(name)
-            if framework is not None:
+            if framework is not None and project.resolve_module(name.split(".")[0]) is None:
                 found.add(framework)
     return found
 

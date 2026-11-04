@@ -109,3 +109,55 @@ def test_flask_host_options_are_counted(make_project: MakeProject) -> None:
     assert any(line.startswith("route-coverage: 5 Flask registrations use subdomain") for line in limitations), (
         limitations
     )
+
+
+def test_project_package_named_like_framework_is_not_reported(make_project: MakeProject) -> None:
+    """프로젝트 안의 `bottle/` 패키지를 import한 것은 지원하지 않는 프레임워크가 아니다."""
+    root = make_project(
+        {
+            "bottle/__init__.py": "def fill():\n    return 1\n",
+            "app.py": """
+                from flask import Flask
+                import bottle
+
+                app = Flask(__name__)
+
+
+                @app.route("/health")
+                def health():
+                    return bottle.fill()
+            """,
+        }
+    )
+    limitations = routes_document(root)["limitations"]
+    assert isinstance(limitations, list)
+    assert not any("modules import" in line for line in limitations), limitations
+
+
+def test_false_flask_host_options_are_not_counted(make_project: MakeProject) -> None:
+    """`host_matching=False`·`subdomain=None`처럼 끈 옵션은 세지 않고, 문구는 앱 옵션까지 모두 적는다."""
+    root = make_project(
+        {
+            "app.py": """
+                from flask import Blueprint, Flask
+
+                app = Flask(__name__, host_matching=False, subdomain_matching=False, static_host=None)
+                admin = Blueprint("admin", __name__, subdomain=None)
+
+
+                @app.route("/plain", host="")
+                def plain():
+                    return "plain"
+
+
+                app.register_blueprint(admin, subdomain=None)
+                app.register_blueprint(admin, url_prefix="/v2", subdomain=SUBDOMAIN)
+            """,
+        }
+    )
+    limitations = routes_document(root)["limitations"]
+    assert isinstance(limitations, list)
+    lines = [line for line in limitations if "Flask registrations use" in line]
+    # 값이 리터럴이 아닌 `subdomain=SUBDOMAIN` 등록 하나만 켜졌을 수 있어 센다.
+    assert len(lines) == 1 and lines[0].startswith("route-coverage: 1 Flask registrations use"), limitations
+    assert "subdomain_matching" in lines[0] and "static_host" in lines[0], lines
