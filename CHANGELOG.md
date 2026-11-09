@@ -59,8 +59,7 @@
 
 ## [0.3.1] - 2026-11-03
 
-- 다른 모듈에서 가져온 DRF 라우터 별칭·모듈 속성을 보존하고, 조건부이거나 밖에서 바뀌는 라우터 상태는 계속 모르는 값으로 둔다.
-  벤더링한 SQL 관계 적합성 사례를 실행하고 Ruff 검사에 `scripts`를 넣는다.
+- Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.
 
 ### Fixed
 
