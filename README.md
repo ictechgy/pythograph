@@ -19,9 +19,9 @@ isthmus joins the documents.
 
 The analyzed project is parsed with the standard-library `ast` only. It is never imported or executed,
 and pythograph has no runtime dependencies and uses no network. The only program it starts is git at the project root,
-to read `revision` for `graph`, `reach`, and `impact`; git runs without the filter commands that the repository's git
-configuration defines, never fetches the objects that a partial clone lacks, and never runs inside submodules (see
-[Security](#security)).
+to read `revision` for `graph`, `reach`, and `impact`, and to capture the compared sources for `change-impact`; git runs
+without the filter commands that the repository's git configuration defines, never fetches the objects that a partial
+clone lacks, and never runs inside submodules (see [Security](#security)).
 
 ## Status
 
@@ -31,6 +31,7 @@ configuration defines, never fetches the objects that a partial clone lacks, and
 | `pythograph schema`: Django models and QuerySets, SQLAlchemy 2.x / Flask-SQLAlchemy 3 mappings and queries, SQL text → persistence `relation-use` facts | Implemented |
 | `pythograph graph` / `reach` / `impact`: Python call graph → isthmus `language-traversal` v1 (evidence tiers `direct`/`bound`/`candidate`, `unresolvedCalls`, Django/DRF/Flask dispatch) | Implemented |
 | `pythograph routes --role client`: requests, httpx, aiohttp, and urllib calls plus declared HTTP wrappers → `route-call` facts | Implemented |
+| `pythograph change-impact`: Git base/head (or working tree) captures → separate before/after `language-traversal` reports ([rules](https://github.com/ictechgy/pythograph/blob/main/docs/CHANGE-IMPACT.md), Korean) | Implemented |
 
 isthmus-cli 0.10.0 (npm) is the first release that accepts `platform: "python"` http documents (server `route-decl`
 including `registration-order`, and client `route-call`), persistence documents, and python `language-traversal`
@@ -332,7 +333,10 @@ strings as `symbol.usr` in `routes` and `schema`. The full rules are in [docs/GR
   sources links the project hooks that the `as_view()` dispatch path (`dispatch`, `initial`, permission checks,
   `__init__`) and framework implementations (`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`) call. Objects the framework builds from class attributes (`serializer_class`,
-  `permission_classes`) count as `framework-callback` unresolved calls.
+  `permission_classes`) count as `framework-callback` unresolved calls. Celery tasks (`@shared_task`, `@app.task`; any
+  non-project `@<x>.task` decorator counts, so other task libraries such as Huey or Prefect are included) and
+  Django `@receiver` functions are called by workers and signal dispatch, so they have no graph callers and are counted
+  under `framework-dispatch:`; queuing a task (`task.delay(...)`, `apply_async`, `s`, `si`) is a `callback` edge to it.
 - **Snapshot size**: the `graph` snapshot is not an isthmus input, so it may be up to 256 Mi characters (about 2 bytes
   of extra memory per output character while encoding); `reach` and `impact` keep the 16 Mi isthmus input limit.
   The encoding is unchanged, so raising the cap alone changes no snapshot under 16 Mi characters.
@@ -362,7 +366,7 @@ directory) measured route precision against each framework's resolver, relation-
 isthmus, handler-to-relation reachability, unresolved-call reasons, and runtime; the results and the fixed issues are in
 [DOGFOOD.md](https://github.com/ictechgy/pythograph/blob/main/DOGFOOD.md) (Korean).
 
-The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `1d6683a` and locked in
+The isthmus shared conformance vectors (`conformance/`, vendored from isthmus `c76e105` and locked in
 `conformance.lock`) pass 100% of the `producer` and `producer:pythograph` cases (149: `template.grammar`,
 `template.normalize`, `scope.validate`, `scope.applies`, `dispatch.validate`, 14 SQL relation cases, and 57 url-compose cases for query tails,
 interpolation, normalization, stripping, masking, the `rfc3986`/`httpx-base-url`/`aiohttp-base-url` joins, and wrapper
@@ -411,6 +415,16 @@ an arbitrary filesystem-order subset; files from previously completed directorie
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 
+The walk never enters dot directories (`.git`, `.venv`, `.tox`, …) or directories named `__pycache__`, `node_modules`,
+`site-packages`, `htmlcov`, `build`, `dist`, `env`, or `venv`. A `build`, `dist`, `env`, or `venv` directory that
+directly contains `__init__.py` and no `pyvenv.cfg` is a project package and is scanned. One of those names that
+directly holds other `.py` files, or a regular package one level down (a namespace layout such as
+`shop/build/handlers/__init__.py` without `shop/build/__init__.py`), is still skipped (as build output or a virtual
+environment) but counted in limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:` for
+schema) and prevents closed-world `bound` proofs; pass a narrower `--project` to analyze it. Packages under setuptools
+output directories (`build/lib/…`, `build/lib.<platform>/…`, `build/temp.*`, `build/bdist.*`, `build/scripts-*`) are
+copies of sources and are not counted, and an artifact directory with many entries but no Python is not counted.
+
 File paths become every fact's `location.path` and symbol id, so a Python file whose project-relative path is not
 valid UTF-8 or contains characters the exchange format forbids (C0/C1 control characters including NEL, U+2028, or
 U+2029) is not analyzed. It is counted in limitations instead (`scan-incomplete:` for graph, `route-coverage:` or
@@ -424,6 +438,10 @@ Imports that only the remaining directories would resolve are treated as externa
 limitations (`scan-incomplete:` for graph, `route-coverage:` or `route-call-coverage:` for routes, `scan-truncated:`
 for schema) and prevent closed-world `bound` proofs; pass a narrower `--project` to analyze them. Each module root's
 entries are read once, so resolving a name touches the filesystem only under roots that contain its first component.
+`graph`, `reach`, and `impact` do not treat an absolute import as external when a package or module of that name sits
+under the importing module's implicit root (the parent of its outermost package, or its own directory for a plain
+script), such as `from app.models import load` in `backend/app/api.py` without a `manage.py`: the call is counted as
+`unresolved-import` so the traversal reports that it may be incomplete.
 
 Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
 and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
@@ -514,9 +532,12 @@ sandbox against concurrent changes to the filesystem. The analyzed Python code i
 
 ## Security
 
-pythograph starts one external program: `git`, only to read the `revision` of `graph`, `reach`, and `impact` when
-`--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`, and
-`git rev-parse`, run at the project root). It runs the first `git` in an absolute `PATH` entry and skips one that
+pythograph starts one external program: `git`, at the project root. `graph`, `reach`, and `impact` run it to read the
+`revision` when `--revision` is not given and the project root has `.git` (`git config`, `git ls-files`, `git status`,
+and `git rev-parse`). `change-impact` runs it to capture the compared sources: `git rev-parse` on the `--base` and
+`--head` you give (with `--end-of-options`), `git ls-tree` and one `git cat-file --batch` for a commit, and
+`git ls-files --cached --others --exclude-standard` and `git rev-parse --show-object-format` for the working tree,
+each preceded by the same `git config` listing. It runs the first `git` in an absolute `PATH` entry and skips one that
 lives inside the project or directly in the current directory. A `.git` directory that arrives with an archive or a
 copy can define commands that git runs while it reads the work tree (see "SECURITY" in git(1)). pythograph closes the
 ways it knows these git calls can reach such commands:
@@ -560,7 +581,7 @@ What this changes:
 
 ```sh
 uv sync
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy
 uv run pytest --cov          # line and branch coverage gate: 90%
 uv run python scripts/verify_cli_contract.py

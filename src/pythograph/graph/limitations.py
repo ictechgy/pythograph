@@ -10,7 +10,8 @@ from typing import cast
 
 from pythograph.graph.model import DISPATCH_MODES
 from pythograph.graph.source_diagnostics import source_lines
-from pythograph.source.project import Project, skipped_roots_reason
+from pythograph.graph.tasks import CELERY_TASK, SIGNAL_RECEIVER
+from pythograph.source.project import Project, skipped_directories_reason, skipped_roots_reason
 
 #: 프레임워크 표를 만든 설치본 버전이다.
 FRAMEWORK_VERSIONS = "Django 5.2.17, djangorestframework 3.18.1, Flask 3.1.3"
@@ -139,6 +140,16 @@ def _shared(project: Project, statistics: dict[str, object]) -> list[str]:
             "attributes (serializers, permissions, pagination) count as framework-callback unresolved calls, and "
             "signals, middleware, and classes named in settings are not modeled"
         )
+    entries = cast(dict[str, int], statistics.get("frameworkEntries", {}))
+    if entries:
+        tasks, receivers = entries.get(CELERY_TASK, 0), entries.get(SIGNAL_RECEIVER, 0)
+        lines.append(
+            f"framework-dispatch: {tasks} task-queue functions (Celery decorators or any non-project @<x>.task, so "
+            f"other task libraries are included) and {receivers} Django signal receivers are called by the "
+            "framework (workers, signal dispatch), not by project calls, so they have no graph callers; queuing a "
+            "task (delay, apply_async, s, si) is a callback edge to it, and the same call on another decorated "
+            "function counts as framework-callback"
+        )
     lines.extend(_scan_lines(project, statistics))
     return lines
 
@@ -184,4 +195,6 @@ def _scan_lines(project: Project, statistics: dict[str, object]) -> list[str]:
         )
     if project.skipped_module_roots:
         lines.append(f"scan-incomplete: {skipped_roots_reason(project.skipped_module_roots)}")
+    if project.skipped_source_directories:
+        lines.append(f"scan-incomplete: {skipped_directories_reason(project.skipped_source_directories)}")
     return lines

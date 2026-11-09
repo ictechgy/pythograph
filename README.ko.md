@@ -17,8 +17,8 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 언어에서 본 것만 보고하고, 조인은 isthmus가 한다.
 
 분석 대상 프로젝트는 표준 라이브러리 `ast`로만 파싱한다. import하거나 실행하지 않으며, pythograph는 런타임
-의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 `graph`·`reach`·`impact`가 `revision`을 읽으려고 프로젝트
-루트에서 실행하는 git 하나다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고, 부분 clone에 빠진 객체를
+의존성이 없고 네트워크를 쓰지 않는다. 띄우는 외부 프로그램은 프로젝트 루트에서 실행하는 git 하나다. `graph`·`reach`·
+`impact`는 `revision`을 읽으려고, `change-impact`는 비교할 소스를 캡처하려고 실행한다. 이 git은 저장소 git 설정이 정한 filter 명령을 실행하지 않고, 부분 clone에 빠진 객체를
 받아 오지 않으며, 서브모듈 안에서는 돌지 않는다([보안](#보안)).
 
 ## 상태
@@ -29,6 +29,7 @@ Dart의 dartograph, Go의 gartograph, Rust의 rustograph, SQL의 schemagraph)의
 | `pythograph schema`: Django 모델·QuerySet, SQLAlchemy 2.x·Flask-SQLAlchemy 3 매핑·질의, SQL 텍스트 → persistence `relation-use` 사실 | 구현됨 |
 | `pythograph graph`·`reach`·`impact`: Python 호출 그래프 → isthmus `language-traversal` v1(근거 등급 `direct`·`bound`·`candidate`, `unresolvedCalls`, Django·DRF·Flask 디스패치) | 구현됨 |
 | `pythograph routes --role client`: requests·httpx·aiohttp·urllib 호출과 선언한 HTTP 래퍼 → `route-call` 사실 | 구현됨 |
+| `pythograph change-impact`: Git base/head(또는 작업 트리) 캡처 → 분리된 before/after `language-traversal` 보고서([규칙](docs/CHANGE-IMPACT.md)) | 구현됨 |
 
 isthmus-cli 0.10.0(npm)은 `platform: "python"`의 http 문서(서버 `route-decl`·`registration-order`, 클라이언트 `route-call`)·
 persistence 문서와 python `language-traversal` 분석을 받는 첫 릴리스다([isthmus 호환](#isthmus-호환) 참고).
@@ -264,7 +265,9 @@ pythograph impact (reach와 같은 옵션)
 - **프레임워크 디스패치**: Django 5.2.17·DRF 3.18.1·Flask 3.1.3 설치본 소스를 ast로 읽어 만든 표로 `as_view()` 디스패치 경로
   (`dispatch`·`initial`·권한·`__init__`)와 프레임워크 구현(`ModelViewSet.retrieve` → `get_object` → `get_queryset`,
   `ModelSerializer.save` → `create`)이 부르는 프로젝트 훅을 잇는다. 프레임워크가 클래스 속성으로 만드는 객체
-  (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다.
+  (`serializer_class`·`permission_classes`)는 `framework-callback` 미해석으로 센다. Celery 태스크(`@shared_task`·`@app.task`. 프로젝트 값이 아닌
+  `@<x>.task`는 모두 세므로 Huey·Prefect 같은 다른 태스크 라이브러리도 포함한다)와 Django `@receiver` 함수는 워커·시그널 발송이 부르므로 그래프 호출자가 없고 `framework-dispatch:`로 센다. 태스크를 큐에 넣는
+  호출(`task.delay(...)`·`apply_async`·`s`·`si`)은 그 태스크로 가는 `callback` 간선이다.
 - **스냅샷 크기**: `graph` 스냅샷은 isthmus 입력이 아니라 256 Mi 문자까지 쓴다(직렬화 중 출력 문자당 약 2바이트를 더 쓴다).
   `reach`·`impact`는 isthmus 입력 상한 16 Mi 문자를 그대로 둔다. 직렬화 방식은 그대로라 상한을 올린 것만으로 16 Mi 문자 이하 스냅샷은 바뀌지 않는다.
 - **순회 문서**: `dispatch` 선언, root별 하한 `evidence`, `unresolvedCalls`, 다중 root 단일 패스(root별 오라클과 무작위 비교),
@@ -288,7 +291,7 @@ pythograph impact (reach와 같은 옵션)
 route 정밀도, schemagraph·isthmus 조인율, 핸들러 → relation-use 도달률, 미해석 호출 이유, 실행 시간을 잰 도그푸딩 결과와 고친
 문제는 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-isthmus 공유 적합성 벡터(`conformance/`, isthmus `1d6683a`에서 벤더링해 `conformance.lock`으로 고정)의 `producer`·
+isthmus 공유 적합성 벡터(`conformance/`, isthmus `c76e105`에서 벤더링해 `conformance.lock`으로 고정)의 `producer`·
 `producer:pythograph` 사례 149건(`template.grammar`·`template.normalize`·`scope.validate`·`scope.applies`·`dispatch.validate`·SQL 관계 14건과
 query 꼬리·보간·정규화·strip·마스킹·`rfc3986`/`httpx-base-url`/`aiohttp-base-url` 결합·래퍼 인자 바인딩의 url-compose 57건)을
 100% 통과하고, `dispatch.validate` 검증기는 routes 출력 golden에도 적용한다.
@@ -330,6 +333,15 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 앞서 완전히 순회한 디렉터리의 파일은 보존합니다. 읽지 못한 디렉터리 항목 수는 routes·schema·graph 한계에 남기고,
 보이지 않는 모듈에 의존하는 닫힌 세계 `bound` 증명도 막습니다. 이런 한계와 함께 성공한 명령은 여전히 불완전한 분석입니다.
 
+순회는 점 디렉터리(`.git`·`.venv`·`.tox` 등)와 `__pycache__`·`node_modules`·`site-packages`·`htmlcov`·`build`·`dist`·`env`·
+`venv` 이름의 디렉터리에 들어가지 않습니다. 다만 `build`·`dist`·`env`·`venv` 디렉터리가 `__init__.py`를 직접 담고
+`pyvenv.cfg`가 없으면 프로젝트 패키지로 보고 순회합니다. 이 이름의 디렉터리가 패키지가 아닌 `.py`를 직접 담거나 한 단계 아래에
+일반 패키지를 담으면(`shop/build/__init__.py` 없이 `shop/build/handlers/__init__.py`를 둔 namespace 배치) 빌드 산출물이나 가상
+환경으로 보고 건너뛰되, 한계(graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema
+`scan-truncated:`)로 세고 닫힌 세계 `bound` 증명을 막습니다. 분석하려면 더 좁은 `--project`를 주세요. setuptools 산출물
+디렉터리(`build/lib/…`·`build/lib.<플랫폼>/…`·`build/temp.*`·`build/bdist.*`·`build/scripts-*`) 아래 패키지는 소스 복사본이라
+세지 않고, 항목만 많고 파이썬이 없는 산출물 디렉터리도 세지 않습니다.
+
 파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 프로젝트 상대 경로가 UTF-8이 아니거나 교환 형식이 금지하는
 문자(NEL을 포함한 C0·C1 제어 문자, U+2028/U+2029)를 담은 파이썬 파일은 분석하지 않습니다. isthmus가 문서 전체를 거부하는
 출력을 내는 대신 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `unreadable-sources:`
@@ -341,6 +353,9 @@ route-decl·route-call 문서를 입력 오류로 거부한다. 그런 옛 판�
 수를 graph `scan-incomplete:`, routes `route-coverage:`·`route-call-coverage:`, schema `scan-truncated:` 한계로 세고 닫힌
 세계 `bound` 증명도 막습니다. 그런 프로젝트는 `--project`를 좁혀 따로 분석하세요. 모듈 루트의 항목은 한 번만 읽으므로,
 이름을 풀 때는 그 이름의 첫 성분이 있는 루트에서만 파일시스템을 봅니다.
+`graph`·`reach`·`impact`는 쓰는 모듈의 암묵 루트(그 모듈을 담은 가장 바깥 패키지의 부모, 패키지가 아닌 스크립트는 그
+디렉터리) 아래에 같은 이름의 패키지·모듈이 있는 절대 import를 외부로 보지 않습니다. `manage.py` 없는
+`backend/app/api.py`의 `from app.models import load`는 `unresolved-import`로 세어 순회가 불완전할 수 있음을 알립니다.
 
 구문 트리 중첩이 `graph`·`reach`·`impact`는 128단, 재귀가 더 얕은 `routes`·`schema`는 256단을 넘는 모듈(아주 긴
 연산자·속성·호출·첨자 사슬, 긴 `elif` 사슬 등)은 분석하지 않습니다. 생성되거나 조작된 파일 하나가 파이썬 재귀 한도를
@@ -417,9 +432,12 @@ Flask-SQLAlchemy 3 규칙은 길이와 관계없이 적용합니다.
 
 ## 보안
 
-pythograph가 띄우는 외부 프로그램은 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를 실행하고 프로젝트 루트에
-`.git`이 있을 때만, `revision`을 읽으려고 프로젝트 루트에서 `git config`·`git ls-files`·`git status`·`git rev-parse`를
-실행한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
+pythograph가 띄우는 외부 프로그램은 프로젝트 루트에서 실행하는 `git` 하나다. `--revision` 없이 `graph`·`reach`·`impact`를
+실행하고 프로젝트 루트에 `.git`이 있으면 `revision`을 읽으려고 `git config`·`git ls-files`·`git status`·`git rev-parse`를
+실행한다. `change-impact`는 비교할 소스를 캡처하려고 사용자가 준 `--base`·`--head`에 `git rev-parse`(`--end-of-options`
+포함)를, 커밋에는 `git ls-tree`와 `git cat-file --batch` 한 번을, 작업 트리에는
+`git ls-files --cached --others --exclude-standard`와 `git rev-parse --show-object-format`을 실행하며, 각 명령 앞에 같은
+`git config` 조회를 한다. `PATH`의 절대 경로 항목에서 처음 찾은 `git`을 쓰고, 프로젝트 안이나 현재 디렉터리에 바로 있는 것은 건너뛴다.
 압축본·사본과 함께 온 `.git` 디렉터리는 git이 작업 트리를 읽으며 실행할 명령을 정할 수 있다(git(1)의 "SECURITY").
 pythograph는 이 git 호출이 그런 명령에 닿는 것으로 아는 경로를 막는다.
 
@@ -458,7 +476,7 @@ pythograph는 이 git 호출이 그런 명령에 닿는 것으로 아는 경로�
 
 ```sh
 uv sync
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests scripts && uv run ruff format --check src tests scripts
 uv run mypy
 uv run pytest --cov          # 라인·분기 커버리지 게이트 90%
 uv run python scripts/verify_cli_contract.py

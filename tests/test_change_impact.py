@@ -9,6 +9,7 @@ import pytest
 
 from pythograph.cli.common import InputError, UsageError
 from pythograph.cli.main import run
+from pythograph.graph import change as change_module
 from pythograph.graph.change import analyze_change, capture, changed_files, content_digest
 from pythograph.graph.traversal import TraversalRequest
 
@@ -170,3 +171,96 @@ def test_staged_edit_reverted_in_worktree_uses_net_source_state(repository: Path
     assert result["changes"] == []
     assert result["before"]["input"]["contentDigest"] == result["after"]["input"]["contentDigest"]
     assert result["status"] == "incomplete"
+
+
+def test_non_python_files_use_blob_identity_outside_byte_budget(repository: Path) -> None:
+    """그래프가 읽지 않는 큰 파일은 바이트 예산에 넣지 않고 git blob id로 바뀜만 비교한다."""
+    blob = bytes(range(256)) * (5 * 4096 + 1)
+    (repository / "data.bin").write_bytes(blob)
+    (repository / "same.bin").write_bytes(b"unchanged")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "binary")
+    committed = capture(repository, "HEAD")
+    assert "data.bin" not in committed.files and "data.bin" in committed.others
+    assert committed.others["data.bin"] == git(repository, "rev-parse", "HEAD:data.bin").strip()
+    assert capture(repository).others == committed.others
+    (repository / "data.bin").write_bytes(blob + b"!")
+    (repository / "untracked.bin").write_bytes(blob)
+    result = report(repository)
+    rows = {row["path"]: row["status"] for row in result["changes"]}
+    assert rows == {"data.bin": "modified", "untracked.bin": "added"}
+    assert result["after"]["input"]["identityOnlyFiles"] == 3
+
+
+def test_commit_capture_reads_blobs_in_one_batch(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """커밋 캡처는 파일 수와 무관하게 git을 몇 번만 실행한다(파일마다 cat-file 두 번이 아니다)."""
+    for index in range(30):
+        (repository / f"module_{index}.py").write_text(f"def f{index}():\n    return {index}\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "many")
+    calls: list[tuple[str, ...]] = []
+    original = change_module._git
+
+    def counting(*args: object, **kwargs: object) -> bytes | None:
+        calls.append(tuple(str(item) for item in args[2:]))
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(change_module, "_git", counting)
+    captured = capture(repository, "HEAD")
+    assert len(captured.files) == 33
+    assert [call[0] for call in calls] == ["rev-parse", "ls-tree", "cat-file"]
+
+
+def test_hash_budget_and_batch_output_are_checked(repository: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """비분석 파일 해시 예산 초과와 예상과 다른 일괄 읽기 출력은 부분 분석 없이 입력 오류다."""
+    (repository / "notes.txt").write_text("hello\n", encoding="utf-8")
+    with monkeypatch.context() as patched:
+        patched.setattr(change_module, "MAX_HASH_BYTES", 1)
+        with pytest.raises(InputError, match="hash budget"):
+            capture(repository)
+    original = change_module._read_git
+
+    def corrupt(root: Path, *args: str, **kwargs: object) -> bytes:
+        if args and args[0] == "cat-file":
+            return b"not a batch header\n"
+        return original(root, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(change_module, "_read_git", corrupt)
+    with pytest.raises(InputError, match="unexpected object data"):
+        capture(repository, "HEAD")
+
+
+@pytest.mark.parametrize("value", ["1_0", " 8", "+8", "08", "0"])
+def test_integer_options_use_the_traversal_grammar(repository: Path, value: str) -> None:
+    """`--max-depth`·`--max-reached`는 reach·impact와 같은 정수 문법이다(`int()`가 받는 `1_0`·공백·부호는 거부)."""
+    for option in ("--max-depth", "--max-reached"):
+        with pytest.raises(UsageError):
+            run(["change-impact", "--project", str(repository), "--base", "HEAD", option, value])
+
+
+def test_generated_at_fixes_traversal_timestamps(repository: Path) -> None:
+    """`--generated-at`이면 두 순회 문서의 generatedAt이 고정된다(cost만 실행마다 다르다)."""
+    (repository / "value.py").write_text("def value():\n    return 2\n", encoding="utf-8")
+    fixed = "2026-01-01T00:00:00.000Z"
+    first = report(repository, generated_at=fixed)
+    second = report(repository, generated_at=fixed)
+    for side in ("before", "after"):
+        assert first[side]["traversal"]["generatedAt"] == fixed
+    first.pop("cost")
+    second.pop("cost")
+    assert first == second
+    with pytest.raises(UsageError):
+        run(["change-impact", "--project", str(repository), "--base", "HEAD", "--generated-at", "yesterday"])
+
+
+def test_virtualenv_marker_is_captured_like_graph_reads_it(repository: Path) -> None:
+    """graph 건너뛰기 판정이 보는 `pyvenv.cfg`를 바이트로 캡처해 커밋한 가상 환경을 두 명령이 같게 다룬다."""
+    (repository / "venv").mkdir()
+    (repository / "venv" / "__init__.py").write_text("", encoding="utf-8")
+    (repository / "venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (repository / "venv" / "hidden.py").write_text("def hidden():\n    return 1\n", encoding="utf-8")
+    git(repository, "add", ".")
+    git(repository, "commit", "-qm", "venv")
+    committed = capture(repository, "HEAD")
+    assert "venv/pyvenv.cfg" in committed.files
+    assert capture(repository).files["venv/pyvenv.cfg"] == committed.files["venv/pyvenv.cfg"]

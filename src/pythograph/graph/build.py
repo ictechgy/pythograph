@@ -27,6 +27,7 @@ from pythograph.graph.limitations import graph_limitations
 from pythograph.graph.model import EVIDENCE_ORDER, CallGraph, GraphEdge, GraphNode, NodeLocation
 from pythograph.graph.scope import Resolver
 from pythograph.graph.source_diagnostics import source_statistics
+from pythograph.graph.tasks import is_decorated
 from pythograph.graph.values import ClassValue, FunctionValue
 from pythograph.source.project import Project
 from pythograph.source.symbols import SymbolTable
@@ -132,7 +133,7 @@ def _add_definition(builder: GraphBuilder, definition: Definition) -> None:
 
 
 def _decorator_targets(builder: GraphBuilder, definition: Definition) -> list[Target]:
-    """정의 → 프로젝트 장식자(장식자 팩토리 호출이면 그 팩토리) 간선 대상이다.
+    """정의 → 프로젝트 장식자(장식자 팩토리 호출이면 그 팩토리) 간선 대상이다. 같은 점 경로의 모든 정의 장식자를 본다.
 
     Args:
         builder: 조립 상태.
@@ -141,15 +142,17 @@ def _decorator_targets(builder: GraphBuilder, definition: Definition) -> list[Ta
     Returns:
         대상 목록.
     """
-    node = definition.node
-    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or definition.parent is None:
+    if definition.parent is None:
         return []
     targets: list[Target] = []
-    for decorator in node.decorator_list:
-        expr = decorator.func if isinstance(decorator, ast.Call) else decorator
-        value = builder.resolver.value(definition.parent, expr)
-        if isinstance(value, (FunctionValue, ClassValue)):
-            targets.append(Target(value.definition.id, "decorator"))
+    for node in definition.nodes:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for decorator in node.decorator_list:
+            expr = decorator.func if isinstance(decorator, ast.Call) else decorator
+            value = builder.resolver.value(definition.parent, expr)
+            if isinstance(value, (FunctionValue, ClassValue)):
+                targets.append(Target(value.definition.id, "decorator"))
     return targets
 
 
@@ -634,12 +637,31 @@ def _statistics(
         "partialCalls": dict(sorted(partial.items())),
         "frameworkUnresolved": dict(sorted(extra.items())),
         "viewHandlers": len(builder.handlers),
+        "frameworkEntries": _framework_entries(builder),
         "boundDispatch": _bound_statistics(builder),
         "dynamicAttributeWrites": dynamic_writes,
         "unparsedFiles": builder.index.unparsed,
         "sourceAnalysis": source_statistics(builder.project, builder.include_tests),
         "mroApproximated": len(builder.resolver.linearizer.approximated),
     }
+
+
+def _framework_entries(builder: GraphBuilder) -> dict[str, int]:
+    """프레임워크가 부르는 함수(Celery 태스크·Django 시그널 수신자) 수를 종류별로 센다.
+
+    Args:
+        builder: 조립 상태.
+
+    Returns:
+        종류 → 수(정렬).
+    """
+    counts: Counter[str] = Counter()
+    for definition in builder.index.definitions.values():
+        if definition.kind in ("function", "method") and is_decorated(definition):
+            kind = builder.calls.tasks.kind(definition)
+            if kind is not None:
+                counts[kind] += 1
+    return dict(sorted(counts.items()))
 
 
 def _bound_statistics(builder: GraphBuilder) -> dict[str, object]:

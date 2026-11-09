@@ -20,9 +20,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python: ['3.10', '3.13']
-        # 대상 코드를 실행 중인 인터프리터의 ast로 파싱하므로 최신 Python도 검증한다. 순수 Python 도구라 OS 차이가 작아
-        # macOS 잡은 늘리지 않는다.
+        # 대상 코드를 실행 중인 인터프리터의 ast로 파싱하므로 패키지 분류자에 적은 모든 Python(3.10–3.14)을 검증한다.
+        # 순수 Python 도구라 OS 차이가 작아 macOS 잡은 늘리지 않는다.
         include:
+          - os: ubuntu-latest
+            python: '3.11'
+          - os: ubuntu-latest
+            python: '3.12'
           - os: ubuntu-latest
             python: '3.14'
     runs-on: ${{ matrix.os }}
@@ -31,6 +35,8 @@ jobs:
       UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # uv 버전과 빌드 백엔드(build-constraints.txt)는 고정한다. 올리는 절차는 RELEASING.md "빌드 도구 고정"에 있다.
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -48,6 +54,12 @@ jobs:
         run: uv run pytest --cov --cov-report=term-missing
       - name: CLI contract (development install)
         run: uv run python scripts/verify_cli_contract.py
+      # 자기 분석: 이 저장소의 소스(합성 fixture 포함)가 모두 파싱되고 그래프가 만들어지는지 확인한다. 공개 앱 도그푸딩은 DOGFOOD.md다.
+      - name: Self-analysis
+        shell: bash
+        run: |
+          uv run pythograph graph --project . --generated-at 2026-01-01T00:00:00.000Z --revision self > "$RUNNER_TEMP/self-graph.json"
+          uv run python -c "import json,sys; s=json.load(open(sys.argv[1]))['statistics']; assert s['unparsedFiles'] == 0, s['unparsedFiles']" "$RUNNER_TEMP/self-graph.json"
       - name: CLI contract (built wheel in a clean environment)
         shell: bash
         run: |

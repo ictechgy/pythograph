@@ -810,7 +810,8 @@ def main(name, value):
 
 
 def test_redefined_functions_are_open(make_project: MakeProject) -> None:
-    """조건부로 다시 정의한 함수는 색인이 첫 정의만 보므로(다른 정의의 장식자가 다를 수 있다) 연다."""
+    """조건부로 다시 정의한 함수는 정의마다 장식자·매개변수가 다를 수 있어 연다. 두 정의의 본문을 모두 훑으므로 두
+    호출 지점이 모두 열린다."""
     graph = build(
         make_project,
         """
@@ -834,7 +835,7 @@ def main():
     return store(SqlRepo())
 """,
     )
-    assert outcome(graph, "app.py#store") == (set(), {"redefined": 1})
+    assert outcome(graph, "app.py#store") == (set(), {"redefined": 2})
 
 
 def test_class_body_rebinding_is_open(make_project: MakeProject) -> None:
@@ -899,7 +900,7 @@ class Base(metaclass=Singleton):
     pass
 
 
-class SqlRepo(Base):
+class MetaRepo(Base):
     def save(self, item):
         return item
 """,
@@ -927,6 +928,11 @@ Dynamic(Loose()).run()
 }
 
 
+#: 생성 구멍 사례가 `Client`에 넘기는 생성자 이름이다(없으면 `repos.SqlRepo`). app.py가 import한 `SqlRepo`를 같은
+#: 모듈에서 다시 정의하면 모듈 수준 재묶음이라 값을 모르므로(`local-value`) 다른 이름을 쓴다.
+CONSTRUCTORS = {"inherited-metaclass": "MetaRepo"}
+
+
 @pytest.mark.parametrize("name", sorted(CONSTRUCTION_HOLES))
 def test_construction_holes_are_open(make_project: MakeProject, name: str) -> None:
     """`Repo.__new__ = …`, 기반 클래스에서 물려받은 메타클래스, `types.new_class`로 만든 하위 클래스는 생성 결과나
@@ -943,9 +949,9 @@ class Client:
         return self.repo.save(1)
 """
         + extra
-        + """
+        + f"""
 
-Client(SqlRepo()).run()
+Client({CONSTRUCTORS.get(name, "SqlRepo")}()).run()
 """,
     )
     targets, reasons = outcome(graph, "app.py#Client.run")

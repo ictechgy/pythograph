@@ -54,6 +54,49 @@ _SHORTCUTS = {"get": "GET", "post": "POST", "put": "PUT", "delete": "DELETE", "p
 #: `MethodView`가 핸들러로 보는 이름이다(`flask/views.py` `http_method_funcs`).
 _HTTP_METHOD_FUNCS = ("get", "post", "head", "options", "delete", "put", "trace", "patch")
 
+#: 사실이 담지 못하는 호스트·리다이렉트 등록 옵션이다(규칙·블루프린트·`register_blueprint`).
+_HOST_KEYWORDS = frozenset({"subdomain", "host", "redirect_to"})
+
+#: 앱 생성자의 호스트 매칭 옵션이다.
+_APP_HOST_KEYWORDS = frozenset({"host_matching", "subdomain_matching", "static_host"})
+
+#: 호스트·리다이렉트 옵션 limitation 문장 틀이다. 계약에서 host는 조인 키가 아니므로 경로만 같은 다른 호스트의 호출과
+#: 잇거나, `redirect_to` 규칙은 핸들러 대신 리다이렉트로 끝날 수 있다.
+_HOST_OPTIONS = (
+    "{count} Flask registrations use subdomain, host, redirect_to, host_matching, subdomain_matching, or static_host, "
+    "which route facts do not model; "
+    "those routes are emitted as plain paths, so a call to another host or a redirected rule may be matched"
+)
+
+
+def _uses_host_option(keywords: dict[str, ast.expr], names: frozenset[str]) -> bool:
+    """호스트·리다이렉트 옵션 중 끈 값(`False`·`None`·빈 문자열 리터럴)이 아닌 것을 주었는지 본다.
+
+    `host_matching=False`·`subdomain=None`은 Flask 기본값과 같아 경로 사실이 그대로 맞다. 값이 리터럴이 아니면 켜졌을 수
+    있으므로 센다.
+
+    Args:
+        keywords: 호출의 키워드 인자 이름 → 값 식.
+        names: 볼 옵션 이름.
+
+    Returns:
+        켜졌거나 켜졌을 수 있는 옵션이 있으면 True.
+    """
+    return any(name in keywords and not _disabled_literal(keywords[name]) for name in names)
+
+
+def _disabled_literal(node: ast.expr) -> bool:
+    """옵션 값이 끈 리터럴(`False`·`None`·빈 문자열)인지 본다.
+
+    Args:
+        node: 값 식.
+
+    Returns:
+        끈 리터럴이면 True.
+    """
+    return isinstance(node, ast.Constant) and (node.value is False or node.value is None or node.value == "")
+
+
 #: 라우트를 따로 등록하는 Flask 확장(모델링하지 않음)이다.
 _ROUTING_EXTENSIONS = ("flask_restful", "flask_restx", "flask_smorest", "connexion", "flask_appbuilder", "flask_admin")
 
@@ -543,6 +586,8 @@ class _Collector:
         path = key[0]
         keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
         obj = _Object(kind=kind, key=key)
+        if _uses_host_option(keywords, _HOST_KEYWORDS if kind == "blueprint" else _APP_HOST_KEYWORDS):
+            self.gaps.append(("route-coverage:", _HOST_OPTIONS))
         if kind == "blueprint":
             obj.url_prefix = self._optional_string(path, keywords.get("url_prefix"), 5, call)
             folder = self._optional_string(path, keywords.get("static_folder"), 2, call)
@@ -884,6 +929,8 @@ class _Registrar:
         elif func.attr == "register_blueprint" and call.args:
             child, child_proven = self._lookup(call.args[0], scope, loops)
             keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
+            if _uses_host_option(keywords, _HOST_KEYWORDS):
+                self.collector.gaps.append(("route-coverage:", _HOST_OPTIONS))
             prefix = self.collector._optional_string(self.path, keywords.get("url_prefix"), -1, call)
             if child is not None:
                 location = node_location(self.path, call, self.has_bom)
@@ -1086,6 +1133,8 @@ class _Registrar:
             rebound: 규칙을 단 이름이 다시 묶이는 모듈 이름이라 객체를 증명하지 못하는지(`_Rule.rebound`).
         """
         keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
+        if _uses_host_option(keywords, _HOST_KEYWORDS):
+            self.collector.gaps.append(("route-coverage:", _HOST_OPTIONS))
         rule_node = call.args[0] if call.args else keywords.get("rule")
         if isinstance(rule_node, ast.Name) and loops.get(rule_node.id):
             rule_node = loops[rule_node.id][0]

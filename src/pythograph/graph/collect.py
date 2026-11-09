@@ -17,7 +17,7 @@ import ast
 from dataclasses import dataclass, field
 
 from pythograph.graph.calls import BoundSite, CallOutcome, CallResolver, Target
-from pythograph.graph.index import Definition
+from pythograph.graph.index import Definition, body_statements
 from pythograph.graph.values import (
     AttributeValue,
     ClassValue,
@@ -42,7 +42,8 @@ class ScopeFacts:
 
 
 def own_statements(definition: Definition) -> list[ast.stmt]:
-    """정의의 자기 범위 문장을 돌려준다.
+    """정의의 자기 범위 문장을 돌려준다. 같은 점 경로를 다시 정의했으면(조건부 정의, property setter, `singledispatch`
+    등록) 모든 정의의 본문을 소스 순서로 잇는다 — 첫 정의만 보면 뒤 정의의 호출이 한계 없이 사라진다.
 
     Args:
         definition: 정의.
@@ -50,8 +51,7 @@ def own_statements(definition: Definition) -> list[ast.stmt]:
     Returns:
         문장 목록.
     """
-    body = getattr(definition.node, "body", [])
-    return list(body) if isinstance(body, list) else []
+    return body_statements(definition)
 
 
 def collect_scope(calls: CallResolver, definition: Definition) -> ScopeFacts:
