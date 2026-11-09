@@ -30,6 +30,8 @@ serializer/permission callback은 일부 누락될 수 있다. 선언 없는 설
 총 128 MiB다. 그 밖의 추적·비무시 파일(이미지·데이터·번들)은 바이트를 담지 않고 git blob id로만 바뀜·rename 후보를
 비교한다(`input.identityOnlyFiles`). 커밋 쪽은 `ls-tree`의 객체 id를 쓰고, 작업 트리 쪽은 같은 nofollow 검사로 파일을 흘려
 읽어 `git hash-object --no-filters`와 같은 id를 구한다(합산 4 GiB, `limits.hashBytes`). 초과는 부분 분석 없이 코드 2다.
+그래서 `input.files`는 바이트를 캡처한 분석 파일 수만 세고, `input.contentDigest`는 분석 파일의 바이트와 나머지 파일의
+경로·blob id를 함께 해시한다 — 0.3.1과 같은 입력이어도 digest 값이 달라지므로 버전이 다른 실행의 digest를 비교하지 않는다.
 보고서 상한은 16 Mi 문자다.
 `cost`는 준비와 전체 분석 시간을 포함한다. `--generated-at <timestamp>`는 두 순회 문서의 `generatedAt`을 고정하므로 같은
 입력이면 `cost` 밖의 출력이 같다(`cost`는 실측 밀리초라 실행마다 다르다). `--max-depth`·`--max-reached`는 `reach`·`impact`와

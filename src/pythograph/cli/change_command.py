@@ -13,7 +13,8 @@ CHANGE_USAGE = """Usage: pythograph change-impact --project <repository-root> --
 
 Compare frozen Git base/head sources, or base against tracked and nonignored untracked working-tree
 files when --head is omitted. Before/after paths stay separate and preserve deleted callers.
-Content digests cover captured bytes, not just graph topology. Seeds cover whole changed files.
+Content digests cover analyzed files' bytes and other files' Git blob ids, not just graph topology.
+Seeds cover whole changed files.
 Test sources are included. Static candidates are incomplete review evidence, never a safety verdict
 or permission to skip tests. Existing impact <id> remains a one-snapshot graph traversal.
 --generated-at fixes both traversal documents' generatedAt; cost (measured milliseconds) still varies.
