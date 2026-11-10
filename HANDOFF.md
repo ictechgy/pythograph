@@ -3,13 +3,14 @@
 세션을 이어받을 때 먼저 읽는 진행 상태 문서다. 작업 규칙의 정본은 [AGENTS.md](AGENTS.md)이고, 여기 적힌 상태는
 실제 Git 상태·코드·검증 결과와 대조한 뒤 쓴다. 자기 분석 기록은 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-## 현재 상태 (2026-11-09)
+## 현재 상태 (2026-11-10)
 
 - 발행본은 **0.3.1**이다. PyPI 게시(2026-11-03), 태그 `v0.3.1`, `pyproject.toml` 버전이 일치한다.
 - isthmus `compatibility.json`의 pythograph 핀은 아직 **0.2.1**이다. isthmus가 게시본을 검증한 뒤 바꾸는 절차다
   (RELEASING 10단계). pythograph 저장소에서 고치지 않는다.
-- 열린 작업은 PR #31(브랜치 `ccr-37904670-hxdjsx`)이다. 2026-11-03 계열 9개 도구 검토의 pythograph 항목과, 그 PR의 독립
-  리뷰 지적을 반영했다. 변경은 모두 CHANGELOG `[Unreleased]`에 있고 발행 전이다.
+- PR #31은 2026-11-09에 `main`으로 스쿼시 머지됐다(`1ea33c4`). 2026-11-03 계열 9개 도구 검토의 pythograph 항목과,
+  그 PR의 독립 리뷰 지적을 반영한 것이다. 변경은 모두 CHANGELOG `[Unreleased]`에 있고 아직 발행하지 않았다.
+- `main` `1ea33c4`의 CI 체크 7개가 모두 성공했다(2026-11-10 확인).
 
 ## PR #31에서 처리한 것
 
@@ -46,7 +47,7 @@
 | isthmus 호환 핀 갱신 | isthmus 저장소의 일이고, 게시본 검증 뒤에만 바꾼다. |
 | dead·cycles·rules·MCP | 생산자 전용 범위라 해당하지 않는다. |
 
-## 머지 뒤 다음 할 일
+## 다음 할 일 (PR #31 머지 이후)
 
 1. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었으므로 버전 판단에 반영하고 RELEASING 절차를 따른다.
 2. isthmus에 게시본 검증과 `compatibility.json` 핀 갱신을 요청한다.
@@ -55,7 +56,8 @@
 ## 주의
 
 - **리뷰 방식**: AGENTS가 요구하는 GLM 리뷰(`packet-ask`)는 PR #31 작업 환경에 없어 실행하지 못했다. 대신 독립 Claude 리뷰를
-  받았고, 지적을 코드·fixture로 확인한 뒤 반영했다. 다음 PR에서 GLM을 쓸 수 있으면 원래 절차로 돌아간다.
+  받았고, 지적을 코드·fixture로 확인한 뒤 반영했다. PR #31은 GLM 리뷰 없이 머지됐다. 다음 PR에서 GLM을 쓸 수 있으면
+  원래 절차로 돌아간다.
 - **발행된 CHANGELOG 절은 고치지 않는다.** PR #31 작업 중 0.3.1 절의 첫 줄을 번역해 다시 쓴 적이 있어 원문으로 되돌렸다.
 - **로컬 git 버전**: `change-impact`는 git 2.45 이상의 `--no-lazy-fetch`를 쓴다. 낮은 git에서는 partial clone 관련 경로가
   거부로 끝난다.
