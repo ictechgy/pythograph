@@ -6,8 +6,10 @@ import ast
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 
 import pytest
 
@@ -812,6 +814,112 @@ def test_chain_guard_counts_chains_inside_fstrings(
     assert isinstance(failure, ReadFailure)
     assert failure.reason == "source nesting too deep to parse"
     assert parse_annotation(flat) is None
+
+
+#: 1 MiB 스레드에서 긴 사슬 주석·모듈과 넓지만 얕은 모듈을 읽고 결과를 한 줄로 내는 별도 프로세스 스크립트다(인자:
+#: 프로젝트). Windows의 python.exe 주 스레드 스택(2,000,000 B)보다 작은 스택으로 Windows 조건을 POSIX에서도 만든다.
+_SMALL_STACK_PARSES = r"""
+import sys
+import threading
+from pathlib import Path
+
+from pythograph.source.project import Project
+from pythograph.source.syntax import parse_annotation
+
+results = []
+
+
+def work():
+    project = Project.open(Path(sys.argv[1]))
+    results.append(str(parse_annotation(" + ".join(["Author"] * 50_000)) is None))
+    for name in ("deep.py", "wide.py"):
+        module = project.module(name)
+        results.append(getattr(module, "reason", type(module).__name__))
+
+
+threading.stack_size(1024 * 1024)
+thread = threading.Thread(target=work)
+thread.start()
+thread.join()
+print("|".join(results))
+"""
+
+
+def test_long_chains_parse_without_overflowing_a_small_stack(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """사슬 상한(5만 토큰) 안의 긴 사슬도 작은 스택(1 MiB 스레드, Windows 주 스레드 2 MB 미만)에서 프로세스를 죽이지
+    않는다.
+
+    3.10의 `ast.parse`는 C 트리를 파이썬 객체로 바꾸는 재귀(`ast2obj`)에 깊이 검사가 없어 한 단계에 약 64 B의 C 스택을
+    쓴다(3.10.20 실측: 1 MiB 스레드는 약 1.6만, 2,000,000 B는 약 3.2만 단계에서 죽는다). 사슬 상한은 Linux 주
+    스레드(8 MiB)로 정했으므로 Windows 3.10 CI에서 4만 9천 항 문자열 주석이 "Windows fatal exception: stack overflow"로
+    프로세스를 끝냈다.
+    이제 긴 사슬은 넉넉한 전용 스택에서 파싱해 깊은 모듈은 지금처럼 중첩 실패(한계)로 남고, 넓지만 얕은 모듈(음수 3만
+    개 목록)은 그대로 분석한다. 3.11부터는 파서가 RecursionError를 내므로 같은 결과다.
+    """
+    root = make_project(
+        {
+            "deep.py": "VALUE = " + " + ".join(["a"] * 30_000) + "\n",
+            "wide.py": "DATA = [" + "-1, " * 30_000 + "]\n",
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", _SMALL_STACK_PARSES, str(root)],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=REPOSITORY,
+        timeout=120,
+    )
+    assert result.returncode == 0, (result.returncode, result.stderr[-2000:])
+    assert result.stdout == "True|source nesting too deep to parse|SourceModule\n"
+
+
+def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3.10에서 작은 스택 상한을 넘는 사슬은 전용 스택 스레드에서 같은 결과로 파싱하고, 그 스레드를 만들 수 없으면
+    파서 깊이 한도와 같은 실패(중첩 실패·모르는 주석)로 센다. 조용히 버리지 않는다."""
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    monkeypatch.setattr(syntax, "SMALL_STACK_CHAIN_TOKENS", 10)
+    chain = " + ".join(["a"] * 40)
+    root = make_project({"chain.py": f"VALUE = {chain}\n", "broken.py": f"VALUE = ({chain}\n", "short.py": "x = a.b\n"})
+    started: list[int] = []
+
+    class RecordingThread(threading.Thread):
+        """시작할 때의 스택 설정을 기록하는 스레드다."""
+
+        def start(self) -> None:
+            started.append(threading.stack_size())
+            super().start()
+
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RecordingThread, stack_size=threading.stack_size))
+    before = threading.stack_size()
+    assert isinstance(Project.open(root).module("chain.py"), SourceModule)
+    failure = Project.open(root).module("broken.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "syntax error or syntax newer than the running Python"
+    assert isinstance(parse_annotation(chain), ast.BinOp)
+    assert isinstance(Project.open(root).module("short.py"), SourceModule)
+    assert started == [syntax.MIN_PARSE_STACK_BYTES] * 3
+    assert threading.stack_size() == before
+
+    class RefusedThread:
+        """스레드를 만들 수 없는 환경을 흉내 낸다."""
+
+        def __init__(self, **_keywords: object) -> None:
+            """인자를 받기만 한다."""
+
+        def start(self) -> None:
+            """언제나 실패한다."""
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RefusedThread, stack_size=threading.stack_size))
+    failure = Project.open(root).module("chain.py")
+    assert isinstance(failure, ReadFailure)
+    assert failure.reason == "source nesting too deep to parse"
+    assert parse_annotation(chain) is None
+    assert isinstance(Project.open(root).module("short.py"), SourceModule)
+    assert threading.stack_size() == before
 
 
 def test_chain_guard_rejects_before_parsing(

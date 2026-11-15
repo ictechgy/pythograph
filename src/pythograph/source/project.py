@@ -22,9 +22,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
-from pythograph.source.syntax import MAX_AST_DEPTH, chain_too_long, tree_overflow
+from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, chain_bound, parse_guarded, tree_overflow
 from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
@@ -447,7 +447,8 @@ class Project:
 
         구문 트리가 `max_depth`보다 깊은 모듈도 실패다. 재귀 분석기가 파이썬 재귀 한도를 넘겨 명령 전체를 끝내지
         않도록 파서가 거부한 경우와 같은 이유로 남긴다(실행 중인 파이썬 버전과 무관하게 같은 문구). 3.10은 긴 사슬을
-        파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 본다(`chain_too_long`).
+        파싱하다 프로세스가 죽으므로 파싱 전에 사슬 길이를 먼저 보고(`chain_bound`), 상한 안의 긴 사슬은 작은
+        스택(Windows 주 스레드)에서도 넘치지 않게 전용 스택 스레드에서 파싱한다(`parse_guarded`).
 
         파싱에 성공한 모듈의 바이트 합이 `MAX_TOTAL_SOURCE_BYTES`를 넘게 할 모듈은 파서를 부르지 않고 실패로 남긴다.
         조밀한 소스는 파싱하는 동안 메모리를 쓰므로 파싱 전에 보고, 3.10만 하는 사슬 판정보다 먼저 보므로 예산을 넘는
@@ -474,10 +475,11 @@ class Project:
         if self.parsed_source_bytes + len(data) > MAX_TOTAL_SOURCE_BYTES:
             self.budget_skipped_modules += 1
             return ReadFailure(relative, source_budget_reason())
-        if chain_too_long(text):
+        bound = chain_bound(text)
+        if bound > MAX_CHAIN_TOKENS:
             return ReadFailure(relative, "source nesting too deep to parse")
         try:
-            tree = ast.parse(text, filename=PurePosixPath(relative).name)
+            tree = cast(ast.Module, parse_guarded(text, PurePosixPath(relative).name, "exec", bound))
         except (SyntaxError, ValueError):
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):

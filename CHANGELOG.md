@@ -80,6 +80,19 @@
   변환(줄바꿈·`ident`·smudge filter·`working-tree-encoding`)이 작업 트리 비교에서 과다 선택과 순회 잘림을 만들 수 있다는 점을
   적었다.
 
+### Security
+
+- Python 3.10에서 분석 대상 소스의 긴 왼쪽 결합 사슬(`a + a + …`, `x.f().f()…`, `x[0][0]…`, f-string 치환 필드 안 사슬)이
+  사슬 상한(논리 줄 하나에 5만 토큰) 안이어도 주 스레드 스택이 작으면 `ast.parse`가 C 스택을 넘겨 프로세스가 출력 없이
+  죽었다(Windows "fatal exception: stack overflow", POSIX SIGSEGV 139). 3.10의 `ast2obj`에는 깊이 검사가 없어 트리 한
+  단계에 약 64 B를 쓰는데(3.10.20 실측: 1 MiB 스택은 약 1.6만, 2,000,000 B는 약 3.2만 단계에서 죽는다), 상한은 Linux 기본
+  8 MiB로 정했고 Windows `python.exe` 주 스레드는 2,000,000 B다. 그래서 문자열 주석 하나나 모듈 한 줄로 schema·graph·
+  routes·change-impact 전체를 끝낼 수 있었다(Windows나 `ulimit -s`를 줄인 POSIX의 3.10, 0.3.1 포함). 이제 3.10에서
+  논리 줄 사슬이 2,000토큰을 넘는 소스는 사슬 길이에 비례한 스택(최소 8 MiB, 토큰당 1 KiB)의 전용 스레드에서 파싱한다.
+  결과는 같다: 깊은 모듈은 지금처럼 `source nesting too deep to parse`로 세고, 넓지만 얕은 줄(음수 수만 개 목록)은 그대로
+  분석한다. 그 스레드를 만들 수 없으면 모듈은 같은 이유의 읽지 못한 소스, 주석은 모르는 주석이 된다. 3.11 이상은 파서가
+  RecursionError를 내므로 해당하지 않는다(1 MiB·2,000,000 B 스레드에서 30만 단계 사슬 모두 RecursionError 확인).
+
 ## [0.3.1] - 2026-11-03
 
 - Preserve imported DRF router aliases and module attributes, while conditional or externally mutated router state stays opaque. Execute the vendored SQL relation conformance cases and include scripts in Ruff checks.

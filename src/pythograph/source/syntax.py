@@ -13,8 +13,9 @@ from __future__ import annotations
 import ast
 import io
 import sys
+import threading
 import tokenize
-from typing import Literal
+from typing import Literal, cast
 
 #: 실행 중인 파서가 깊은 왼쪽 결합 사슬(`a + a + …`, `x.a.a…`, `f()()…`, `x[0][0]…`)에서 C 스택을 넘기는지다.
 #: 3.10의 `ast.parse`는 그런 트리를 파이썬 객체로 바꾸다 프로세스가 신호로 죽고(종료 코드 139), 3.11부터는
@@ -25,6 +26,22 @@ _PARSER_OVERFLOWS_ON_CHAINS = sys.version_info < (3, 11)
 #: 8만 개(트리 깊이 16만)·`+` 15만 항에서 죽고, 메서드 사슬 5만 개·다른 사슬 10만 항은 안전했다. f-string 치환 필드
 #: 안의 사슬도 임계가 같고(10만 항 안전, 15만 항에서 죽음), 바깥 사슬과 깊이가 더해진다.
 MAX_CHAIN_TOKENS = 50_000
+
+#: 3.10에서 부른 스레드의 스택으로 바로 파싱하는 논리 줄 사슬 토큰 수(`chain_bound`)의 상한이다. 3.10의 `ast.parse`는
+#: C 트리를 파이썬 객체로 바꾸는 재귀(`ast2obj`)에 깊이 검사가 없어 트리 한 단계에 C 스택을 약 64 B 쓴다(3.10.20·clang
+#: 실측: 1 MiB 스레드는 약 1.6만, Windows python.exe 주 스레드 크기인 2,000,000 B는 약 3.2만 단계에서 죽고, 메서드
+#: 사슬은 고리 하나가 두 단계라 그 절반). `MAX_CHAIN_TOKENS`는 Linux 주 스레드(8 MiB)로 정한 값이라 Windows에서는
+#: 상한 안의 사슬도 프로세스를 죽였다. 2,000은 1 MiB 임계의 1/8이라 MSVC의 더 큰 프레임과 호출자 프레임을 더해도
+#: 남는다. 넘으면 전용 스택 스레드에서 파싱한다(`_parse_on_large_stack`).
+SMALL_STACK_CHAIN_TOKENS = 2_000
+
+#: 긴 사슬을 파싱하는 전용 스레드가 사슬 토큰 하나에 잡는 스택(바이트)이다. 실측 한 단계(약 64 B)의 16배다. 토큰 수는
+#: 트리 깊이의 상한이다(사슬 토큰 하나가 많아야 한 단계를 만든다).
+PARSE_STACK_BYTES_PER_TOKEN = 1024
+
+#: 전용 스레드 스택의 하한(Linux 주 스레드 기본값)이다. 상한은 `MAX_CHAIN_TOKENS` × 토큰당 바이트(약 49 MiB)로,
+#: CPython이 Windows에서 받는 스레드 스택 상한(256 MiB 미만) 안이다.
+MIN_PARSE_STACK_BYTES = 8 * 1024 * 1024
 
 #: 사슬을 잇는 연산자 토큰이다. `(`·`[`는 호출·첨자일 때만 잇지만 넉넉히 센다(상한 판정에서 더 세는 쪽은 안전하다).
 _CHAIN_OPERATORS = frozenset({"+", "-", "*", "/", "//", "%", "@", "**", "<<", ">>", "&", "|", "^", ".", "(", "["})
@@ -134,10 +151,11 @@ def parse_annotation(text: str) -> ast.expr | None:
     Returns:
         식, 파싱할 수 없거나 상한을 넘으면 None.
     """
-    if chain_too_long(text):
+    bound = chain_bound(text)
+    if bound > MAX_CHAIN_TOKENS:
         return None
     try:
-        tree = ast.parse(text, mode="eval")
+        tree = cast(ast.Expression, parse_guarded(text, "<unknown>", "eval", bound))
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return None
     return None if exceeds_depth(tree) else tree.body
@@ -148,7 +166,8 @@ def chain_too_long(text: str) -> bool:
 
     파싱 전에 걸러야 하는 이유: 3.10은 파싱 도중 프로세스가 죽어 잡을 예외가 없다. 걸러진 소스는 파서가 거부한 깊은
     소스와 같은 실패로 남긴다. f-string 치환 필드 안의 사슬도 센다. 상한을 넘는 얕은 줄(사슬 토큰이 아주 많은 한 줄짜리
-    목록, 사슬 문자가 아주 많은 f-string)도 3.10에서는 함께 걸러진다.
+    목록, 사슬 문자가 아주 많은 f-string)도 3.10에서는 함께 걸러진다. 상한 안의 사슬도 작은 스택에서는 넘칠 수 있어
+    `parse_guarded`가 전용 스택에서 파싱한다.
 
     Args:
         text: 파싱할 소스.
@@ -156,7 +175,90 @@ def chain_too_long(text: str) -> bool:
     Returns:
         파싱하면 안 되면 True. 3.11 이상은 파서가 스스로 RecursionError를 내므로 늘 False다.
     """
-    return _PARSER_OVERFLOWS_ON_CHAINS and _longest_chain(text) > MAX_CHAIN_TOKENS
+    return chain_bound(text) > MAX_CHAIN_TOKENS
+
+
+def chain_bound(text: str) -> int:
+    """3.10에서 논리 줄 하나의 사슬 토큰 수의 상한(`_longest_chain`)을 돌려준다. 3.11 이상은 볼 필요가 없어 0이다.
+
+    Args:
+        text: 파싱할 소스.
+
+    Returns:
+        사슬 토큰 수의 상한(3.11 이상은 0).
+    """
+    return _longest_chain(text) if _PARSER_OVERFLOWS_ON_CHAINS else 0
+
+
+def parse_guarded(text: str, filename: str, mode: Literal["exec", "eval"], bound: int) -> ast.AST:
+    """`ast.parse`와 같되, 3.10의 긴 사슬은 C 스택이 넘치지 않는 전용 스레드에서 파싱한다.
+
+    `bound`(`chain_bound`, `MAX_CHAIN_TOKENS` 이하라고 확인한 값)가 `SMALL_STACK_CHAIN_TOKENS` 이하면 부른 스레드에서
+    바로 파싱한다. 넘으면 토큰 수에 비례한 스택의 스레드에서 파싱해 결과나 예외를 그대로 돌려준다. 그 스레드를 만들 수
+    없으면 MemoryError다(호출자는 파서의 깊이 한도와 같은 실패로 센다). 결과는 같은 스레드에서 파싱한 것과 같다.
+
+    Args:
+        text: 소스.
+        filename: 파서에 줄 파일 이름.
+        mode: `exec`(모듈)나 `eval`(식).
+        bound: 사슬 토큰 수의 상한.
+
+    Returns:
+        구문 트리.
+
+    Raises:
+        SyntaxError: 문법 오류.
+        ValueError: NUL 등 파서가 받지 않는 입력.
+        RecursionError: 파서의 깊이 한도.
+        MemoryError: 파서의 메모리 부족이나 전용 스레드를 만들 수 없을 때.
+    """
+    if bound <= SMALL_STACK_CHAIN_TOKENS:
+        return ast.parse(text, filename=filename, mode=mode)
+    stack = max(MIN_PARSE_STACK_BYTES, bound * PARSE_STACK_BYTES_PER_TOKEN)
+    return _parse_on_large_stack(text, filename, mode, stack)
+
+
+def _parse_on_large_stack(text: str, filename: str, mode: Literal["exec", "eval"], stack: int) -> ast.AST:
+    """주어진 크기의 스택을 가진 스레드에서 `ast.parse`를 돌리고 결과나 예외를 부른 스레드로 넘긴다.
+
+    `threading.stack_size`는 이후 만드는 스레드 전체에 걸리는 설정이라 스레드를 시작한 직후 원래 값으로 되돌린다.
+    pythograph는 파싱하는 동안 다른 스레드를 만들지 않는다.
+
+    Args:
+        text: 소스.
+        filename: 파서에 줄 파일 이름.
+        mode: `exec`나 `eval`.
+        stack: 스레드 스택 크기(바이트).
+
+    Returns:
+        구문 트리.
+
+    Raises:
+        MemoryError: 그 크기의 스레드를 만들 수 없을 때.
+    """
+    outcome: list[ast.AST | Exception] = []
+
+    def work() -> None:
+        """파싱하고 결과나 예외를 담는다."""
+        try:
+            outcome.append(ast.parse(text, filename=filename, mode=mode))
+        except Exception as error:  # 부른 스레드에서 같은 예외로 다시 낸다.
+            outcome.append(error)
+
+    previous = threading.stack_size()
+    try:
+        threading.stack_size(stack)
+        worker = threading.Thread(target=work, name="pythograph-parse", daemon=True)
+        worker.start()
+    except (RuntimeError, ValueError) as error:
+        raise MemoryError("could not start a thread with a large enough stack to parse this source") from error
+    finally:
+        threading.stack_size(previous)
+    worker.join()
+    result = outcome[0]
+    if isinstance(result, Exception):
+        raise result
+    return result
 
 
 def _longest_chain(text: str) -> int:
