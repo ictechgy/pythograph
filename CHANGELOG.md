@@ -50,6 +50,9 @@
   바이트가 됐다. Windows 텍스트 모드는 줄바꿈도 CRLF로 바꿨다. 이제 로캘·`PYTHONIOENCODING`과 무관하게 UTF-8·LF로 쓰고,
   `--roots-from -`도 파일 입력처럼 표준 입력을 UTF-8로 읽는다(전에는 한글 id가 깨져 정점을 찾지 못하고 64였다). 사실·한계·
   종료 코드 계약은 그대로다.
+- CRLF 줄바꿈 선언 파일(Windows 체크아웃의 Git 기본값 `core.autocrlf=true`)에서 줄 끝 지정자의 `\r`이 버전에 남아
+  `flask>=3.1,<4`·`Django>=5.2,<6`의 상한을 읽지 못해 거짓 `route-framework-version-unknown:` 한계를 냈고, aiohttp 하한
+  `>=3.11`이 3.0으로 내려가 base URL 결합 사실이 LF 파일과 달랐다. 지정자의 공백 문자(탭·CR·LF 포함)를 모두 지우고 읽는다.
 
 ### Changed
 

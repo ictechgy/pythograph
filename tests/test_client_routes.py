@@ -1135,6 +1135,7 @@ def test_format_parsers() -> None:
         (">=3", (3, 0)),
         (">=3.*", (3, 0)),
         (">=x", None),
+        (">=3.11\r\n", (3, 11)),
     ],
 )
 def test_spec_minimum(spec: str, minimum: tuple[int, int] | None) -> None:

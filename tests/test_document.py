@@ -25,7 +25,7 @@ from pythograph.exchange.document import (
 from pythograph.graph.document import encode_snapshot
 from pythograph.routes import versions as versions_module
 from pythograph.routes.model import Extraction, Location, ParamConstraint, RouteDecl, RouteShape, ScopeRange
-from pythograph.routes.versions import _manifest_specs, declared_majors, spec_major, version_gap
+from pythograph.routes.versions import _manifest_specs, declared_majors, declared_minimum, spec_major, version_gap
 from pythograph.source.project import Project
 from tests.conftest import REPOSITORY
 
@@ -130,6 +130,8 @@ def test_format_timestamp_converts_to_utc() -> None:
         ("==x", None),
         ("<=5.9,>=5.0", 5),
         ("!=5.1,>=5,<6", 5),
+        (">=5.2,<6\r\n", 5),
+        (">=5.2,\t<6\n", 5),
     ],
 )
 def test_spec_major(spec: str, major: int | None) -> None:
@@ -164,6 +166,20 @@ def test_declared_majors_from_manifests(make_project: Callable[[dict[str, str]],
     majors = declared_majors(Project.open(root))
     assert majors["flask"] == {3} and majors["djangorestframework"] == {3}
     assert declared_majors(Project.open(root))["django"] == {5, None}
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_crlf_manifests_declare_the_same_versions(tmp_path: Path, newline: str) -> None:
+    """CRLF 줄바꿈 선언 파일도 LF와 같은 버전 제한·하한을 읽는다.
+
+    Windows에서 Git 기본 설정(`core.autocrlf=true`)으로 받은 저장소는 선언 파일이 CRLF다. 전에는 줄 끝 지정자에 남은
+    `\\r` 때문에 `flask>=3.1,<4`의 상한을 읽지 못해 거짓 `route-framework-version-unknown:` 한계를 냈고, aiohttp 하한
+    `>=3.11`이 3.0으로 내려가 base 결합 주장이 달라졌다.
+    """
+    (tmp_path / "requirements.txt").write_bytes(newline.join(["flask>=3.1,<4", "aiohttp>=3.11", ""]).encode())
+    project = Project.open(tmp_path)
+    assert declared_majors(project)["flask"] == {3}
+    assert declared_minimum(project, "aiohttp") == (3, 11)
 
 
 @pytest.mark.parametrize(
