@@ -922,6 +922,58 @@ def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     assert threading.stack_size() == before
 
 
+#: arm64 macOS의 페이지 크기(바이트)다. 그 `pthread_attr_setstacksize`는 이 배수가 아닌 스택을 거부한다.
+_MACOS_ARM64_PAGE_BYTES = 16 * 1024
+
+
+def _page_strict_stack_size(*size: int) -> int:
+    """macOS처럼 페이지 배수가 아닌 크기를 ValueError로 거부하는 `threading.stack_size`다.
+
+    Args:
+        size: 비우면 현재 값을 읽고, 하나면 그 크기로 바꾼다.
+
+    Returns:
+        바꾸기 전의 스택 크기 설정.
+
+    Raises:
+        ValueError: 0이 아니면서 페이지 배수가 아닌 크기일 때(CPython이 EINVAL을 바꾸는 예외).
+    """
+    if size and size[0] % _MACOS_ARM64_PAGE_BYTES != 0:
+        raise ValueError(f"size not valid: {size[0]} bytes")
+    return threading.stack_size(*size)
+
+
+def test_parse_stack_sizes_are_whole_mebibytes() -> None:
+    """전용 스택 크기는 토큰당 바이트·하한을 채우는 가장 작은 1 MiB 배수다. 페이지 배수가 아닌 크기는 macOS에서
+    스레드를 만들지 못해(ValueError) 긴 사슬 모듈이 중첩 실패로 잘못 남았다(macOS 3.10 CI)."""
+    mebibyte = 1024 * 1024
+    for bound in (syntax.SMALL_STACK_CHAIN_TOKENS + 1, 8_193, 8_200, 30_001, 49_999, MAX_CHAIN_TOKENS):
+        stack = syntax.parse_stack_bytes(bound)
+        wanted = max(syntax.MIN_PARSE_STACK_BYTES, bound * syntax.PARSE_STACK_BYTES_PER_TOKEN)
+        assert stack % mebibyte == 0
+        assert stack % _MACOS_ARM64_PAGE_BYTES == 0
+        assert wanted <= stack < wanted + mebibyte
+
+
+def test_long_chains_parse_where_stacks_must_be_whole_pages(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """페이지 배수만 받는 플랫폼(macOS)에서도 긴 사슬은 전용 스택 스레드에서 파싱된다. 하한을 1바이트로 낮춰 토큰당
+    바이트만으로 정한 크기가 페이지 배수가 아니게 만든다(고치기 전에는 중첩 실패였다)."""
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
+    monkeypatch.setattr(syntax, "SMALL_STACK_CHAIN_TOKENS", 10)
+    monkeypatch.setattr(syntax, "MIN_PARSE_STACK_BYTES", 1)
+    monkeypatch.setattr(
+        syntax, "threading", SimpleNamespace(Thread=threading.Thread, stack_size=_page_strict_stack_size)
+    )
+    chain = " + ".join(["a"] * 41)
+    root = make_project({"chain.py": f"VALUE = {chain}\n"})
+    before = threading.stack_size()
+    assert isinstance(Project.open(root).module("chain.py"), SourceModule)
+    assert isinstance(parse_annotation(chain), ast.BinOp)
+    assert threading.stack_size() == before
+
+
 def test_chain_guard_rejects_before_parsing(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

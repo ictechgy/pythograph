@@ -43,6 +43,11 @@ PARSE_STACK_BYTES_PER_TOKEN = 1024
 #: CPython이 Windows에서 받는 스레드 스택 상한(256 MiB 미만) 안이다.
 MIN_PARSE_STACK_BYTES = 8 * 1024 * 1024
 
+#: 전용 스레드 스택 크기를 맞추는 단위(1 MiB)다. macOS의 `pthread_attr_setstacksize`는 페이지 크기의 배수가 아니면
+#: EINVAL을 돌려주고 CPython은 이를 ValueError로 낸다(arm64 macOS의 페이지는 16 KiB). 1 MiB는 4·16·64 KiB 페이지의
+#: 공배수라 어느 플랫폼에서도 받는다.
+PARSE_STACK_ALIGNMENT_BYTES = 1024 * 1024
+
 #: 사슬을 잇는 연산자 토큰이다. `(`·`[`는 호출·첨자일 때만 잇지만 넉넉히 센다(상한 판정에서 더 세는 쪽은 안전하다).
 _CHAIN_OPERATORS = frozenset({"+", "-", "*", "/", "//", "%", "@", "**", "<<", ">>", "&", "|", "^", ".", "(", "["})
 
@@ -214,8 +219,24 @@ def parse_guarded(text: str, filename: str, mode: Literal["exec", "eval"], bound
     """
     if bound <= SMALL_STACK_CHAIN_TOKENS:
         return ast.parse(text, filename=filename, mode=mode)
-    stack = max(MIN_PARSE_STACK_BYTES, bound * PARSE_STACK_BYTES_PER_TOKEN)
-    return _parse_on_large_stack(text, filename, mode, stack)
+    return _parse_on_large_stack(text, filename, mode, parse_stack_bytes(bound))
+
+
+def parse_stack_bytes(bound: int) -> int:
+    """사슬 토큰 수 상한 `bound`를 파싱할 전용 스레드의 스택 크기(바이트)를 돌려준다.
+
+    토큰당 `PARSE_STACK_BYTES_PER_TOKEN`을 잡되 `MIN_PARSE_STACK_BYTES` 이상이고, 플랫폼이 받는 크기가 되도록
+    `PARSE_STACK_ALIGNMENT_BYTES`의 배수로 올린다.
+
+    Args:
+        bound: 사슬 토큰 수의 상한.
+
+    Returns:
+        스레드 스택 크기(바이트).
+    """
+    wanted = max(MIN_PARSE_STACK_BYTES, bound * PARSE_STACK_BYTES_PER_TOKEN)
+    alignment_units = -(-wanted // PARSE_STACK_ALIGNMENT_BYTES)
+    return alignment_units * PARSE_STACK_ALIGNMENT_BYTES
 
 
 def _parse_on_large_stack(text: str, filename: str, mode: Literal["exec", "eval"], stack: int) -> ast.AST:
