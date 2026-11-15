@@ -41,6 +41,11 @@ analyses (see [isthmus compatibility](#isthmus-compatibility)).
 
 - Python 3.10 or newer (Django 5.x needs 3.10+, and pythograph parses the analyzed code with the running
   interpreter, so run it with the same or a newer Python than the project).
+- Linux, macOS, or Windows (CI runs all three). Every command writes UTF-8 JSON with LF line endings whatever the
+  locale, console code page, or `PYTHONIOENCODING`, and `--roots-from -` reads stdin as UTF-8. On Windows the
+  document's `project` is the realpath written with forward slashes (`C:/work/shop`); bridge-facts v1 assumes POSIX
+  paths and leaves Windows normalization (drive-letter case, `\\?\` prefixes) to a later agreement, so a join only
+  matches documents whose producers spell the root the same way.
 
 Install from [PyPI](https://pypi.org/project/pythograph/):
 

@@ -64,6 +64,11 @@
   모든 추적 파일). 나머지 추적 파일은 새 `input.identityOnlyFiles`로 센다. 비분석 파일을 바이트 대신 경로·git blob id로 해시하므로
   같은 입력이라도 `input.contentDigest` 값이 0.3.1과 다르다 — 버전이 다른 실행의 digest를 서로 비교하지 않는다.
 - isthmus 공유 적합성 벡터를 `c76e105`로 다시 벤더링했다(`http-dispatch.json`에 `consumer` 전용 사례 4건 추가, 생산자 사례 수 같음).
+- CI에 Windows 잡(`windows-latest`, Python 3.13)을 더했다. 테스트·커버리지 게이트·CLI 계약(개발 설치·빌드한 wheel)·자기
+  분석을 돌리고 건너뛴 테스트와 이유를 로그에 남긴다. `.gitattributes`로 모든 텍스트 파일을 LF로 체크아웃해 공유 벡터
+  sha256·fixture 바이트·golden이 Windows에서도 같다. Windows에 없는 기능(디렉터리 핸들·FIFO·`/dev/fd`·POSIX 셸 스크립트·실행
+  권한 비트·파일 이름의 제어 문자)을 쓰는 테스트는 전처럼 건너뛰고, 심볼릭 링크 테스트는 링크를 만들 수 없는 프로세스에서만
+  건너뛴다. `change-impact` 문서에 Git 줄바꿈 변환(`core.autocrlf` 등)이 작업 트리 비교에서 과다 선택을 만든다는 점을 적었다.
 
 ## [0.3.1] - 2026-11-03
 

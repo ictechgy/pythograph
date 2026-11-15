@@ -38,6 +38,10 @@ persistence 문서와 python `language-traversal` 분석을 받는 첫 릴리스
 
 - Python 3.10 이상(Django 5.x가 3.10 이상을 요구하고, pythograph는 실행 중인 인터프리터로 분석 대상을
   파싱하므로 프로젝트와 같거나 새 파이썬으로 실행한다).
+- Linux, macOS, Windows(CI가 셋 모두에서 돈다). 모든 명령은 로캘·콘솔 코드 페이지·`PYTHONIOENCODING`과 무관하게
+  UTF-8·LF 줄바꿈 JSON을 쓰고, `--roots-from -`은 표준 입력을 UTF-8로 읽는다. Windows에서 문서의 `project`는 realpath를
+  슬래시로 쓴 값(`C:/work/shop`)이다. bridge-facts v1은 POSIX 경로를 가정하고 Windows 정규화(드라이브 문자 대소문자,
+  `\\?\` 접두사)는 나중 합의로 남겨 두었으므로, 조인은 생산자들이 루트를 같은 철자로 쓴 문서끼리만 맞는다.
 
 [PyPI](https://pypi.org/project/pythograph/)에서 설치한다.
 

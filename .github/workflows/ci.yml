@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           uv run pythograph graph --project . --generated-at 2026-01-01T00:00:00.000Z --revision self > "$RUNNER_TEMP/self-graph.json"
-          uv run python -c "import json,sys; s=json.load(open(sys.argv[1]))['statistics']; assert s['unparsedFiles'] == 0, s['unparsedFiles']" "$RUNNER_TEMP/self-graph.json"
+          uv run python -c "import json,sys; s=json.load(open(sys.argv[1], encoding='utf-8'))['statistics']; assert s['unparsedFiles'] == 0, s['unparsedFiles']" "$RUNNER_TEMP/self-graph.json"
       - name: CLI contract (built wheel in a clean environment)
         shell: bash
         run: |
@@ -67,3 +67,54 @@ jobs:
           uv venv "$RUNNER_TEMP/wheel-venv"
           uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" dist/*.whl
           uv run python scripts/verify_cli_contract.py --executable "$RUNNER_TEMP/wheel-venv/bin/pythograph"
+
+  # Windows에는 디렉터리 핸들 열기(dir_fd)·O_NOFOLLOW·O_NONBLOCK·FIFO·POSIX 권한 비트가 없어 소스 읽기가 경로 재검사와
+  # 파일 핸들 신원 대조 대체 경로를 타고, Git for Windows 기본 설정(core.autocrlf=true), 텍스트 모드 CRLF, ANSI 코드
+  # 페이지 표준 입출력이 입출력 바이트를 바꾼다. 그 경로를 실제로 돈다. 순수 Python 도구라 Python은 하나(3.13, macOS 잡과
+  # 같은 판)만 둔다. PYTHONUTF8·PYTHONIOENCODING은 일부러 두지 않는다(기본 코드 페이지에서 UTF-8 출력을 확인해야 한다).
+  # Lint·Format·Typecheck는 플랫폼과 무관한 결과라 위 잡에 맡긴다(mypy는 실행 플랫폼을 기본값으로 써서 Windows에서는
+  # `_HAS_DIR_FD`·`O_NONBLOCK`으로 막은 POSIX 전용 속성 세 곳을 없는 속성으로 본다). 건너뛴 테스트와 이유는 `-rs`로
+  # 로그에 남긴다.
+  verify-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      UV_PYTHON: '3.13'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # uv 버전과 빌드 백엔드(build-constraints.txt)는 위 잡과 같게 고정한다.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.17'
+          enable-cache: true
+      # .gitattributes가 체크아웃을 LF로 고정했는지 본다. 공유 벡터 sha256·fixture 바이트가 CRLF로 바뀌면 여기서 멈춘다.
+      - name: Line endings
+        run: |
+          converted="$(git ls-files --eol | awk '$2 != "w/lf" && $2 != "w/none" && $2 != "w/-text"')"
+          if [ -n "$converted" ]; then
+            printf '%s\n' "$converted" >&2
+            echo "the checkout has text files that are not LF; check .gitattributes" >&2
+            exit 1
+          fi
+      - name: Install
+        run: uv sync --locked
+      - name: Tests and coverage gate
+        run: uv run pytest --cov --cov-report=term-missing -rs
+      - name: CLI contract (development install)
+        run: uv run python scripts/verify_cli_contract.py
+      - name: Self-analysis
+        run: |
+          uv run pythograph graph --project . --generated-at 2026-01-01T00:00:00.000Z --revision self > "$RUNNER_TEMP/self-graph.json"
+          uv run python -c "import json,sys; s=json.load(open(sys.argv[1], encoding='utf-8'))['statistics']; assert s['unparsedFiles'] == 0, s['unparsedFiles']" "$RUNNER_TEMP/self-graph.json"
+      # Windows 가상 환경은 실행 파일을 bin/이 아니라 Scripts/에 둔다.
+      - name: CLI contract (built wheel in a clean environment)
+        run: |
+          uv build --build-constraints build-constraints.txt --require-hashes
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/Scripts/python.exe" dist/*.whl
+          uv run python scripts/verify_cli_contract.py --executable "$RUNNER_TEMP/wheel-venv/Scripts/pythograph.exe"

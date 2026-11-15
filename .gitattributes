@@ -1,0 +1,7 @@
+# 모든 텍스트 파일을 어느 플랫폼에서든 LF로 체크아웃한다(Git for Windows 기본값 core.autocrlf=true를 덮는다).
+# 바이트가 계약인 파일이 있다: conformance/의 공유 벡터는 conformance.lock·SHA256SUMS의 sha256과 바이트로 대조하고,
+# fixtures/는 change-impact contentDigest·소스 바이트 예산·golden 출력의 입력이며, tests/golden/·experiments/**/recorded/는
+# 출력 기록이다. CRLF로 바뀌면 Windows에서만 해시·바이트 수가 달라진다. 의도적으로 CRLF가 필요한 fixture는 그 경로에
+# `-text`를 따로 적는다.
+* text=auto eol=lf
+*.png binary
