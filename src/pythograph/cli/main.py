@@ -172,10 +172,10 @@ def main(
         종료 코드.
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
-    out = stdout or _exchange_stream(sys.stdout, newline="\n")
+    out = stdout or _exchange_stdout(sys.stdout)
     err = stderr or sys.stderr
     try:
-        text = run(arguments, stdin or _exchange_stream(sys.stdin))
+        text = run(arguments, stdin)
     except RootNotFoundExit as partial:
         _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
         return _write(out, err, partial.text, EXIT_USAGE)
@@ -191,28 +191,29 @@ def main(
     return _write(out, err, text, EXIT_OK)
 
 
-def _exchange_stream(stream: TextIO, newline: str | None = None) -> TextIO:
-    """프로세스 표준 입출력을 교환 형식의 인코딩(UTF-8)으로 맞춘다. 표준 출력은 줄바꿈도 LF로 고정한다.
+def _exchange_stdout(stream: TextIO) -> TextIO:
+    """프로세스 표준 출력을 교환 형식의 바이트(UTF-8·LF)로 맞춘다.
 
-    문서는 UTF-8 JSON이고(isthmus는 UTF-8로 읽는다) `--roots-from -`도 그 문서나 id 배열을 받는다(파일 입력은 이미
-    UTF-8로 읽는다). 파이썬은 파이프·파일로 돌린 표준 입출력을 로캘 인코딩으로 연다. Windows의 ANSI 코드 페이지(예:
-    cp1252)나 UTF-8이 아닌 로캘에서는 그 코드 페이지에 없는 문자(한글 경로·식별자)를 쓰다 실패해 종료 2였고, 있는 문자는
-    UTF-8이 아닌 바이트가 됐다. Windows 텍스트 모드는 `\\n`을 CRLF로 바꿔 같은 입력의 출력 바이트가 플랫폼마다 달랐다.
-    오류 처리는 strict 그대로다(짝 없는 서러게이트는 지금처럼 쓰기 전에 거부된다). `reconfigure`가 없는 대역이나 바꿀 수
-    없는 스트림(이미 읽은 표준 입력, 닫힌 스트림)은 그대로 둔다.
+    문서는 UTF-8 JSON이다(isthmus는 UTF-8로 읽는다). 파이썬은 파이프·파일로 돌린 표준 출력을 로캘 인코딩으로 연다.
+    Windows의 ANSI 코드 페이지(예: cp1252)나 UTF-8이 아닌 로캘에서는 그 코드 페이지에 없는 문자(한글 경로·식별자)를
+    쓰다 실패해 종료 2였고, 있는 문자는 UTF-8이 아닌 바이트가 됐다. Windows 텍스트 모드는 `\\n`을 CRLF로 바꿔 같은
+    입력의 출력 바이트가 플랫폼마다 달랐다.
+
+    오류 처리는 strict로 바꾼다. C·C.UTF-8 로캘과 UTF-8 모드(`PYTHONUTF8`)에서 파이썬이 고른 surrogateescape도 strict가
+    되지만, 모든 문서는 쓰기 전에 짝 없는 서러게이트를 거부하므로(`DocumentEncodingError`) 그런 로캘에서 쓰는 바이트는
+    같다. 표준 입력은 `--roots-from -`이 읽을 때만 다시 연다(`graph.roots`). `reconfigure`가 없는 대역이나 바꿀 수
+    없는 스트림(닫힌 스트림)은 그대로 둔다.
 
     Args:
-        stream: 프로세스 표준 입력이나 표준 출력(없을 수 있다: 콘솔 없는 실행의 `sys.stdin`).
-        newline: 표준 출력에 고정할 줄바꿈(None이면 스트림의 줄바꿈을 바꾸지 않는다).
+        stream: 프로세스 표준 출력(없을 수 있다: 출력을 닫고 실행한 경우).
 
     Returns:
         같은 스트림.
     """
     reconfigure = getattr(stream, "reconfigure", None)
     if reconfigure is not None:
-        settings = {"encoding": "utf-8"} if newline is None else {"encoding": "utf-8", "newline": newline}
         with contextlib.suppress(OSError, ValueError):
-            reconfigure(**settings)
+            reconfigure(encoding="utf-8", errors="strict", newline="\n")
     return stream
 
 

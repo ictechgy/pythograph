@@ -15,6 +15,7 @@ import pytest
 
 import pythograph
 from pythograph.cli import main as cli
+from pythograph.graph.roots import RootsError, collect_roots
 from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, SYMLINKS, routes_document, run_cli
 
 #: Django fixture 경로다.
@@ -283,7 +284,7 @@ def _run_process(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "pythograph", *arguments],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
     )
@@ -384,22 +385,71 @@ def test_roots_from_stdin_are_read_as_utf8_under_a_non_utf8_code_page(
     assert "symbol" in document["roots"][0]
 
 
-def test_exchange_stream_reconfigures_only_streams_that_allow_it() -> None:
-    """프로세스 표준 입출력은 UTF-8(출력은 LF)로 바꾸고, 바꿀 수 없는 스트림은 오류 없이 그대로 둔다."""
+def test_roots_from_stdin_rejects_non_utf8_bytes_in_utf8_mode(
+    make_project: Callable[[dict[str, str]], Path], tmp_path: Path
+) -> None:
+    """UTF-8 모드에서도 `--roots-from -`은 UTF-8이 아닌 바이트를 파일 입력처럼 거부한다(64).
+
+    UTF-8 모드(`PYTHONUTF8=1`)와 C·C.UTF-8 로캘에서 파이썬은 표준 입력을 surrogateescape로 연다. 0.3.1은 그대로 읽어
+    usr가 아닌 필드의 깨진 바이트를 서러게이트로 받아 0이었다. 파일 입력은 원래 엄격한 UTF-8이라 64였고, 이제 표준
+    입력도 같은 오류 처리(strict)다.
+    """
+    root = make_project(NON_ASCII_PROJECT)
+    document = (
+        b'{"format": "bridge-facts", "facts": [{"symbol": {"usr": "' + NON_ASCII_ROOT.encode() + b'"}}], '
+        b'"limitations": ["broken \xff byte"]}'
+    )
+    (tmp_path / "roots.json").write_bytes(document)
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONIOENCODING"}
+    environment["PYTHONUTF8"] = "1"
+    common = ["impact", "--project", str(root), "--generated-at", GENERATED_AT, "--revision", "x", "--roots-from"]
+    for source, stdin in (("-", document), (str(tmp_path / "roots.json"), b"")):
+        result = subprocess.run(
+            [sys.executable, "-m", "pythograph", *common, source],
+            input=stdin,
+            capture_output=True,
+            check=False,
+            cwd=REPOSITORY,
+            env=environment,
+        )
+        assert (result.returncode, result.stdout) == (64, b""), (source, result.stderr)
+        assert b"could not be read as UTF-8 text" in result.stderr
+
+
+def test_stdin_is_reconfigured_only_when_roots_are_read_from_it(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """표준 입력은 `--roots-from -`이 읽을 때만 UTF-8로 다시 연다. 다른 명령은 프로세스 표준 입력을 건드리지 않는다."""
+    root = make_project(NON_ASCII_PROJECT)
+    untouched = io.TextIOWrapper(io.BytesIO(b""), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdin", untouched)
+    assert run_cli(["graph", "--project", str(root), "--revision", "x"])[0] == 0
+    assert untouched.encoding == "cp1252"
+    roots = io.TextIOWrapper(io.BytesIO(json.dumps([NON_ASCII_ROOT], ensure_ascii=False).encode()), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdin", roots)
+    code, out, err = run_cli(["impact", "--project", str(root), "--revision", "x", "--roots-from", "-"])
+    assert code == 0, err
+    assert roots.encoding == "utf-8"
+    assert [item["id"] for item in json.loads(out)["roots"]] == [NON_ASCII_ROOT]
+
+
+def test_exchange_stdout_reconfigures_only_streams_that_allow_it() -> None:
+    """프로세스 표준 출력은 UTF-8·LF로 바꾸고, 바꿀 수 없는 스트림은 오류 없이 그대로 둔다."""
     raw = io.BytesIO()
     windows_like = io.TextIOWrapper(raw, encoding="cp1252", newline="\r\n")
-    assert cli._exchange_stream(windows_like, newline="\n") is windows_like
+    assert cli._exchange_stdout(windows_like) is windows_like
     windows_like.write("합계\n")
     windows_like.flush()
     assert raw.getvalue() == "합계\n".encode()
-    already_read = io.TextIOWrapper(io.BytesIO("é".encode("cp1252")), encoding="cp1252")
-    assert already_read.read(1) == "é"
     closed = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
     closed.close()
     injected = io.StringIO()
-    for stream in (already_read, closed, injected):
-        assert cli._exchange_stream(stream) is stream
-    assert already_read.encoding == "cp1252"
+    for stream in (closed, injected):
+        assert cli._exchange_stdout(stream) is stream
+    closed_stdin = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    closed_stdin.close()
+    with pytest.raises(RootsError, match="UTF-8 text"):
+        collect_roots([], "-", closed_stdin)
 
 
 @SYMLINKS

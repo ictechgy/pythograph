@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 from pathlib import Path
@@ -71,7 +72,7 @@ def _read(argument: str, stdin: TextIO) -> str:
     """
     try:
         if argument == "-":
-            text = stdin.read(MAX_ROOTS_INPUT + 1)
+            text = _read_stdin(stdin)
         else:
             with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
                 text = handle.read(MAX_ROOTS_INPUT + 1)
@@ -82,6 +83,27 @@ def _read(argument: str, stdin: TextIO) -> str:
     if len(text) > MAX_ROOTS_INPUT:
         raise RootsError("--roots-from is larger than 16 MiB; split the roots into several runs.")
     return text
+
+
+def _read_stdin(stdin: TextIO) -> str:
+    """표준 입력을 파일 입력과 같은 엄격한 UTF-8로 읽는다(상한 + 1까지).
+
+    파이썬은 파이프로 받은 표준 입력을 로캘 인코딩(Windows의 ANSI 코드 페이지 등)으로, C·C.UTF-8 로캘과 UTF-8
+    모드에서는 surrogateescape로 연다. 그대로 읽으면 한글 id가 깨지거나 UTF-8이 아닌 바이트가 서러게이트로 지나간다.
+    프로세스 표준 입력은 이 명령이 실제로 읽을 때만 다시 설정한다(다른 명령은 건드리지 않는다). `reconfigure`가 없는
+    대역(`StringIO`)이나 바꿀 수 없는 스트림은 그대로 읽는다(닫힌 스트림은 읽기에서 실패한다).
+
+    Args:
+        stdin: 표준 입력.
+
+    Returns:
+        텍스트.
+    """
+    reconfigure = getattr(stdin, "reconfigure", None)
+    if reconfigure is not None:
+        with contextlib.suppress(OSError, ValueError):
+            reconfigure(encoding="utf-8", errors="strict")
+    return stdin.read(MAX_ROOTS_INPUT + 1)
 
 
 def parse_roots_text(text: str) -> list[str]:
