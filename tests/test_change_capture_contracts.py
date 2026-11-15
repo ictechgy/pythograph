@@ -164,6 +164,8 @@ class ChangeCaptureContracts(unittest.TestCase):
             self.assertRaises((InputError, OSError)),
         ):
             change.capture(self.root)
+        # 링크를 만들지 못한 OSError도 위 단언을 지나므로 교체가 실제로 일어났는지 따로 본다.
+        self.assertTrue((self.root / "value.py").is_symlink())
         self.assertEqual(sentinel.read_bytes(), b"outside-capture")
 
     @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)

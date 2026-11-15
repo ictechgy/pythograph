@@ -12,8 +12,9 @@
   그 PR의 독립 리뷰 지적을 반영한 것이다. 변경은 모두 CHANGELOG `[Unreleased]`에 있고 아직 발행하지 않았다.
 - `main` `1ea33c4`의 CI 체크 7개가 모두 성공했다(2026-11-10 확인).
 - PR #33(브랜치 `ccr-37904670-hxdjsx`, `main` `aeb2b74` 기준)이 Windows CI 잡과 그 감사에서 나온 수정이다. `ae58402`의 CI가
-  첫 `verify-windows`(3.13)까지 모두 통과했다(커버리지 94%, 링크 테스트 건너뛰기 없음). 독립 리뷰 판정은 "수정 후 병합
-  가능"이었고 그 지적(S1–S4, N1–N7)을 반영한 커밋은 로컬에만 있다(push 전). `verify-windows`의 3.10은 아직 돈 적이 없다.
+  첫 `verify-windows`(3.13)까지 모두 통과했다. 독립 리뷰(판정 "수정 후 병합 가능")의 지적 S1–S4·N1–N7을 반영한 `9cee4e0`이
+  PR head로 올라갔고, 그 CI에서 `verify-windows (3.13)`과 나머지는 통과했지만 처음 돈 **`verify-windows (3.10)`이 59% 지점에서
+  "Windows fatal exception: stack overflow"로 죽었다**(아래 "3.10 스택 넘침"). 그 수정 커밋은 로컬에만 있다(push 전).
 
 ## PR #31에서 처리한 것
 
@@ -91,6 +92,25 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
 - **N1–N4·N7**: 테스트의 CLI subprocess를 UTF-8로 읽고, README의 `project` 표기(UNC·`//?/`)와 PowerShell 5.1 재인코딩,
   `docs/CHANGE-IMPACT.md`의 `ident`·smudge·`working-tree-encoding`·순회 잘림을 적었다. N6은 아래 표에 남겼다.
 
+### 3.10 스택 넘침 (`9cee4e0`의 `verify-windows (3.10)`)
+
+- **증상**: `tests/test_persistence_django.py::test_unparseable_parameter_annotations_are_not_models`의 4만 9,999개 `+` 문자열
+  주석을 `parse_annotation`(`source/syntax.py`)이 `ast.parse`하다 프로세스가 죽었다(Python 예외·테스트 결과 없이 종료).
+- **원인**: 3.10의 `ast2obj`(C 트리 → 파이썬 객체)는 재귀 깊이를 검사하지 않는다(3.11부터 `recursion_depth` 검사). 사슬
+  상한 `MAX_CHAIN_TOKENS = 50_000`은 Linux 주 스레드 8 MiB로 정했는데 Windows `python.exe`는 주 스레드 스택을
+  2,000,000 B만 잡는다(`PCbuild/python.vcxproj`의 `StackReserveSize`). 3.10.20 실측(Linux clang): 트리 한 단계에 약 64 B,
+  1 MiB 스레드는 약 1.6만, 2,000,000 B는 약 3.2만 단계에서 죽는다(메서드 사슬은 절반). 모듈 파싱(`Project._parse`)도 같은
+  거름을 쓰므로 사용자 소스 한 줄로도 죽는다.
+- **재현**(Linux 3.10.20, `ulimit -s 1024`, 4만 9,999항 주석만 둔 프로젝트·3만 항 모듈만 둔 프로젝트의 schema): 수정 전 둘 다
+  종료 139, 수정 뒤 둘 다 0(주석은 모르는 주석, 모듈은 `unreadable-sources:` 한계). graph도 139 → 0(`unparsedFiles` 1).
+- **수정**: 3.10에서 논리 줄 사슬(`chain_bound`)이 2,000토큰을 넘으면 사슬에 비례한 스택(최소 8 MiB, 토큰당 1 KiB, 최대 약
+  49 MiB)의 전용 스레드에서 파싱한다(`parse_guarded`). 상한·결과는 그대로라 보존 범위가 좁아지지 않는다(넓지만 얕은 줄은
+  계속 분석). 스레드를 만들 수 없으면 MemoryError로 바꿔 기존 "source nesting too deep to parse"·모르는 주석으로 센다.
+- **3.11**: 영향 없다. 3.11.18·3.12.3·3.13.18 모두 1 MiB·2,000,000 B 스레드의 30만 단계 사슬(6가지 모양)에서
+  RecursionError였고, 회귀 테스트 프로그램도 수정 전 코드로 3.11에서 통과했다. 그래서 Windows 행렬에 3.11을 더하지 않았다.
+- **테스트**: 1 MiB 스레드에서 주석·깊은 모듈·넓은 모듈을 읽는 별도 프로세스 테스트(수정 전 3.10에서 -11), 전용 스택
+  경로와 스레드 실패 경로의 프로세스 내 테스트. 링크 교체 테스트 10개는 교체가 실제로 일어났을 때만 통과하게 고쳤다(리뷰 지적).
+
 ### 남긴 것 (이유)
 
 | 항목 | 이유 |
@@ -101,13 +121,13 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
 | 금지 문자 파일 이름 테스트 | NTFS가 제어 문자 이름을 거부해 테스트 전체가 건너뛴다. NEL·U+2028 이름은 NTFS도 받으므로 그 둘만 따로 만드는 형태로 나눌 수 있다. |
 | 릴리스 워크플로의 Windows 검증 | 요청 범위가 CI다. CI 결과가 안정적이면 `release.yml` verify 매트릭스에 같은 잡을 더할지 정한다. |
 | 닫힌 표준 스트림(리뷰 N6) | 기존 결함이다. `--version >&-`는 `sys.stdout`이 None이라 `_write`의 AttributeError가 잡히지 않아 트레이스백·종료 1(예약 코드), `--roots-from - <&-`는 내부 오류 2다. 계약 코드(2)와 원인 문구로 바꾸는 작은 후속이다. |
-| 링크 교체 테스트의 공허한 통과 | 링크를 만들 수 없으면 교체 테스트 9개(`test_swapping_paths_…`의 `file`·`parent`, `test_working_capture_rechecks_a_link_swap`)는 링크 생성 OSError가 제품의 거부와 같은 결과라 통과한다. 지금은 Windows에서 건너뛰고(권한 없음) CI는 링크 권한을 강제하므로 영향이 없지만, 교체가 실제로 일어났는지 단언하면 더 단단하다. |
 
 ## 다음 할 일
 
-1. 리뷰 반영 커밋을 push하고 PR #33의 CI를 확인한다. 특히 처음 도는 `verify-windows (3.10)`과, 행렬로 바뀐 잡 이름
-   (`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다. 실패하면 위 감사 분류(제품 결함·플랫폼
-   기대·없는 기능)로 나눠 고친다.
+1. 3.10 스택 넘침 수정 커밋을 push하고 PR #33의 `verify-windows (3.10)`이 끝까지 도는지(특히
+   `test_long_chains_parse_without_overflowing_a_small_stack`와 4만 9천 항 주석의
+   `test_unparseable_parameter_annotations_are_not_models`) 확인한다. MSVC 빌드에서 토큰당 1 KiB 스택이 넉넉한지는 그 실행만
+   증명한다. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다.
 2. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
 3. isthmus에 게시본 검증과 `compatibility.json` 핀 갱신을 요청한다.

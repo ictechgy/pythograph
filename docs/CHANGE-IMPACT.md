@@ -62,9 +62,9 @@ Git이 고른 캡처 안에서만 사실을 계산한다. 의도적으로 선택
 나온다: 줄바꿈 변환(Git for Windows 기본값 `core.autocrlf=true`, `core.autocrlf=input`, `.gitattributes`의 `text`·`eol`),
 `ident`의 `$Id$` 펼침, smudge filter(git-lfs는 작업 트리에 실제 내용, blob에 포인터를 둔다), `working-tree-encoding`(작업
 트리가 UTF-16 등이면 그 `.py`는 UTF-8이 아니라 파싱 실패로도 남는다). 그 파일의 선언이 모두 seed가 되는 과다 선택이며 의존
-경로를 빠뜨리지는 않는다. 다만 seed가 많아지면 `--max-reached`·`--max-depth`(그리고 seed 상한 10,000)에 먼저 닿을 수 있고,
-그때는 순회의 `truncated`·`truncationReasons`(`seedsTruncated`)로 잘림을 알린다. 보고서는 이 변환을 아직 한계로 세지
-않는다. 정확한 변경 목록이 필요하면 두 커밋을 비교(`--head`)하거나 변환이 없는 체크아웃에서 분석한다.
+경로를 빠뜨리지는 않는다. 다만 seed가 많아지면 `--max-reached`·`--max-depth`에 먼저 닿을 수 있고, 그때는 순회 문서의
+`truncated`·`truncationReasons`로 잘림을 알린다. seed가 상한 10,000개를 넘으면 시점별 보고서 필드 `seedsTruncated`가
+참이 된다(잘림 이유 값이 아니다). 보고서는 이 변환을 아직 한계로 세지 않는다. 정확한 변경 목록이 필요하면 두 커밋을 비교(`--head`)하거나 변환이 없는 체크아웃에서 분석한다.
 
 임시 materialization도 같은 nofollow 디렉터리 핸들 검사를 재사용하고 파일은 exclusive create로 쓴다.
 디렉터리의 raw Git prefix와 실제 `(device, inode)`를 등록해 같은 논리 prefix만 재사용한다. 선택한 두 경로가 대상

@@ -465,13 +465,17 @@ def test_swapping_paths_at_file_open_never_reads_replacement(
     (outside / "app.py").write_text("value = 'outside-only'\n")
     project = Project.open(root)
     original = os.open
-    swapped = False
+    attempted = swapped = False
 
     def replacing_open(path: str | Path, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
-        """실제 open 직전에 대상 이름을 바꾸되 파일 핸들 검사를 생략하지 않는다."""
-        nonlocal swapped
-        if Path(path).name == "app.py" and not swapped:
-            swapped = True
+        """실제 open 직전에 대상 이름을 바꾸되 파일 핸들 검사를 생략하지 않는다.
+
+        교체를 끝까지 마쳤을 때만 `swapped`다. 링크를 만들지 못한 실패도 제품의 거부와 같은 결과(ReadFailure)라 그
+        경우를 통과로 세지 않는다.
+        """
+        nonlocal attempted, swapped
+        if Path(path).name == "app.py" and not attempted:
+            attempted = True
             if swap == "parent":
                 (root / "pkg").rename(root / ".saved")
                 (root / "pkg").symlink_to(outside, target_is_directory=True)
@@ -481,6 +485,7 @@ def test_swapping_paths_at_file_open_never_reads_replacement(
                     (root / "pkg/app.py").symlink_to(outside / "app.py")
                 else:
                     (root / "pkg/app.py").write_text("value = 'replacement'\n")
+            swapped = True
         return original(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(project_module.os, "open", replacing_open)
@@ -500,15 +505,16 @@ def test_parent_swap_before_directory_open_is_refused(
     (outside / "app.py").write_text("value = 'outside-only'\n")
     project = Project.open(root)
     original = os.open
-    swapped = False
+    attempted = swapped = False
 
     def replacing_open(path: str | Path, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
-        """부모 핸들을 여는 순간 링크로 교체한다."""
-        nonlocal swapped
-        if path == "pkg" and not swapped:
-            swapped = True
+        """부모 핸들을 여는 순간 링크로 교체한다(교체를 마쳤을 때만 `swapped`)."""
+        nonlocal attempted, swapped
+        if path == "pkg" and not attempted:
+            attempted = True
             (root / "pkg").rename(root / ".saved")
             (root / "pkg").symlink_to(outside, target_is_directory=True)
+            swapped = True
         return original(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(project_module.os, "open", replacing_open)
