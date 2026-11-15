@@ -70,16 +70,23 @@ jobs:
 
   # Windows에는 디렉터리 핸들 열기(dir_fd)·O_NOFOLLOW·O_NONBLOCK·FIFO·POSIX 권한 비트가 없어 소스 읽기가 경로 재검사와
   # 파일 핸들 신원 대조 대체 경로를 타고, Git for Windows 기본 설정(core.autocrlf=true), 텍스트 모드 CRLF, ANSI 코드
-  # 페이지 표준 입출력이 입출력 바이트를 바꾼다. 그 경로를 실제로 돈다. 순수 Python 도구라 Python은 하나(3.13, macOS 잡과
-  # 같은 판)만 둔다. PYTHONUTF8·PYTHONIOENCODING은 일부러 두지 않는다(기본 코드 페이지에서 UTF-8 출력을 확인해야 한다).
+  # 페이지 표준 입출력이 입출력 바이트를 바꾼다. 그 경로를 실제로 돈다. 신원 대조가 기대는 Windows stat·fstat 구현이
+  # CPython 3.12에서 바뀌었으므로(FileIdInfo·GetFileInformationByName) 그 전후인 3.10과 3.13을 돈다. PYTHONUTF8·
+  # PYTHONIOENCODING은 일부러 두지 않는다(기본 코드 페이지에서 UTF-8 출력을 확인해야 한다). PYTHOGRAPH_REQUIRE_SYMLINKS는
+  # 러너가 링크를 만들 수 없으면 테스트를 시작하지 않게 해 링크 거부 테스트가 건너뛰기로 조용히 빠지지 않게 한다.
   # Lint·Format·Typecheck는 플랫폼과 무관한 결과라 위 잡에 맡긴다(mypy는 실행 플랫폼을 기본값으로 써서 Windows에서는
   # `_HAS_DIR_FD`·`O_NONBLOCK`으로 막은 POSIX 전용 속성 세 곳을 없는 속성으로 본다). 건너뛴 테스트와 이유는 `-rs`로
   # 로그에 남긴다.
   verify-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.13']
     runs-on: windows-latest
     timeout-minutes: 25
     env:
-      UV_PYTHON: '3.13'
+      UV_PYTHON: ${{ matrix.python }}
+      PYTHOGRAPH_REQUIRE_SYMLINKS: '1'
     defaults:
       run:
         shell: bash
