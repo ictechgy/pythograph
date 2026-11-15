@@ -17,7 +17,8 @@ pythograph change-impact --project . --base HEAD --max-depth 8 --max-reached 500
 출처·한계를 보존해야 한다. 새 보고서 전체를 기존 language-traversal 입력으로 넘기지 않는다.
 
 두 `traversal.project`는 [공유 순회 계약](https://github.com/ictechgy/isthmus/blob/main/docs/LANGUAGE-TRAVERSAL.md)의
-POSIX realpath 규칙에 따라 원래 `--project`의 정규 경로를 보존한다. 임시 캡처 디렉터리는 논리 프로젝트 신원이 아니다.
+POSIX realpath 규칙에 따라 원래 `--project`의 정규 경로를 보존한다(Windows는 realpath를 `/`로 쓴 값, README 참고).
+임시 캡처 디렉터리는 논리 프로젝트 신원이 아니다.
 `testCandidate`는 일반 그래프와 같은 `is_test_path` 정책(`test_*.py`, `*_test.py`, `tests.py`, `conftest.py`,
 `test/`·`tests/` 디렉터리)을 쓴다. `testimonials.py`처럼 접두사만 비슷한 소스는 테스트로 표시하지 않는다.
 
@@ -56,11 +57,14 @@ Git이 고른 캡처 안에서만 사실을 계산한다. 의도적으로 선택
 다른 파일로 교체되면 코드 2이며 부분 성공 문서를 쓰지 않는다. 플랫폼이 디렉터리 핸들을 지원하지 않으면 기존의
 경로 재검사와 파일 핸들 신원 대조를 적용한다. 모든 플랫폼의 파일 시스템 원자성을 보장한다는 뜻은 아니다.
 
-작업 트리 캡처는 파일 바이트를, 커밋 캡처는 blob 바이트를 그대로 비교한다(Git의 줄바꿈 변환을 거치지 않는다). 그래서
-Git이 체크아웃·커밋 때 줄바꿈을 바꾸는 저장소(Git for Windows 기본값 `core.autocrlf=true`, `core.autocrlf=input`,
-`.gitattributes`의 `text`·`eol`)에서 `--head` 없이 분석하면 내용은 같고 줄바꿈만 다른 파일도 `modified`로 나온다. 그
-파일의 선언이 모두 seed가 되는 과다 선택이며 의존 경로를 빠뜨리지는 않는다. 보고서는 이 변환을 아직 한계로 세지 않는다.
-정확한 변경 목록이 필요하면 두 커밋을 비교(`--head`)하거나 줄바꿈 변환이 없는 체크아웃에서 분석한다.
+작업 트리 캡처는 파일 바이트를, 커밋 캡처는 blob 바이트를 그대로 비교한다(Git의 체크아웃·커밋 변환을 거치지 않는다).
+그래서 Git이 작업 트리 바이트를 blob과 다르게 쓰는 저장소에서 `--head` 없이 분석하면 손대지 않은 파일도 `modified`로
+나온다: 줄바꿈 변환(Git for Windows 기본값 `core.autocrlf=true`, `core.autocrlf=input`, `.gitattributes`의 `text`·`eol`),
+`ident`의 `$Id$` 펼침, smudge filter(git-lfs는 작업 트리에 실제 내용, blob에 포인터를 둔다), `working-tree-encoding`(작업
+트리가 UTF-16 등이면 그 `.py`는 UTF-8이 아니라 파싱 실패로도 남는다). 그 파일의 선언이 모두 seed가 되는 과다 선택이며 의존
+경로를 빠뜨리지는 않는다. 다만 seed가 많아지면 `--max-reached`·`--max-depth`(그리고 seed 상한 10,000)에 먼저 닿을 수 있고,
+그때는 순회의 `truncated`·`truncationReasons`(`seedsTruncated`)로 잘림을 알린다. 보고서는 이 변환을 아직 한계로 세지
+않는다. 정확한 변경 목록이 필요하면 두 커밋을 비교(`--head`)하거나 변환이 없는 체크아웃에서 분석한다.
 
 임시 materialization도 같은 nofollow 디렉터리 핸들 검사를 재사용하고 파일은 exclusive create로 쓴다.
 디렉터리의 raw Git prefix와 실제 `(device, inode)`를 등록해 같은 논리 prefix만 재사용한다. 선택한 두 경로가 대상

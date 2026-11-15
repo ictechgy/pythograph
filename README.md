@@ -41,11 +41,15 @@ analyses (see [isthmus compatibility](#isthmus-compatibility)).
 
 - Python 3.10 or newer (Django 5.x needs 3.10+, and pythograph parses the analyzed code with the running
   interpreter, so run it with the same or a newer Python than the project).
-- Linux, macOS, or Windows (CI runs all three). Every command writes UTF-8 JSON with LF line endings whatever the
-  locale, console code page, or `PYTHONIOENCODING`, and `--roots-from -` reads stdin as UTF-8. On Windows the
-  document's `project` is the realpath written with forward slashes (`C:/work/shop`); bridge-facts v1 assumes POSIX
-  paths and leaves Windows normalization (drive-letter case, `\\?\` prefixes) to a later agreement, so a join only
-  matches documents whose producers spell the root the same way.
+- Linux, macOS, or Windows. CI runs Python 3.10–3.14 on Linux and 3.10 and 3.13 on macOS and Windows. Every command
+  writes UTF-8 JSON with LF line endings whatever the locale, console code page, or `PYTHONIOENCODING`, and
+  `--roots-from -` reads stdin as strict UTF-8, like a roots file. Windows PowerShell 5.1 re-encodes a native
+  command's output (it decodes the bytes with the console code page, and `>` writes UTF-16LE), so redirect through
+  `cmd /c` or use PowerShell 7.4 or later, which passes the bytes through.
+- Every document's `project` is the project's realpath written with `/`: the POSIX realpath on Linux and macOS, and
+  on Windows the drive or UNC form (`C:/work/shop`, `//server/share/shop`, or `//?/C:/work/shop` for a `\\?\`
+  path). bridge-facts v1 assumes POSIX paths and leaves Windows normalization (drive-letter case, `\\?\` prefixes) to
+  a later agreement, so a join only matches documents whose producers spell the root the same way.
 
 Install from [PyPI](https://pypi.org/project/pythograph/):
 
@@ -89,8 +93,8 @@ pythograph routes --role server --project <root> [--service <name>] [--include-t
 Writes a bridge-facts v1 document to stdout: `platform: "python"`, `target: "http"`, `roles: ["server"]`,
 `dispatch`, `sourceSets`, and one `route-decl` fact per (route, HTTP method).
 
-- `--project` (required): the project root. `project` is its POSIX realpath and every `location.path` is
-  relative to it.
+- `--project` (required): the project root. `project` is its realpath written with `/` (see
+  [Requirements and installation](#requirements-and-installation)) and every `location.path` is relative to it.
 - `--framework`: `auto` (default) detects Django (a `DJANGO_SETTINGS_MODULE` default in `manage.py`,
   `wsgi.py`, or `asgi.py`, or `--settings`) and Flask (a `Flask(...)` or `Blueprint(...)` object). A project
   with both is a usage error until you pick one.

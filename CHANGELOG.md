@@ -47,12 +47,19 @@
   준 옵션은 Flask 기본값과 같아 세지 않는다.
 - 모든 명령이 문서를 표준 출력의 로캘 인코딩으로 써서, Windows(파이프·파일로 돌린 표준 출력은 ANSI 코드 페이지, 예: cp1252)나
   UTF-8이 아닌 로캘에서 한글 경로·식별자가 든 문서는 쓰기 실패로 종료 2였고, 코드 페이지에 있는 문자(é)는 UTF-8이 아닌
-  바이트가 됐다. Windows 텍스트 모드는 줄바꿈도 CRLF로 바꿨다. 이제 로캘·`PYTHONIOENCODING`과 무관하게 UTF-8·LF로 쓰고,
-  `--roots-from -`도 파일 입력처럼 표준 입력을 UTF-8로 읽는다(전에는 한글 id가 깨져 정점을 찾지 못하고 64였다). 사실·한계·
-  종료 코드 계약은 그대로다.
-- CRLF 줄바꿈 선언 파일(Windows 체크아웃의 Git 기본값 `core.autocrlf=true`)에서 줄 끝 지정자의 `\r`이 버전에 남아
-  `flask>=3.1,<4`·`Django>=5.2,<6`의 상한을 읽지 못해 거짓 `route-framework-version-unknown:` 한계를 냈고, aiohttp 하한
-  `>=3.11`이 3.0으로 내려가 base URL 결합 사실이 LF 파일과 달랐다. 지정자의 공백 문자(탭·CR·LF 포함)를 모두 지우고 읽는다.
+  바이트가 됐다. Windows 텍스트 모드는 줄바꿈도 CRLF로 바꿨다. 이제 로캘·`PYTHONIOENCODING`과 무관하게 UTF-8·LF·strict로
+  쓴다. C·C.UTF-8 로캘이나 UTF-8 모드(`PYTHONUTF8`)에서 파이썬이 고르는 surrogateescape도 strict가 되지만 모든 문서는 쓰기
+  전에 짝 없는 서러게이트를 거부하므로 그 로캘의 출력 바이트는 같다. `--roots-from -`은 표준 입력을 읽을 때만 다시 열어 파일
+  입력과 같은 엄격한 UTF-8로 읽는다. 로캘 인코딩 환경에서는 한글 id가 깨져 정점을 찾지 못하고 64였던 것이 고쳐지고, UTF-8
+  모드·C·C.UTF-8 로캘에서는 UTF-8이 아닌 바이트(usr가 아닌 필드 포함)를 surrogateescape로 받아 0이던 입력이 이제 파일
+  입력처럼 64다. 사실·한계·종료 코드 계약은 그대로다.
+- CRLF 줄바꿈 선언 파일(Windows 체크아웃의 Git 기본값 `core.autocrlf=true`)에서 줄 끝 지정자의 `\r`이 버전에 남아 메이저
+  제한·하한을 읽지 못했다. routes는 `flask>=3.1,<4`·`Django>=5.2,<6`에 거짓 `route-framework-version-unknown:` 한계를 냈고,
+  client는 aiohttp 하한 `>=3.11`이 3.0으로 내려가 base URL 결합 사실이 달랐다. schema도 같은 선언으로 Flask-SQLAlchemy 이름
+  규칙 메이저와 ORM 버전 한계를 정하므로, `flask-sqlalchemy>=3.1,<4`·`sqlalchemy>=2.0,<3` CRLF 선언에서 `User2FA` 같은
+  모델이 2·3 규칙이 다른 dynamic 사실(`User2FA`)이 되고 열 사실이 빠졌으며 `flask-sqlalchemy-naming-unverified:`·
+  `persistence-framework-version-unknown:` 한계가 붙었다. 이제 지정자의 공백 문자(탭·CR·LF 포함)를 모두 지우고 읽어 세
+  명령 모두 LF 파일과 같은 문서를 낸다(정적 `user2_fa`와 열 사실, 한계 없음).
 
 ### Changed
 
@@ -64,11 +71,14 @@
   모든 추적 파일). 나머지 추적 파일은 새 `input.identityOnlyFiles`로 센다. 비분석 파일을 바이트 대신 경로·git blob id로 해시하므로
   같은 입력이라도 `input.contentDigest` 값이 0.3.1과 다르다 — 버전이 다른 실행의 digest를 서로 비교하지 않는다.
 - isthmus 공유 적합성 벡터를 `c76e105`로 다시 벤더링했다(`http-dispatch.json`에 `consumer` 전용 사례 4건 추가, 생산자 사례 수 같음).
-- CI에 Windows 잡(`windows-latest`, Python 3.13)을 더했다. 테스트·커버리지 게이트·CLI 계약(개발 설치·빌드한 wheel)·자기
-  분석을 돌리고 건너뛴 테스트와 이유를 로그에 남긴다. `.gitattributes`로 모든 텍스트 파일을 LF로 체크아웃해 공유 벡터
-  sha256·fixture 바이트·golden이 Windows에서도 같다. Windows에 없는 기능(디렉터리 핸들·FIFO·`/dev/fd`·POSIX 셸 스크립트·실행
-  권한 비트·파일 이름의 제어 문자)을 쓰는 테스트는 전처럼 건너뛰고, 심볼릭 링크 테스트는 링크를 만들 수 없는 프로세스에서만
-  건너뛴다. `change-impact` 문서에 Git 줄바꿈 변환(`core.autocrlf` 등)이 작업 트리 비교에서 과다 선택을 만든다는 점을 적었다.
+- CI에 Windows 잡(`windows-latest`, Python 3.10·3.13 — Windows stat·fstat 구현이 바뀐 3.12 전후)을 더했다. 테스트·커버리지
+  게이트·CLI 계약(개발 설치·빌드한 wheel)·자기 분석을 돌리고 건너뛴 테스트와 이유를 로그에 남긴다. `.gitattributes`로 모든
+  텍스트 파일을 LF로 체크아웃해 공유 벡터 sha256·fixture 바이트·golden이 Windows에서도 같다. Windows에 없는 기능(디렉터리
+  핸들·FIFO·`/dev/fd`·POSIX 셸 스크립트·실행 권한 비트·파일 이름의 제어 문자)을 쓰는 테스트는 전처럼 건너뛴다. 심볼릭 링크
+  테스트는 권한 없는 Windows에서만 건너뛰고(POSIX에서 링크를 못 만들면 실패로 드러난다), Windows CI는
+  `PYTHOGRAPH_REQUIRE_SYMLINKS=1`로 링크를 만들 수 없으면 테스트를 시작하지 않는다. `change-impact` 문서에 Git의 작업 트리
+  변환(줄바꿈·`ident`·smudge filter·`working-tree-encoding`)이 작업 트리 비교에서 과다 선택과 순회 잘림을 만들 수 있다는 점을
+  적었다.
 
 ## [0.3.1] - 2026-11-03
 

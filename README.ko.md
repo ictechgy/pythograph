@@ -38,10 +38,14 @@ persistence 문서와 python `language-traversal` 분석을 받는 첫 릴리스
 
 - Python 3.10 이상(Django 5.x가 3.10 이상을 요구하고, pythograph는 실행 중인 인터프리터로 분석 대상을
   파싱하므로 프로젝트와 같거나 새 파이썬으로 실행한다).
-- Linux, macOS, Windows(CI가 셋 모두에서 돈다). 모든 명령은 로캘·콘솔 코드 페이지·`PYTHONIOENCODING`과 무관하게
-  UTF-8·LF 줄바꿈 JSON을 쓰고, `--roots-from -`은 표준 입력을 UTF-8로 읽는다. Windows에서 문서의 `project`는 realpath를
-  슬래시로 쓴 값(`C:/work/shop`)이다. bridge-facts v1은 POSIX 경로를 가정하고 Windows 정규화(드라이브 문자 대소문자,
-  `\\?\` 접두사)는 나중 합의로 남겨 두었으므로, 조인은 생산자들이 루트를 같은 철자로 쓴 문서끼리만 맞는다.
+- Linux, macOS, Windows. CI는 Linux에서 Python 3.10–3.14, macOS와 Windows에서 3.10·3.13을 돈다. 모든 명령은
+  로캘·콘솔 코드 페이지·`PYTHONIOENCODING`과 무관하게 UTF-8·LF 줄바꿈 JSON을 쓰고, `--roots-from -`은 표준 입력을
+  roots 파일처럼 엄격한 UTF-8로 읽는다. Windows PowerShell 5.1은 네이티브 명령 출력을 다시 인코딩하므로(콘솔 코드
+  페이지로 디코드하고 `>`는 UTF-16LE로 쓴다) `cmd /c`로 리디렉션하거나 바이트를 그대로 넘기는 PowerShell 7.4 이상을 쓴다.
+- 모든 문서의 `project`는 프로젝트 realpath를 `/`로 쓴 값이다. Linux·macOS는 POSIX realpath, Windows는 드라이브·UNC
+  형태다(`C:/work/shop`, `//server/share/shop`, `\\?\` 경로를 주면 `//?/C:/work/shop`). bridge-facts v1은 POSIX 경로를
+  가정하고 Windows 정규화(드라이브 문자 대소문자, `\\?\` 접두사)는 나중 합의로 남겨 두었으므로, 조인은 생산자들이
+  루트를 같은 철자로 쓴 문서끼리만 맞는다.
 
 [PyPI](https://pypi.org/project/pythograph/)에서 설치한다.
 
@@ -84,7 +88,8 @@ pythograph routes --role server --project <root> [--service <name>] [--include-t
 bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target: "http"`, `roles: ["server"]`,
 `dispatch`, `sourceSets`, (라우트, HTTP method)마다 `route-decl` 사실 하나.
 
-- `--project`(필수): 프로젝트 루트. `project`는 그 POSIX realpath이고 모든 `location.path`는 그 기준 상대 경로다.
+- `--project`(필수): 프로젝트 루트. `project`는 그 realpath를 `/`로 쓴 값이고([요구 사항과 설치](#요구-사항과-설치))
+  모든 `location.path`는 그 기준 상대 경로다.
 - `--framework`: 기본 `auto`는 Django(`manage.py`·`wsgi.py`·`asgi.py`의 `DJANGO_SETTINGS_MODULE` 기본값 또는
   `--settings`)와 Flask(`Flask(...)`·`Blueprint(...)` 객체)를 찾는다. 둘 다 있으면 하나를 고를 때까지 사용법 오류다.
 - `--settings`: 진입 파일이 설정 모듈을 알려 주지 않을 때의 Django 설정 모듈.
