@@ -14,11 +14,12 @@ import pytest
 from pythograph.routes.versions import declared_majors
 from pythograph.source import project as project_module
 from pythograph.source.project import Project, ReadFailure, SourceModule
-from tests.conftest import run_cli
+from tests.conftest import SYMLINKS, run_cli
 
 MakeProject = Callable[[dict[str, str]], Path]
 
 
+@SYMLINKS
 @pytest.mark.parametrize("internal", [False, True])
 @pytest.mark.parametrize("package", [False, True])
 @pytest.mark.parametrize("fallback", [False, True])
@@ -56,6 +57,7 @@ def test_linked_parents_are_rejected_by_every_source_entry_point(
     assert isinstance(project.module("plain.py"), SourceModule)
 
 
+@SYMLINKS
 @pytest.mark.parametrize("fallback", [False, True])
 def test_remembered_resolution_still_rechecks_links_when_reading(
     make_project: MakeProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
@@ -84,6 +86,7 @@ def test_remembered_resolution_still_rechecks_links_when_reading(
     assert project.skipped_links == 2
 
 
+@SYMLINKS
 @pytest.mark.parametrize("internal", [False, True])
 def test_linked_files_and_module_roots_are_rejected(make_project: MakeProject, tmp_path: Path, internal: bool) -> None:
     """파일 자체 링크와 src 모듈 루트 링크, 끊어진 링크도 따라가지 않고 각각 한 번만 센다."""
@@ -104,6 +107,7 @@ def test_linked_files_and_module_roots_are_rejected(make_project: MakeProject, t
     assert project.skipped_links == 3
 
 
+@SYMLINKS
 @pytest.mark.parametrize("kind", ["parent", "file"])
 def test_linked_manifests_do_not_supply_framework_versions(
     make_project: MakeProject, tmp_path: Path, kind: str
@@ -124,6 +128,7 @@ def test_linked_manifests_do_not_supply_framework_versions(
     assert project.skipped_links == 1
 
 
+@SYMLINKS
 def test_links_that_cannot_hide_sources_are_not_counted(make_project: MakeProject, tmp_path: Path) -> None:
     """따라갔어도 순회가 읽지 않았을 링크(소스가 아닌 파일, 점 이름·건너뛰는 디렉터리, 끊어진 비 `.py`)는 세지 않는다.
 
@@ -144,6 +149,7 @@ def test_links_that_cannot_hide_sources_are_not_counted(make_project: MakeProjec
     assert project.skipped_links == 0
 
 
+@SYMLINKS
 @pytest.mark.parametrize(
     ("link", "target"),
     [
@@ -166,6 +172,7 @@ def test_links_that_may_hide_sources_are_counted(make_project: MakeProject, link
     assert project.skipped_links == 1
 
 
+@SYMLINKS
 @pytest.mark.parametrize("kind", ["directory", "file", "missing"])
 def test_link_count_does_not_depend_on_the_link_target(make_project: MakeProject, tmp_path: Path, kind: str) -> None:
     """링크를 셀지는 이름만으로 정하고 대상에는 접근하지 않는다. 프로젝트 밖 대상의 종류·존재와 무관하게 같다.
@@ -190,6 +197,7 @@ def test_link_count_does_not_depend_on_the_link_target(make_project: MakeProject
     ]
 
 
+@SYMLINKS
 @pytest.mark.parametrize("hiding", [False, True])
 def test_only_links_that_may_hide_sources_limit_documents(
     make_project: MakeProject, tmp_path: Path, hiding: bool
@@ -270,6 +278,7 @@ _INDEX_NAMES = [
 ]
 
 
+@SYMLINKS
 @pytest.mark.parametrize("fallback", [False, True])
 def test_module_root_index_keeps_resolution_and_link_counts(
     make_project: MakeProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fallback: bool
@@ -304,6 +313,7 @@ def test_module_root_index_keeps_resolution_and_link_counts(
     (root / "site_b" / "env").symlink_to(outside, target_is_directory=True)
     (root / "site_b" / "linkmod.py").symlink_to(outside / "pkg" / "__init__.py")
     (root / "build" / "linked_root").symlink_to(outside, target_is_directory=True)
+    # 목록 권한을 뺀 루트다. 권한 비트가 없는 Windows와 root 실행에서는 그대로 읽혀 색인 경로를 타지만 대조 단언은 같다.
     (root / "locked").chmod(0o311)
     try:
         reference, indexed = Project.open(root), Project.open(root)
@@ -399,6 +409,7 @@ def test_non_relative_paths_fail_before_open(
     assert isinstance(project.module(relative), ReadFailure)
 
 
+@SYMLINKS
 @pytest.mark.parametrize("internal", [False, True])
 @pytest.mark.parametrize("package", [False, True])
 @pytest.mark.parametrize("entry", ["settings", "urls"])
@@ -433,7 +444,9 @@ def test_django_cli_cannot_extract_through_linked_settings_or_urlconf(
 
 
 @pytest.mark.parametrize("method", ["module", "read_text"])
-@pytest.mark.parametrize("swap", ["file", "parent", "regular"])
+@pytest.mark.parametrize(
+    "swap", [pytest.param("file", marks=SYMLINKS), pytest.param("parent", marks=SYMLINKS), "regular"]
+)
 @pytest.mark.parametrize("fallback", [False, True])
 def test_swapping_paths_at_file_open_never_reads_replacement(
     make_project: MakeProject,
@@ -503,6 +516,7 @@ def test_parent_swap_before_directory_open_is_refused(
     assert swapped
 
 
+@SYMLINKS
 def test_queued_directory_replaced_by_link_is_not_scanned(
     make_project: MakeProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

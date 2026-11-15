@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import tempfile
 import textwrap
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -36,6 +37,36 @@ DEEP_SOURCES = {
     "elifs.py": "def dispatch(code):\n    if code == 0:\n        return 0\n"
     + "".join(f"    elif code == {index}:\n        return {index}\n" for index in range(1, 500)),
 }
+
+
+def _can_create_symlinks() -> bool:
+    """이 프로세스가 심볼릭 링크를 만들 수 있는지 일회용 디렉터리에서 실제로 만들어 본다.
+
+    Windows는 SeCreateSymbolicLinkPrivilege(관리자)나 개발자 모드가 있어야 링크를 만든다. 권한이 없는 Windows
+    에서는 링크 거부 규칙을 검증할 입력 자체를 만들 수 없다. 플랫폼 이름으로 거르지 않는 이유: 권한이 있는
+    Windows(GitHub 호스트 러너는 관리자로 돈다)에서는 링크·재분석 지점 거부를 실제로 검증해야 하므로 건너뛰지 않는다.
+
+    Returns:
+        만들 수 있으면 True.
+    """
+    with tempfile.TemporaryDirectory(prefix="pythograph-symlink-probe-") as directory:
+        try:
+            (Path(directory) / "link").symlink_to(directory, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+#: 이 프로세스가 심볼릭 링크를 만들 수 있는지다(unittest 테스트의 `skipUnless`용).
+CAN_CREATE_SYMLINKS = _can_create_symlinks()
+
+#: 링크를 만들 수 없을 때 링크 입력이 필요한 테스트를 건너뛰는 이유다.
+SYMLINK_SKIP_REASON = (
+    "this process cannot create symbolic links (Windows requires SeCreateSymbolicLinkPrivilege or Developer Mode)"
+)
+
+#: 링크를 만들 수 없는 환경(권한 없는 Windows)에서만 링크 입력이 필요한 pytest 테스트를 건너뛰는 표시다.
+SYMLINKS = pytest.mark.skipif(not CAN_CREATE_SYMLINKS, reason=SYMLINK_SKIP_REASON)
 
 
 def class_lattice(depth: int, bottom_bases: str = "", bottom_body: str = "pass", back_edge: bool = False) -> str:
@@ -223,7 +254,11 @@ def make_project(tmp_path: Path) -> Callable[[dict[str, str]], Path]:
     """
 
     def build(files: dict[str, str]) -> Path:
-        """파일을 쓴다(내용은 들여쓰기를 걷어 낸다)."""
+        """파일을 쓴다(내용은 들여쓰기를 걷어 낸다).
+
+        텍스트 모드라 Windows에서는 줄바꿈이 CRLF가 된다. Git 기본 설정(`core.autocrlf=true`)으로 받은 Windows
+        체크아웃과 같은 입력이라 일부러 그대로 둔다. 바이트 수를 기대하는 테스트는 문자열 길이 대신 파일 크기를 쓴다.
+        """
         root = tmp_path / "project"
         for relative, content in files.items():
             path = root / relative

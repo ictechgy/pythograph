@@ -15,7 +15,7 @@ import pytest
 
 import pythograph
 from pythograph.cli import main as cli
-from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, routes_document, run_cli
+from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, SYMLINKS, routes_document, run_cli
 
 #: Django fixture 경로다.
 DJANGO = str(FIXTURES / "django" / "drf-shop")
@@ -23,7 +23,9 @@ DJANGO = str(FIXTURES / "django" / "drf-shop")
 
 def test_version_matches_pyproject() -> None:
     """`--version`이 pyproject 버전과 같다."""
-    match = re.search(r'^version = "([^"]+)"', (REPOSITORY / "pyproject.toml").read_text(), re.MULTILINE)
+    match = re.search(
+        r'^version = "([^"]+)"', (REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"), re.MULTILINE
+    )
     assert match is not None
     version = match.group(1)
     assert pythograph.__version__ == version
@@ -400,6 +402,7 @@ def test_exchange_stream_reconfigures_only_streams_that_allow_it() -> None:
     assert already_read.encoding == "cp1252"
 
 
+@SYMLINKS
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:
     """심볼릭 링크는 따라가지 않고 한계로 센다."""
     root = make_project({"app.py": "from flask import Flask\napp = Flask(__name__)\n"})

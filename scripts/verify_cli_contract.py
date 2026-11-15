@@ -39,7 +39,7 @@ SCHEMA_FIXTURES = (
 
 
 def run(executable: str, arguments: list[str]) -> subprocess.CompletedProcess[str]:
-    """CLI를 실행한다.
+    """CLI를 실행한다. 출력은 계약대로 UTF-8로 읽는다(로캘 인코딩이 다른 Windows에서도 같은 바이트를 같게 읽는다).
 
     Args:
         executable: 실행 파일.
@@ -48,7 +48,7 @@ def run(executable: str, arguments: list[str]) -> subprocess.CompletedProcess[st
     Returns:
         실행 결과.
     """
-    return subprocess.run([executable, *arguments], capture_output=True, text=True, check=False, timeout=120)
+    return subprocess.run([executable, *arguments], capture_output=True, encoding="utf-8", check=False, timeout=120)
 
 
 def verify(condition: bool, label: str) -> None:
@@ -69,7 +69,9 @@ def verify_basics(executable: str) -> None:
     Args:
         executable: 실행 파일.
     """
-    version = re.search(r'^version = "([^"]+)"', (REPOSITORY / "pyproject.toml").read_text(), re.MULTILINE)
+    version = re.search(
+        r'^version = "([^"]+)"', (REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"), re.MULTILINE
+    )
     verify(version is not None, "pyproject version")
     assert version is not None
     result = run(executable, ["--version"])
