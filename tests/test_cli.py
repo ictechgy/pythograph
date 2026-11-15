@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -313,6 +315,89 @@ def test_long_chain_in_a_string_annotation_does_not_crash(make_project: Callable
         document = json.loads(result.stdout)
         if command[0] == "graph":
             assert document["statistics"]["unparsedFiles"] == 0
+
+
+#: 이름·식별자에 Windows ANSI 코드 페이지(cp1252)에 없는 문자(한글)와 있는 문자(é)를 함께 담은 합성 프로젝트다.
+NON_ASCII_PROJECT = {"pkg/__init__.py": "", "pkg/café.py": "def 합계():\n    return 1\n"}
+
+#: `NON_ASCII_PROJECT`의 함수 정점 id다.
+NON_ASCII_ROOT = "pkg/café.py#합계"
+
+
+def _code_page_process(arguments: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+    """표준 입출력이 UTF-8이 아닌 코드 페이지(cp1252)인 프로세스로 CLI를 실행하고 바이트를 그대로 돌려준다.
+
+    파이썬은 파이프·파일로 돌린 표준 입출력을 로캘 인코딩으로 연다. Windows에서는 ANSI 코드 페이지(영문 러너는
+    cp1252)이므로 `PYTHONIOENCODING`으로 같은 조건을 POSIX에서도 만든다. 출력을 디코드하지 않아야 인코딩·줄바꿈
+    바이트를 검사할 수 있다.
+
+    Args:
+        arguments: 명령 인자.
+        stdin: 표준 입력 바이트(없으면 비어 있다).
+
+    Returns:
+        실행 결과(stdout·stderr는 바이트).
+    """
+    return subprocess.run(
+        [sys.executable, "-m", "pythograph", *arguments],
+        input=stdin or b"",
+        capture_output=True,
+        check=False,
+        cwd=REPOSITORY,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+
+
+def test_output_is_utf8_with_lf_under_a_non_utf8_code_page(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """표준 출력의 로캘 인코딩과 무관하게 문서는 UTF-8·LF 바이트다(isthmus는 UTF-8로 읽는다).
+
+    전에는 로캘 인코딩으로 써서 Windows(cp1252)에서 한글 식별자·경로가 있으면 쓰기 실패로 종료 2였고, cp1252에 있는
+    문자(é)는 UTF-8이 아닌 바이트가 됐다. Windows 텍스트 모드는 줄바꿈도 CRLF로 바꿔 같은 입력의 출력 바이트가
+    플랫폼마다 달랐다(줄바꿈 단언은 Windows CI에서만 수정 전과 후를 가른다).
+    """
+    root = make_project(NON_ASCII_PROJECT)
+    result = _code_page_process(["graph", "--project", str(root), "--generated-at", GENERATED_AT, "--revision", "x"])
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout.decode("utf-8"))
+    assert NON_ASCII_ROOT in {node["id"] for node in document["nodes"]}
+    assert b"\r" not in result.stdout
+
+
+def test_roots_from_stdin_are_read_as_utf8_under_a_non_utf8_code_page(
+    make_project: Callable[[dict[str, str]], Path],
+) -> None:
+    """`--roots-from -`도 파일 입력처럼 UTF-8로 읽는다.
+
+    전에는 로캘 인코딩으로 읽어 한글 id가 깨진 채 정점을 찾지 못해 사용법 오류(64)였다.
+    """
+    root = make_project(NON_ASCII_PROJECT)
+    roots = json.dumps([NON_ASCII_ROOT], ensure_ascii=False).encode("utf-8")
+    result = _code_page_process(
+        ["impact", "--project", str(root), "--generated-at", GENERATED_AT, "--revision", "x", "--roots-from", "-"],
+        stdin=roots,
+    )
+    assert result.returncode == 0, result.stderr
+    document = json.loads(result.stdout.decode("utf-8"))
+    assert [root["id"] for root in document["roots"]] == [NON_ASCII_ROOT]
+    assert "symbol" in document["roots"][0]
+
+
+def test_exchange_stream_reconfigures_only_streams_that_allow_it() -> None:
+    """프로세스 표준 입출력은 UTF-8(출력은 LF)로 바꾸고, 바꿀 수 없는 스트림은 오류 없이 그대로 둔다."""
+    raw = io.BytesIO()
+    windows_like = io.TextIOWrapper(raw, encoding="cp1252", newline="\r\n")
+    assert cli._exchange_stream(windows_like, newline="\n") is windows_like
+    windows_like.write("합계\n")
+    windows_like.flush()
+    assert raw.getvalue() == "합계\n".encode()
+    already_read = io.TextIOWrapper(io.BytesIO("é".encode("cp1252")), encoding="cp1252")
+    assert already_read.read(1) == "é"
+    closed = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    closed.close()
+    injected = io.StringIO()
+    for stream in (already_read, closed, injected):
+        assert cli._exchange_stream(stream) is stream
+    assert already_read.encoding == "cp1252"
 
 
 def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path], tmp_path: Path) -> None:

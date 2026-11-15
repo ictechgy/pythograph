@@ -45,6 +45,11 @@
 - Flask `subdomain`·`host`·`redirect_to`(규칙·블루프린트·등록)와 앱의 `host_matching`·`subdomain_matching`·`static_host`를 한계
   없이 평범한 경로 사실로 냈다. 경로 사실은 유지하고 등록마다 `route-coverage:`로 센다. 끈 리터럴(`False`·`None`·빈 문자열)로
   준 옵션은 Flask 기본값과 같아 세지 않는다.
+- 모든 명령이 문서를 표준 출력의 로캘 인코딩으로 써서, Windows(파이프·파일로 돌린 표준 출력은 ANSI 코드 페이지, 예: cp1252)나
+  UTF-8이 아닌 로캘에서 한글 경로·식별자가 든 문서는 쓰기 실패로 종료 2였고, 코드 페이지에 있는 문자(é)는 UTF-8이 아닌
+  바이트가 됐다. Windows 텍스트 모드는 줄바꿈도 CRLF로 바꿨다. 이제 로캘·`PYTHONIOENCODING`과 무관하게 UTF-8·LF로 쓰고,
+  `--roots-from -`도 파일 입력처럼 표준 입력을 UTF-8로 읽는다(전에는 한글 id가 깨져 정점을 찾지 못하고 64였다). 사실·한계·
+  종료 코드 계약은 그대로다.
 
 ### Changed
 
