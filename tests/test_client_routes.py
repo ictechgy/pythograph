@@ -1026,7 +1026,7 @@ def test_wrapper_fifo_without_a_writer_ends_without_waiting(make_project: MakePr
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", *command],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,

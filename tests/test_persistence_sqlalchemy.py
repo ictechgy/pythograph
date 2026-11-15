@@ -406,6 +406,42 @@ class User2FA(db.Model):
     assert any(item.startswith("flask-sqlalchemy-naming-unverified: 1 ") for item in limitations)
 
 
+#: 2.x·3.x 자동 이름 규칙이 다른 Flask-SQLAlchemy 모델(`User2FA`)과 그 질의다(파일 이름 → 내용).
+CRLF_MANIFEST_SOURCES = {
+    "app/__init__.py": "",
+    "app/models.py": (
+        "from flask_sqlalchemy import SQLAlchemy\n\ndb = SQLAlchemy()\n\n\n"
+        "class User2FA(db.Model):\n    id = db.Column(db.Integer, primary_key=True)\n"
+        "    secret = db.Column(db.String(32))\n"
+    ),
+    "app/uses.py": 'from app.models import User2FA\n\n\ndef run():\n    User2FA.query.filter_by(secret="s").all()\n',
+}
+
+
+def test_crlf_manifest_gives_the_same_schema_document_as_lf(tmp_path: Path) -> None:
+    """CRLF 선언 파일도 LF와 같은 schema 문서를 낸다(Flask-SQLAlchemy 이름 규칙 메이저와 ORM 버전 한계).
+
+    Windows 체크아웃의 Git 기본값(`core.autocrlf=true`)이면 선언 파일이 CRLF다. 전에는 줄 끝 `\\r` 때문에
+    `flask-sqlalchemy>=3.1,<4`·`sqlalchemy>=2.0,<3`의 메이저를 읽지 못해 `User2FA`가 2·3 규칙이 다른 dynamic 사실이 되고
+    열 사실이 빠졌으며 `flask-sqlalchemy-naming-unverified:`·`persistence-framework-version-unknown:` 한계가 붙었다.
+    소스는 같은 바이트로 쓰고 선언 파일의 줄바꿈만 다르게 둔다.
+    """
+    documents = {}
+    for name, newline in (("lf", "\n"), ("crlf", "\r\n")):
+        root = tmp_path / name
+        for relative, text in CRLF_MANIFEST_SOURCES.items():
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_bytes(text.encode())
+        manifest = newline.join(["flask-sqlalchemy>=3.1,<4", "sqlalchemy>=2.0,<3", ""])
+        (root / "requirements.txt").write_bytes(manifest.encode())
+        documents[name] = {**schema_document(root), "project": "<project>"}
+    assert documents["crlf"] == documents["lf"]
+    assert {("user2_fa", None, False), ("user2_fa", "secret", False)} <= {
+        row[:3] for row in relation_rows(documents["crlf"])
+    }
+    assert documents["crlf"]["limitations"] == []
+
+
 #: Flask-SQLAlchemy 2.x 규칙을 적용하지 않은 긴 클래스 이름 하나의 한계 문장이다.
 LONG_CLASS_NAMES = (
     "flask-sqlalchemy-naming-unverified: 1 Flask-SQLAlchemy class names are longer than 1,000 characters, so their "

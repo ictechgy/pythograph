@@ -131,7 +131,7 @@ def test_unsafe_filter_is_cli_input_failure(repository: Path) -> None:
         [sys.executable, "-m", "pythograph", "change-impact", "--project", str(repository), "--base", "HEAD"],
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     assert result.returncode == 2
     assert "Traceback" not in result.stderr

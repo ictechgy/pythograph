@@ -112,7 +112,7 @@ def test_actual_git_capture_refuses_only_physical_path_aliases(
         ],
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
     if aliases or collides:
         assert result.returncode == 2

@@ -865,7 +865,11 @@ def test_test_path_rules() -> None:
 def test_python_module_entry_point() -> None:
     """`python -m pythograph --version`이 콘솔 스크립트와 같게 동작한다."""
     result = subprocess.run(
-        [sys.executable, "-m", "pythograph", "--version"], capture_output=True, text=True, check=False, cwd=REPOSITORY
+        [sys.executable, "-m", "pythograph", "--version"],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=REPOSITORY,
     )
     assert result.returncode == 0 and result.stdout.strip()
 

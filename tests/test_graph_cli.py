@@ -337,7 +337,7 @@ def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", *command],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,

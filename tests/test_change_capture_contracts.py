@@ -16,7 +16,7 @@ from pythograph.graph import change
 from pythograph.graph.build import build_graph
 from pythograph.graph.traversal import TraversalRequest
 from pythograph.source.project import Project, is_test_path
-from tests.conftest import CAN_CREATE_SYMLINKS, SYMLINK_SKIP_REASON
+from tests.conftest import SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON
 
 
 class ChangeCaptureContracts(unittest.TestCase):
@@ -128,7 +128,7 @@ class ChangeCaptureContracts(unittest.TestCase):
         self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
         self.assertEqual(rows["caller.py#caller"]["evidence"], "direct")
 
-    @unittest.skipUnless(CAN_CREATE_SYMLINKS, SYMLINK_SKIP_REASON)
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_source_link_omission_preserves_open_program_evidence(self) -> None:
         """원래 스캔이 여는 모듈 함수를 캡처 후 bound로 승격하지 않는다."""
         self.bound_fixture()
@@ -143,7 +143,7 @@ class ChangeCaptureContracts(unittest.TestCase):
         self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
         self.assertIn("caller.py#caller", {node.id for node in original.nodes})
 
-    @unittest.skipUnless(CAN_CREATE_SYMLINKS, SYMLINK_SKIP_REASON)
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_working_capture_rechecks_a_link_swap(self) -> None:
         """사전 검사 뒤 교체된 링크의 별도 소유 sentinel을 읽지 않는다."""
         self.commit()
@@ -166,7 +166,7 @@ class ChangeCaptureContracts(unittest.TestCase):
             change.capture(self.root)
         self.assertEqual(sentinel.read_bytes(), b"outside-capture")
 
-    @unittest.skipUnless(CAN_CREATE_SYMLINKS, SYMLINK_SKIP_REASON)
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_non_source_link_does_not_erase_closed_program_facts(self) -> None:
         """문서 링크만 빠진 경우 정상 모듈 함수의 bound 양성을 보존한다."""
         self.bound_fixture()
@@ -207,7 +207,7 @@ class ChangeCaptureContracts(unittest.TestCase):
             [sys.executable, "-m", "pythograph", "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         document = json.loads(result.stdout)
@@ -237,7 +237,7 @@ raise SystemExit(main())
             [sys.executable, "-c", program, "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             timeout=3,
         )
         self.assertEqual(result.returncode, 2)
@@ -262,7 +262,7 @@ raise SystemExit(main())
             [sys.executable, "-c", program, "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")
