@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import ast
+import io
+import itertools
 import os
 import subprocess
 import sys
 import threading
+import tokenize
 from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -878,7 +881,8 @@ def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """3.10에서 작은 스택 상한을 넘는 사슬은 전용 스택 스레드에서 같은 결과로 파싱하고, 그 스레드를 만들 수 없으면
-    파서 깊이 한도와 같은 실패(중첩 실패·모르는 주석)로 센다. 조용히 버리지 않는다."""
+    그 이유("could not start a parser thread …")의 읽지 못한 소스·모르는 주석으로 센다. 조용히 버리지 않고, 파서의
+    깊이 한도("source nesting too deep to parse")로 가장하지도 않는다."""
     monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
     monkeypatch.setattr(syntax, "SMALL_STACK_CHAIN_TOKENS", 10)
     chain = " + ".join(["a"] * 40)
@@ -916,10 +920,174 @@ def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RefusedThread, stack_size=threading.stack_size))
     failure = Project.open(root).module("chain.py")
     assert isinstance(failure, ReadFailure)
-    assert failure.reason == "source nesting too deep to parse"
+    assert failure.reason == syntax.PARSE_STACK_UNAVAILABLE_REASON
     assert parse_annotation(chain) is None
     assert isinstance(Project.open(root).module("short.py"), SourceModule)
     assert threading.stack_size() == before
+
+
+#: 1 MiB 스레드에서 f-string으로 파서 셋을 겹친 오른쪽 재귀 식을 주석이나 모듈로 읽고 결과를 내는 별도 프로세스
+#: 스크립트다(인자: 경로 종류, 프로젝트). 3.12 전 파서는 f-string 치환 필드마다 새 파서를 만들고 깊이 한도(MAXSTACK, 약
+#: 6,000단)를 처음부터 다시 세므로 `~` 5,900개짜리 파서 셋이 쌓인다.
+_SMALL_STACK_FSTRINGS = r"""
+import sys
+import threading
+from pathlib import Path
+
+from pythograph.source.project import Project
+from pythograph.source.syntax import parse_annotation
+
+expression = "~" * 5900 + 'f"{' + "~" * 5900 + "f'{" + "~" * 5900 + "x}'}" + '"'
+results = []
+
+
+def work():
+    if sys.argv[1] == "annotation":
+        results.append(str(parse_annotation(expression) is None))
+    else:
+        root = Path(sys.argv[2])
+        (root / "stacked.py").write_text("X = " + expression + "\n", encoding="utf-8")
+        module = Project.open(root).module("stacked.py")
+        results.append(getattr(module, "reason", type(module).__name__))
+
+
+threading.stack_size(1024 * 1024)
+thread = threading.Thread(target=work)
+thread.start()
+thread.join()
+print("|".join(results))
+"""
+
+
+@pytest.mark.parametrize(("path", "expected"), [("annotation", "True"), ("module", "source nesting too deep to parse")])
+def test_stacked_fstring_parsers_do_not_overflow_a_small_stack(tmp_path: Path, path: str, expected: str) -> None:
+    """f-string으로 겹친 파서들이 작은 스택(1 MiB 스레드, Windows 주 스레드 2,000,000 B 미만)을 넘기지 않는다.
+
+    3.10·3.11은 f-string 치환 필드를 따로 만든 파서로 다시 파싱하고 그 파서의 깊이 한도를 처음부터 센다. 사슬 수로
+    걸리지 않는 오른쪽 재귀(`~`·`not`·`-`·`lambda`·조건식·`**`)를 f-string 안에 겹치면 파서 하나마다 약 0.9 MiB
+    (3.10.20 실측)가 쌓여, 17 KB 한 줄 소스로 프로세스가 죽었다(1 MiB·2,000,000 B 스레드 모두). 이제 그런 소스는
+    전용 스택에서 파싱해 3.12 이상처럼 중첩 실패(모듈)·모르는 주석으로 남는다.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _SMALL_STACK_FSTRINGS, path, str(tmp_path)],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=REPOSITORY,
+        timeout=120,
+    )
+    assert result.returncode == 0, (result.returncode, result.stderr[-2000:])
+    assert result.stdout == expected + "\n"
+
+
+def _has_fstring_token(text: str) -> bool:
+    """토크나이저가 f-string으로 읽는 토큰이 있는지 본다(3.12 이상 `FSTRING_START`, 그 전에는 접두사에 `f`가 든 문자열).
+
+    Args:
+        text: 소스.
+
+    Returns:
+        f-string이 있으면 True.
+    """
+    fstring_start = getattr(tokenize, "FSTRING_START", None)
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == fstring_start:
+            return True
+        if token.type == tokenize.STRING and "f" in syntax._string_prefix(token.string).lower():
+            return True
+    return False
+
+
+#: f-string 접두사의 모든 철자(`f`·`fr`·`rf`의 대소문자 조합 10가지)다.
+FSTRING_PREFIXES = sorted(
+    {"".join(letters) for base in ("f", "fr", "rf") for letters in itertools.product(*((c, c.upper()) for c in base))}
+)
+
+
+def test_fstring_detector_misses_no_prefix_spelling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """f-string 감지는 모든 접두사 철자·따옴표에서 놓치지 않고, f-string이 아닌 문자열 접두사에는 걸리지 않는다."""
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
+    monkeypatch.setattr(syntax, "FSTRING_INLINE_CHARACTERS", 0)
+    assert len(FSTRING_PREFIXES) == 10
+    for prefix in FSTRING_PREFIXES:
+        for quote in ('"', "'", '"""', "'''"):
+            text = f"x = {prefix}{quote}{{a}}{quote}\n"
+            assert _has_fstring_token(text), text
+            assert syntax.may_stack_fstring_parsers(text), text
+    for prefix in ("", "b", "B", "r", "R", "u", "U", "rb", "bR", "Rb", "BR"):
+        assert not syntax.may_stack_fstring_parsers(f"x = {prefix}'{{a}}'\n"), prefix
+
+
+def test_fstring_detector_finds_every_fstring_in_the_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    """저장소의 모든 파이썬 소스에서 토크나이저가 f-string을 찾은 파일은 감지도 찾는다(놓침 없음)."""
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
+    monkeypatch.setattr(syntax, "FSTRING_INLINE_CHARACTERS", 0)
+    checked = 0
+    for path in sorted(REPOSITORY.glob("*/**/*.py")):
+        if ".venv" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        try:
+            found = _has_fstring_token(text)
+        except (tokenize.TokenError, SyntaxError):
+            continue
+        if found:
+            checked += 1
+            assert syntax.may_stack_fstring_parsers(text), path
+    assert checked > 50
+
+
+def test_fstring_sources_use_a_dedicated_stack_only_when_long(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """3.12 전 파서에서 f-string이 있을 수 있는 소스는 `FSTRING_INLINE_CHARACTERS`보다 길 때만 f-string 몫을 더한 전용
+    스택에서 파싱하고 결과는 같다. 3.12 이상(겹치지 않는 파서)에서는 길어도 부른 스레드에서 파싱한다."""
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
+    limit = syntax.FSTRING_INLINE_CHARACTERS
+    allowance = syntax.FSTRING_STACK_ALLOWANCE_BYTES
+    short = 'x = f"{a}"\n'
+    edge = short + "#" * (limit - len(short) - 1) + "\n"
+    over = edge + "\n"
+    assert (len(edge), len(over)) == (limit, limit + 1)
+    assert syntax.guarded_stack_bytes(edge, 0) == 0
+    assert syntax.guarded_stack_bytes(over, 0) == allowance
+    assert syntax.guarded_stack_bytes(over.replace('f"', '"'), 0) == 0
+    bound = syntax.SMALL_STACK_CHAIN_TOKENS + 1
+    assert syntax.guarded_stack_bytes(over, bound) == syntax.parse_stack_bytes(bound) + allowance
+    assert syntax.guarded_stack_bytes(over, bound) % syntax.PARSE_STACK_ALIGNMENT_BYTES == 0
+    started: list[int] = []
+
+    class RecordingThread(threading.Thread):
+        """시작할 때의 스택 설정을 기록하는 스레드다."""
+
+        def start(self) -> None:
+            started.append(threading.stack_size())
+            super().start()
+
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RecordingThread, stack_size=threading.stack_size))
+    root = make_project({"edge.py": edge, "over.py": over})
+    project = Project.open(root)
+    assert isinstance(project.module("edge.py"), SourceModule)
+    assert isinstance(project.module("over.py"), SourceModule)
+    assert started == [allowance]
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
+    assert syntax.guarded_stack_bytes(over, 0) == 0
+
+
+def test_parser_thread_relays_base_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """작업 스레드의 `BaseException`도 부른 스레드에서 그대로 다시 낸다. 전에는 `Exception`만 담아 결과 목록이 비고
+    IndexError(내부 오류 2)가 됐다."""
+
+    class Interrupted(BaseException):
+        """`Exception`이 아닌 예외다."""
+
+    def interrupted(*_arguments: object, **_keywords: object) -> ast.Module:
+        """언제나 `Interrupted`를 낸다."""
+        raise Interrupted
+
+    monkeypatch.setattr(syntax, "ast", SimpleNamespace(parse=interrupted))
+    with pytest.raises(Interrupted):
+        syntax._parse_on_large_stack("x = 1\n", "<test>", "exec", syntax.MIN_PARSE_STACK_BYTES)
 
 
 #: arm64 macOS의 페이지 크기(바이트)다. 그 `pthread_attr_setstacksize`는 이 배수가 아닌 스택을 거부한다.

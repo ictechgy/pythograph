@@ -463,7 +463,13 @@ operators, `.`, `(`, `[`) is reported the same way without being parsed, even wh
 inside f-string replacement fields count toward their line (every chain character of the f-string is counted). String
 annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
-annotation.
+annotation. Python 3.10 and 3.11 can also overflow a small C stack (the Windows main thread has 2 MB) on sources
+within those limits: long chains on 3.10, and nested f-strings on both, because each f-string replacement field gets
+a parser of its own. Such sources (on 3.10, a chain estimate over 2,000; on 3.10 and 3.11, more than 4,000 characters
+with a possible f-string) are parsed on a dedicated thread with a larger stack, with the same results. If that thread
+cannot be started, the file is reported with the reason "could not start a parser thread with a large enough stack"
+(an annotation becomes unknown). The stack size setting is process-wide, so a program that embeds pythograph and
+starts threads concurrently may see one of them get that larger stack.
 
 Graph snapshots expose `statistics.sourceAnalysis`: separate file denominators, parse outcomes and reasons for graph
 symbols, tests excluded from symbols but read as supplemental context, and all parse attempts. `unparsed-files:` and

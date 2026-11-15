@@ -375,6 +375,12 @@ graph `unparsed-files:`, routes `route-coverage:`, schema `unreadable-sources:` 
 같은 한계로 남깁니다(그 줄이 얕은 목록이어도 그렇습니다). f-string 치환 필드 안의 사슬도 그 줄에 더해 셉니다(f-string의
 사슬 문자를 모두 셉니다). 문자열 주석(`"Mapped[str]"`·`"Client | None"` 같은 전방
 참조)도 같은 상한으로 파싱하며, 파싱할 수 없거나(NUL 문자 포함) 너무 깊은 주석은 모르는 주석으로 봅니다.
+Python 3.10·3.11은 이 상한 안의 소스로도 작은 C 스택(Windows 주 스레드는 2 MB)을 넘길 수 있습니다. 3.10은 긴 사슬,
+둘 다 f-string을 겹친 소스입니다(f-string 치환 필드마다 파서를 새로 만듭니다). 그런 소스(3.10은 사슬 추정치 2,000 초과,
+3.10·3.11은 f-string이 있을 수 있는 4,000자 초과)는 스택이 큰 전용 스레드에서 파싱하며 결과는 같습니다. 그 스레드를
+만들 수 없으면 그 파일은 "could not start a parser thread with a large enough stack" 이유로 남고 주석은 모르는 주석이
+됩니다. 스택 크기 설정은 프로세스 전체에 걸리므로, pythograph를 불러 쓰는 프로그램이 동시에 스레드를 만들면 그 스레드도
+큰 스택을 받을 수 있습니다.
 
 그래프 스냅샷의 `statistics.sourceAnalysis`는 정점 대상, 정점에서 제외했지만 추가 문맥으로 읽은 테스트, 전체 파싱
 시도의 분모·결과·원인을 나눠 싣습니다. `unparsed-files:`와 `supplemental-test-files:`는 배타적인 범위이며,

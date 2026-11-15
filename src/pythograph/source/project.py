@@ -24,7 +24,15 @@ from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO, cast
 
-from pythograph.source.syntax import MAX_AST_DEPTH, MAX_CHAIN_TOKENS, chain_bound, parse_guarded, tree_overflow
+from pythograph.source.syntax import (
+    MAX_AST_DEPTH,
+    MAX_CHAIN_TOKENS,
+    PARSE_STACK_UNAVAILABLE_REASON,
+    ParseStackUnavailableError,
+    chain_bound,
+    parse_guarded,
+    tree_overflow,
+)
 from pythograph.source.text import is_contract_safe
 
 #: 읽을 파이썬 파일의 최대 크기(바이트)다. 더 크면 생성물로 보고 건너뛴다.
@@ -484,6 +492,8 @@ class Project:
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
             return ReadFailure(relative, "source nesting too deep to parse")
+        except ParseStackUnavailableError:
+            return ReadFailure(relative, PARSE_STACK_UNAVAILABLE_REASON)
         overflow = tree_overflow(tree, self.max_depth, MAX_MODULE_SYNTAX_NODES)
         if overflow == "depth":
             return ReadFailure(relative, "source nesting too deep to parse")
