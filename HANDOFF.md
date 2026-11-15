@@ -13,8 +13,10 @@
 - `main` `1ea33c4`의 CI 체크 7개가 모두 성공했다(2026-11-10 확인).
 - PR #33(브랜치 `ccr-37904670-hxdjsx`, `main` `aeb2b74` 기준)이 Windows CI 잡과 그 감사에서 나온 수정이다. `ae58402`의 CI가
   첫 `verify-windows`(3.13)까지 모두 통과했다. 독립 리뷰(판정 "수정 후 병합 가능")의 지적 S1–S4·N1–N7을 반영한 `9cee4e0`이
-  PR head로 올라갔고, 그 CI에서 `verify-windows (3.13)`과 나머지는 통과했지만 처음 돈 **`verify-windows (3.10)`이 59% 지점에서
-  "Windows fatal exception: stack overflow"로 죽었다**(아래 "3.10 스택 넘침"). 그 수정 커밋은 로컬에만 있다(push 전).
+  PR head로 올라갔고, 처음 돈 `verify-windows (3.10)`이 "Windows fatal exception: stack overflow"로 죽었다(아래 "3.10·3.11
+  스택 넘침"). `121ac23`·`c76c251`이 고쳐 Windows 3.10은 통과했지만 macOS 3.10이 페이지 배수가 아닌 스택 크기로 실패했고,
+  `3a9ac2e`(스택을 1 MiB 배수로)가 고쳐 **`3a9ac2e`의 CI는 macOS·Windows 3.10을 포함해 모두 통과했다**(push됨). 그 뒤 재리뷰가
+  찾은 3.10·3.11의 겹친 f-string 스택 넘침 수정은 로컬 커밋이다(push 전).
 
 ## PR #31에서 처리한 것
 
@@ -92,7 +94,7 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
 - **N1–N4·N7**: 테스트의 CLI subprocess를 UTF-8로 읽고, README의 `project` 표기(UNC·`//?/`)와 PowerShell 5.1 재인코딩,
   `docs/CHANGE-IMPACT.md`의 `ident`·smudge·`working-tree-encoding`·순회 잘림을 적었다. N6은 아래 표에 남겼다.
 
-### 3.10 스택 넘침 (`9cee4e0`의 `verify-windows (3.10)`)
+### 3.10·3.11 스택 넘침 (`9cee4e0`의 `verify-windows (3.10)`, 재리뷰)
 
 - **증상**: `tests/test_persistence_django.py::test_unparseable_parameter_annotations_are_not_models`의 4만 9,999개 `+` 문자열
   주석을 `parse_annotation`(`source/syntax.py`)이 `ast.parse`하다 프로세스가 죽었다(Python 예외·테스트 결과 없이 종료).
@@ -103,13 +105,29 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
   거름을 쓰므로 사용자 소스 한 줄로도 죽는다.
 - **재현**(Linux 3.10.20, `ulimit -s 1024`, 4만 9,999항 주석만 둔 프로젝트·3만 항 모듈만 둔 프로젝트의 schema): 수정 전 둘 다
   종료 139, 수정 뒤 둘 다 0(주석은 모르는 주석, 모듈은 `unreadable-sources:` 한계). graph도 139 → 0(`unparsedFiles` 1).
-- **수정**: 3.10에서 논리 줄 사슬(`chain_bound`)이 2,000토큰을 넘으면 사슬에 비례한 스택(최소 8 MiB, 토큰당 1 KiB, 최대 약
-  49 MiB)의 전용 스레드에서 파싱한다(`parse_guarded`). 상한·결과는 그대로라 보존 범위가 좁아지지 않는다(넓지만 얕은 줄은
-  계속 분석). 스레드를 만들 수 없으면 MemoryError로 바꿔 기존 "source nesting too deep to parse"·모르는 주석으로 센다.
-- **3.11**: 영향 없다. 3.11.18·3.12.3·3.13.18 모두 1 MiB·2,000,000 B 스레드의 30만 단계 사슬(6가지 모양)에서
-  RecursionError였고, 회귀 테스트 프로그램도 수정 전 코드로 3.11에서 통과했다. 그래서 Windows 행렬에 3.11을 더하지 않았다.
-- **테스트**: 1 MiB 스레드에서 주석·깊은 모듈·넓은 모듈을 읽는 별도 프로세스 테스트(수정 전 3.10에서 -11), 전용 스택
-  경로와 스레드 실패 경로의 프로세스 내 테스트. 링크 교체 테스트 10개는 교체가 실제로 일어났을 때만 통과하게 고쳤다(리뷰 지적).
+- **수정(사슬, `121ac23`)**: 3.10에서 사슬 추정치(`chain_bound`: 파일 전체의 사슬 문자 수가 5만 이하면 그 수(문자열 안
+  포함), 넘으면 가장 긴 논리 줄의 사슬 토큰 수)가 2,000을 넘으면 토큰당 1 KiB(최소 8 MiB)의 스택을 가진 전용 스레드에서
+  파싱한다(`parse_guarded`). 상한·결과는 그대로라 보존 범위가 좁아지지 않는다(넓지만 얕은 줄은 계속 분석).
+- **정렬(`3a9ac2e`, coordinator)**: macOS의 `pthread_attr_setstacksize`는 페이지(arm64 16 KiB) 배수가 아니면 거부해(ValueError)
+  macOS 3.10 CI가 두 건 실패했다. 스택 크기를 1 MiB 배수로 올린다(`parse_stack_bytes`). 페이지 배수만 받는 대역 테스트 2개.
+- **겹친 f-string(재리뷰 S1)**: 3.10·3.11은 f-string 치환 필드마다 새 파서를 만들고 그 깊이 한도(MAXSTACK, 약 6,000단)를
+  처음부터 센다. 사슬로 세지 않는 오른쪽 재귀(`~`·`not`·`-`·`lambda`·조건식·`**`)를 겹치면 파서마다 C 스택이 쌓인다. 실측
+  (Linux, 파서마다 한도 가까이): 파서 다섯(따옴표 네 종류로 f-string 4단)에 3.10.20 최대 4,672 KiB, 3.11.18 최대 3,712 KiB.
+  3.12·3.13은 MemoryError로 끝난다. 재현(`X = ~×5900 f"{~×5900 f'{~×5900 x}'}"`, `ulimit -s 2000`, graph): 3.10·3.11은
+  모듈·주석 경로 모두 수정 전 139, 수정 뒤 0이고 출력은 3.12·3.13과 같다(모듈은 unparsed 1, 주석은 무시). 수정: 3.12 전에서
+  f-string이 있을 수 있는(`[fF][rR]?['"]`, 모든 접두사 철자를 놓치지 않는 넉넉한 감지) 4,000자 넘는 소스는 16 MiB(실측의
+  3.5배)를 더한 전용 스택에서 파싱한다. 4,000자 이하면 겹친 파서들의 깊이 합이 파서 하나의 한도의 2/3를 넘지 못한다.
+- **스레드 실패 이유**: 전용 스레드를 만들 수 없으면 이제 "could not start a parser thread with a large enough stack"이라는
+  따로 된 이유로 센다(깊이 한도로 가장하지 않는다. 이유 문자열은 닫힌 계약이 아니고 docs/GRAPH.md·README에 적었다).
+  작업 스레드의 `BaseException`도 부른 스레드에서 다시 낸다(전에는 결과 목록이 비어 IndexError, 내부 오류 2).
+- **3.11**: 긴 사슬에는 영향이 없다(3.11.18·3.12.3·3.13.18 모두 1 MiB·2,000,000 B 스레드의 30만 단계 사슬에서
+  RecursionError). 겹친 f-string에는 영향이 있어 위 수정이 3.11도 덮는다. 로컬 3.11 전체 실행으로 확인했고 Windows 행렬에는
+  더하지 않았다(3.11의 차이는 플랫폼과 무관한 파서 구조라 Linux 3.11 CI와 로컬 재현이 덮는다).
+- **테스트**: 1 MiB 스레드에서 긴 사슬(주석·깊은 모듈·넓은 모듈)과 겹친 f-string(주석·모듈)을 읽는 별도 프로세스 테스트
+  (수정 전 3.10·3.11에서 -11), 전용 스택 경로·스레드 실패·`BaseException` 전달·f-string 감지(접두사 10가지 철자, 저장소
+  전체 f-string 파일)·길이 임계의 프로세스 내 테스트. 링크 교체 테스트 10개는 교체가 실제로 일어났을 때만 통과한다.
+- **알려진 대가**: 스택 크기 설정(`threading.stack_size`)은 프로세스 전체 설정이라 스레드를 시작하는 순간에만 바꾸고
+  되돌린다. pythograph를 라이브러리로 여러 스레드에서 함께 부르면 그 순간 만든 다른 스레드도 큰 스택을 받는다.
 
 ### 남긴 것 (이유)
 
@@ -124,10 +142,9 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
 
 ## 다음 할 일
 
-1. 3.10 스택 넘침 수정 커밋을 push하고 PR #33의 `verify-windows (3.10)`이 끝까지 도는지(특히
-   `test_long_chains_parse_without_overflowing_a_small_stack`와 4만 9천 항 주석의
-   `test_unparseable_parameter_annotations_are_not_models`) 확인한다. MSVC 빌드에서 토큰당 1 KiB 스택이 넉넉한지는 그 실행만
-   증명한다. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다.
+1. 겹친 f-string 수정 커밋을 push하고 PR #33의 CI(특히 Windows·macOS 3.10의
+   `test_stacked_fstring_parsers_do_not_overflow_a_small_stack`)를 확인한다. MSVC 빌드에서 f-string 몫 16 MiB가 넉넉한지는 그
+   실행만 증명한다. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다.
 2. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
 3. isthmus에 게시본 검증과 `compatibility.json` 핀 갱신을 요청한다.
