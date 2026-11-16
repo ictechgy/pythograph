@@ -31,7 +31,6 @@ from pythograph.source.syntax import (
     ParseStackUnavailableError,
     chain_bound,
     parse_guarded,
-    tree_overflow,
 )
 from pythograph.source.text import is_contract_safe
 
@@ -487,14 +486,15 @@ class Project:
         if bound > MAX_CHAIN_TOKENS:
             return ReadFailure(relative, "source nesting too deep to parse")
         try:
-            tree = cast(ast.Module, parse_guarded(text, PurePosixPath(relative).name, "exec", bound))
+            tree, overflow = parse_guarded(
+                text, PurePosixPath(relative).name, "exec", bound, self.max_depth, MAX_MODULE_SYNTAX_NODES
+            )
         except (SyntaxError, ValueError):
             return ReadFailure(relative, "syntax error or syntax newer than the running Python")
         except (RecursionError, MemoryError):
             return ReadFailure(relative, "source nesting too deep to parse")
         except ParseStackUnavailableError:
             return ReadFailure(relative, PARSE_STACK_UNAVAILABLE_REASON)
-        overflow = tree_overflow(tree, self.max_depth, MAX_MODULE_SYNTAX_NODES)
         if overflow == "depth":
             return ReadFailure(relative, "source nesting too deep to parse")
         if overflow == "nodes":
@@ -503,7 +503,7 @@ class Project:
         return SourceModule(
             path=relative,
             name=self.module_name(relative),
-            tree=tree,
+            tree=cast(ast.Module, tree),
             has_bom=data.startswith(b"\xef\xbb\xbf"),
             is_package=PurePosixPath(relative).name == "__init__.py",
         )

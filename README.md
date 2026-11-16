@@ -463,13 +463,16 @@ operators, `.`, `(`, `[`) is reported the same way without being parsed, even wh
 inside f-string replacement fields count toward their line (every chain character of the f-string is counted). String
 annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
-annotation. Python 3.10 and 3.11 can also overflow a small C stack (the Windows main thread has 2 MB) on sources
-within those limits: long chains on 3.10, and nested f-strings on both, because each f-string replacement field gets
-a parser of its own. Such sources (on 3.10, a chain estimate over 2,000; on 3.10 and 3.11, more than 4,000 characters
-with a possible f-string) are parsed on a dedicated thread with a larger stack, with the same results. If that thread
-cannot be started, the file is reported with the reason "could not start a parser thread with a large enough stack"
-(an annotation becomes unknown). The stack size setting is process-wide, so a program that embeds pythograph and
-starts threads concurrently may see one of them get that larger stack.
+annotation. Up to Python 3.13 the parser limits nesting by count only, so a source within those limits can still
+overflow a small C stack (the Windows main thread has 2 MB): long chains on 3.10, nested f-strings on 3.10 and 3.11
+(each replacement field gets a parser of its own), and deeply nested brackets or unary operators on any of them. So
+up to 3.13 every source longer than 256 characters, and on 3.10 and 3.11 every source that may contain an f-string, is
+parsed on a dedicated thread with a larger stack (8 MiB, more for long chains on 3.10 and for possible f-strings on 3.10
+and 3.11), and a tree over the limits is discarded on that thread, with the same results. Python 3.14's parser checks its stack itself. If the thread cannot be started, the file
+is reported with the reason "could not start a parser thread with a large enough stack" (an annotation becomes
+unknown). The thread is started once per stack size and reused, and it stays alive (idle) until the process exits;
+only the very long chains on 3.10 get a thread per file. The stack size setting is process-wide, so a program that
+embeds pythograph and starts threads while that thread is being started may see one of them get the larger stack.
 
 Graph snapshots expose `statistics.sourceAnalysis`: separate file denominators, parse outcomes and reasons for graph
 symbols, tests excluded from symbols but read as supplemental context, and all parse attempts. `unparsed-files:` and

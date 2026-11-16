@@ -51,7 +51,9 @@ class _CountingParser:
         """기록을 비운다."""
         self.parsed: list[str] = []
 
-    def __call__(self, text: str, filename: str, mode: Literal["exec", "eval"], bound: int) -> ast.AST:
+    def __call__(
+        self, text: str, filename: str, mode: Literal["exec", "eval"], bound: int, depth_limit: int, node_limit: int
+    ) -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
         """파일 이름을 기록하고 실제 파서로 파싱한다.
 
         Args:
@@ -59,12 +61,14 @@ class _CountingParser:
             filename: 파일 이름.
             mode: 파싱 방식.
             bound: 사슬 토큰 수의 상한.
+            depth_limit: 트리 깊이 상한.
+            node_limit: 트리 노드 수 상한.
 
         Returns:
-            구문 트리.
+            (트리, 상한 초과 이유).
         """
         self.parsed.append(filename)
-        return syntax.parse_guarded(text, filename, mode, bound)
+        return syntax.parse_guarded(text, filename, mode, bound, depth_limit, node_limit)
 
 
 def _write_sources(root: Path, sources: dict[str, bytes]) -> None:

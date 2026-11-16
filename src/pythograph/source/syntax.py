@@ -12,11 +12,17 @@ from __future__ import annotations
 
 import ast
 import io
+import os
+import queue
 import re
 import sys
 import threading
 import tokenize
-from typing import Literal, cast
+from collections.abc import Callable
+from typing import Literal, TypeVar, cast
+
+#: 전용 스레드에서 돌린 작업의 결과 타입이다.
+_Result = TypeVar("_Result")
 
 #: 실행 중인 파서가 깊은 왼쪽 결합 사슬(`a + a + …`, `x.a.a…`, `f()()…`, `x[0][0]…`)에서 C 스택을 넘기는지다.
 #: 3.10의 `ast.parse`는 그런 트리를 파이썬 객체로 바꾸다 프로세스가 신호로 죽고(종료 코드 139), 3.11부터는
@@ -34,7 +40,7 @@ MAX_CHAIN_TOKENS = 50_000
 #: 실측: 1 MiB 스레드는 약 1.6만, Windows python.exe 주 스레드 크기인 2,000,000 B는 약 3.2만 단계에서 죽고, 메서드
 #: 사슬은 고리 하나가 두 단계라 그 절반). `MAX_CHAIN_TOKENS`는 Linux 주 스레드(8 MiB)로 정한 값이라 Windows에서는
 #: 상한 안의 사슬도 프로세스를 죽였다. 2,000은 1 MiB 임계의 1/8이라 MSVC의 더 큰 프레임과 호출자 프레임을 더해도
-#: 남는다. 넘으면 전용 스택 스레드에서 파싱한다(`_parse_on_large_stack`).
+#: 남는다. 넘으면 전용 스택 스레드에서 파싱한다(`_run_on_large_stack`).
 SMALL_STACK_CHAIN_TOKENS = 2_000
 
 #: 긴 사슬을 파싱하는 전용 스레드가 사슬 토큰 하나에 잡는 스택(바이트)이다. 실측 한 단계(약 64 B)의 16배다. 토큰 수는
@@ -57,18 +63,28 @@ _FSTRING_PARSERS_STACK = sys.version_info < (3, 12)
 
 #: f-string이 시작할 수 있는 곳(대소문자를 가리지 않는 `f`·`fr`·`rf` 바로 뒤의 따옴표)이다. 모든 접두사 철자(`f`·`F`·
 #: `fr`·`fR`·`Fr`·`FR`·`rf`·`rF`·`Rf`·`RF`)가 따옴표 바로 앞에 `f`나 `fr`를 두므로 놓치는 f-string이 없다.
-#: `if"x"`처럼 넉넉히 맞는 것은 전용 스택을 한 번 더 쓸 뿐이다.
+#: `if"x"`처럼 넉넉히 맞는 것은 그 소스를 f-string 몫을 더한 전용 스택에서 파싱하게 할 뿐이다.
 _FSTRING_START = re.compile(r"[fF][rR]?['\"]")
 
-#: 3.10·3.11에서 f-string이 있을 수 있는 소스를 부른 스레드에서 바로 파싱하는 최대 길이(문자)다. 겹친 파서들의 깊이 합은
-#: 문자 수를 넘지 못한다(한 단계에 적어도 한 글자). 3.10.20 실측: 한 글자 구성(`~`·`-`)이 한 단계에 약 165 B(파서 하나가
-#: 5,867단에 약 960 KiB)다. 4,000자는 파서 하나의 한도(약 5,967단)의 2/3라, CPython이 f-string 없는 식 하나에 이미
-#: 허용하는 스택보다 적게 쓴다.
-FSTRING_INLINE_CHARACTERS = 4_000
+#: 실행 중인 파서가 C 스택 경계를 직접 보는지다(3.14부터 문법 규칙마다 스택 포인터로 남은 스택을 확인한다). 3.13까지는
+#: 깊이를 MAXSTACK(약 6,000단) 수로만 막아, 그 한도 안의 식도 작은 스택(1 MiB 스레드, 2 MB인 Windows 주 스레드)을
+#: 넘길 수 있다. 실측(Linux): 3.13.18은 `~` 5,967개 식 하나에 1,280 KiB가 들고, macOS 3.13(arm64)은 1 MiB 스레드에서
+#: 그보다 짧은 겹친 f-string 식으로 죽었다(SIGBUS).
+_PARSER_CHECKS_C_STACK = sys.version_info >= (3, 14)
 
-#: 3.10·3.11에서 f-string을 담은 긴 소스를 파싱하는 전용 스레드에 더하는 스택(바이트)이다. 3.10·3.11의 f-string은 따옴표
-#: 종류 넷(`"""`·`'''`·`"`·`'`)으로 4단까지 겹치므로 파서는 최대 다섯이 쌓인다. Linux 실측(파서마다 한도 가까이 `~`·
-#: `-`·`not`·조건식·`lambda`·`**`): 3.10.20 최대 4,672 KiB, 3.11.18 최대 3,712 KiB. 16 MiB는 그 3.5배다(MSVC 프레임과
+#: 3.13까지 부른 스레드에서 바로 파싱하는 최대 길이(문자)다. 넘는 소스는 전용 스택에서 파싱한다(3.10·3.11에서
+#: f-string이 있을 수 있는 소스는 길이와 무관하게 전용 스택이다). 실측(3.10.20·3.11.18·3.12.3·3.13.18 Linux, 스레드
+#: 스택 16 KiB 단위 이분 탐색, 괄호·호출·첨자·단항·`not`·`lambda`·조건식·`**`·내포·풀어 쓰기·대입식 등 18가지 모양):
+#: 가장 비싼 글자는 괄호(`(`·`[`·`{` 하나가 문법 규칙 여럿을 지나 약 1.0–1.1 KiB)다. 256자 괄호 125단 식 하나가
+#: 최악으로 3.10·3.13 272 KiB, 3.11·3.12 240 KiB이고, 같은 길이를 f-string 4단(파서 다섯)에 나눠 겹친 괄호도 256 KiB
+#: 이하다. 최악의 2배(544 KiB)도 1 MiB 스레드에 들어간다. 프레임이 다른 macOS·MSVC 빌드에서는 임계 이하 최악 식을
+#: 512 KiB 스레드에서 읽는 테스트가 이 여유를 확인한다.
+INLINE_PARSE_CHARACTERS = 256
+
+#: 3.10·3.11에서 f-string이 있을 수 있는 소스를 파싱하는 전용 스레드에 더하는 스택(바이트)이다. 3.10·3.11의 f-string은
+#: 따옴표 종류 넷(`"""`·`'''`·`"`·`'`)으로 4단까지 겹치고 파서마다 깊이 한도와 괄호 200단 한도를 다시 세므로 파서가 최대
+#: 다섯 쌓인다. Linux 실측: 파서마다 한도 가까이 오른쪽 재귀(`~`·`-`·`not`·조건식·`lambda`·`**`)를 두면 3.10.20 최대
+#: 4,672 KiB, 3.11.18 최대 3,712 KiB, 괄호 199단씩이면 3.10.20 2,032 KiB(2,319자). 16 MiB는 최악의 3.5배다(MSVC 프레임과
 #: 호출자 프레임 여유). 3.10의 `ast2obj`는 파싱이 끝난 뒤 따로 돌아(합 약 3만 단, 약 1.9 MiB) 더하지 않는다.
 FSTRING_STACK_ALLOWANCE_BYTES = 16 * 1024 * 1024
 
@@ -191,10 +207,10 @@ def parse_annotation(text: str) -> ast.expr | None:
     if bound > MAX_CHAIN_TOKENS:
         return None
     try:
-        tree = cast(ast.Expression, parse_guarded(text, "<unknown>", "eval", bound))
+        tree, overflow = parse_guarded(text, "<unknown>", "eval", bound, MAX_AST_DEPTH, sys.maxsize)
     except (SyntaxError, ValueError, RecursionError, MemoryError, ParseStackUnavailableError):
         return None
-    return None if exceeds_depth(tree) else tree.body
+    return None if overflow is not None else cast(ast.Expression, tree).body
 
 
 def chain_too_long(text: str) -> bool:
@@ -226,22 +242,29 @@ def chain_bound(text: str) -> int:
     return _longest_chain(text) if _PARSER_OVERFLOWS_ON_CHAINS else 0
 
 
-def parse_guarded(text: str, filename: str, mode: Literal["exec", "eval"], bound: int) -> ast.AST:
-    """`ast.parse`와 같되, 작은 스택을 넘길 수 있는 소스는 C 스택이 넉넉한 전용 스레드에서 파싱한다.
+def parse_guarded(
+    text: str, filename: str, mode: Literal["exec", "eval"], bound: int, depth_limit: int, node_limit: int
+) -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
+    """`ast.parse`와 트리 상한 판정(`tree_overflow`)을 하되, 부른 스레드의 스택을 넘길 수 있는 소스는 C 스택이 넉넉한
+    전용 스레드에서 한다.
 
-    전용 스레드를 쓰는 경우(`guarded_stack_bytes`): 3.10에서 사슬 추정치 `bound`(`chain_bound`, `MAX_CHAIN_TOKENS`
-    이하로 확인한 값)가 `SMALL_STACK_CHAIN_TOKENS`를 넘을 때, 3.10·3.11에서 f-string이 있을 수 있는 소스가
-    `FSTRING_INLINE_CHARACTERS`보다 길 때다. 그 밖에는 부른 스레드에서 바로 파싱한다. 결과와 예외는 같은 스레드에서
-    파싱한 것과 같다.
+    3.13까지는 `INLINE_PARSE_CHARACTERS`보다 긴 소스를, 3.10에서는 사슬 추정치 `bound`(`chain_bound`,
+    `MAX_CHAIN_TOKENS` 이하로 확인한 값)가 `SMALL_STACK_CHAIN_TOKENS`를 넘는 소스를, 3.10·3.11에서는 f-string이 있을 수
+    있는 소스를 전용 스레드에서 다룬다(`guarded_stack_bytes`). 3.14부터는 파서가 스택 경계를 직접 보므로 긴 사슬이
+    아니면 부른 스레드에서 다룬다. 상한을 넘는 트리는 파싱한 스레드에서 버리고 이유만 돌려준다: 3.13은 깊은 트리를
+    해제하는 재귀를 trashcan이 약 1만 단까지 미루지 않아, 깊은 트리를 작은 스택에서 버리면 해제하다 죽는다. 결과와
+    예외는 같은 스레드에서 한 것과 같다.
 
     Args:
         text: 소스.
         filename: 파서에 줄 파일 이름.
         mode: `exec`(모듈)나 `eval`(식).
         bound: 사슬 추정치.
+        depth_limit: 허용하는 트리 깊이(`tree_overflow`).
+        node_limit: 허용하는 트리 노드 수(`tree_overflow`).
 
     Returns:
-        구문 트리.
+        (트리, None), 상한을 넘으면 (None, `"depth"`나 `"nodes"`).
 
     Raises:
         SyntaxError: 문법 오류.
@@ -250,17 +273,26 @@ def parse_guarded(text: str, filename: str, mode: Literal["exec", "eval"], bound
         MemoryError: 파서의 메모리 부족·깊이 한도.
         ParseStackUnavailableError: 전용 스레드를 만들 수 없을 때.
     """
+
+    def parse_and_measure() -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
+        """파싱하고 상한을 잰다. 넘는 트리는 이 스레드에서 해제되도록 돌려주지 않는다."""
+        tree = ast.parse(text, filename=filename, mode=mode)
+        overflow = tree_overflow(tree, depth_limit, node_limit)
+        return (None, overflow) if overflow is not None else (tree, None)
+
     stack = guarded_stack_bytes(text, bound)
     if stack == 0:
-        return ast.parse(text, filename=filename, mode=mode)
-    return _parse_on_large_stack(text, filename, mode, stack)
+        return parse_and_measure()
+    return _run_on_large_stack(parse_and_measure, stack)
 
 
 def guarded_stack_bytes(text: str, bound: int) -> int:
     """소스를 파싱할 전용 스레드의 스택 크기를 돌려준다. 부른 스레드에서 파싱해도 되면 0이다.
 
-    긴 사슬 몫(`parse_stack_bytes`)과 겹친 f-string 파서 몫(`FSTRING_STACK_ALLOWANCE_BYTES`)을 더한다. 둘 다 1 MiB의
-    배수라 합도 플랫폼이 받는 크기다.
+    3.13까지 `INLINE_PARSE_CHARACTERS`보다 긴 소스, 3.10의 긴 사슬, 3.10·3.11에서 f-string이 있을 수 있는 소스(길이와
+    무관, 델타 재리뷰 S1: 파서가 f-string마다 한도를 다시 세어 글자 수로 상한을 잡기 어렵다)가 전용 스레드로 간다.
+    기본은 `MIN_PARSE_STACK_BYTES`이고, 3.10의 긴 사슬은 토큰에 비례한 크기(`parse_stack_bytes`)다. f-string이 있을
+    수 있으면 겹친 파서 몫(`FSTRING_STACK_ALLOWANCE_BYTES`)을 더한다. 모두 1 MiB의 배수라 합도 플랫폼이 받는 크기다.
 
     Args:
         text: 소스.
@@ -270,23 +302,23 @@ def guarded_stack_bytes(text: str, bound: int) -> int:
         스택 크기(바이트), 필요 없으면 0.
     """
     chains = parse_stack_bytes(bound) if bound > SMALL_STACK_CHAIN_TOKENS else 0
-    fstrings = FSTRING_STACK_ALLOWANCE_BYTES if may_stack_fstring_parsers(text) else 0
-    return chains + fstrings
+    fstrings = _FSTRING_PARSERS_STACK and may_contain_fstring(text)
+    if not chains and not fstrings and (_PARSER_CHECKS_C_STACK or len(text) <= INLINE_PARSE_CHARACTERS):
+        return 0
+    stack = chains or MIN_PARSE_STACK_BYTES
+    return stack + FSTRING_STACK_ALLOWANCE_BYTES if fstrings else stack
 
 
-def may_stack_fstring_parsers(text: str) -> bool:
-    """실행 중인 파서가 f-string으로 파서를 겹쳐 작은 스택을 넘길 수 있는 소스인지 넉넉히 본다(3.10·3.11만).
-
-    겹친 파서들의 깊이 합은 문자 수를 넘지 못하므로 `FSTRING_INLINE_CHARACTERS` 이하의 소스는 부른 스레드에서 파싱해도
-    된다. 더 길면 f-string 시작(`_FSTRING_START`)이 있는지만 본다(문자열·주석 안의 것도 맞는다).
+def may_contain_fstring(text: str) -> bool:
+    """소스에 f-string이 있을 수 있는지 넉넉히 본다(`_FSTRING_START`, 문자열·주석 안의 것도 맞는다).
 
     Args:
         text: 소스.
 
     Returns:
-        전용 스택이 필요하면 True.
+        f-string 시작이 있을 수 있으면 True(놓치는 f-string은 없다).
     """
-    return _FSTRING_PARSERS_STACK and len(text) > FSTRING_INLINE_CHARACTERS and _FSTRING_START.search(text) is not None
+    return _FSTRING_START.search(text) is not None
 
 
 def parse_stack_bytes(bound: int) -> int:
@@ -306,51 +338,176 @@ def parse_stack_bytes(bound: int) -> int:
     return alignment_units * PARSE_STACK_ALIGNMENT_BYTES
 
 
-def _parse_on_large_stack(text: str, filename: str, mode: Literal["exec", "eval"], stack: int) -> ast.AST:
-    """주어진 크기의 스택을 가진 스레드에서 `ast.parse`를 돌리고 결과나 예외를 부른 스레드로 넘긴다.
+def _run_on_large_stack(work: Callable[[], _Result], stack: int) -> _Result:
+    """적어도 주어진 크기의 스택을 가진 스레드에서 `work`를 돌리고 결과나 예외를 부른 스레드로 넘긴다.
 
-    `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 스레드를 시작한 직후 원래 값으로 되돌린다. 그 사이에
-    다른 스레드가 스레드를 만들면 그 스레드도 이 크기를 받는다. pythograph CLI는 파싱하는 동안 다른 스레드를 만들지
-    않지만, pythograph를 라이브러리로 불러 여러 스레드에서 동시에 쓰면 그런 겹침이 생길 수 있다. 작업 스레드에서 난
-    예외는 `BaseException`까지 담아 부른 스레드에서 그대로 다시 낸다.
+    하한(`MIN_PARSE_STACK_BYTES`)과 거기에 f-string 몫을 더한 크기까지는 그 크기 중 요청 이상인 가장 작은 것의 스레드를
+    하나씩 만들어 다시 쓴다(`_ParseWorker`). 3.13까지 256자를 넘는 소스를 모두 여기서 파싱하므로 파싱마다 스레드를
+    만들면 시작·종료와 스케줄링 대기가 긴 파일마다 생긴다(4코어 실측: 파일 하나에 CPU 약 0.2–0.6 ms, 재사용하면 약
+    0.04–0.2 ms. 부하가 크면 벽시계 시간은 그 몇 배다). 그보다 큰 스택(3.10의 아주 긴 사슬)은 파싱마다 스레드를 만들고
+    끝나면 버린다. 작업 스레드에서 난 예외는
+    `BaseException`까지 담아 부른 스레드에서 그대로 다시 낸다. `work`가 다시 이 함수를 부르면 안 된다(재사용하는
+    스레드가 자기 작업을 기다리게 된다).
 
     Args:
-        text: 소스.
-        filename: 파서에 줄 파일 이름.
-        mode: `exec`나 `eval`.
-        stack: 스레드 스택 크기(바이트).
+        work: 돌릴 작업.
+        stack: 스레드 스택 크기의 하한(바이트, `PARSE_STACK_ALIGNMENT_BYTES`의 배수).
 
     Returns:
-        구문 트리.
+        작업의 결과.
 
     Raises:
         ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때.
     """
-    outcome: list[ast.AST | BaseException] = []
+    reused = next((size for size in _reused_stack_sizes() if stack <= size), 0)
+    if reused:
+        result = _parse_workers.get(reused).run(work)
+    else:
+        outcome: list[_Result | BaseException] = []
 
-    def work() -> None:
-        """파싱하고 결과나 예외를 담는다."""
-        try:
-            outcome.append(ast.parse(text, filename=filename, mode=mode))
-        except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(아래 raise).
-            outcome.append(error)
+        def run() -> None:
+            """작업을 돌리고 결과나 예외를 담는다."""
+            try:
+                outcome.append(work())
+            except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(아래 raise).
+                outcome.append(error)
 
+        _start_parse_thread(run, stack).join()
+        if not outcome:  # 작업 함수는 결과나 예외를 언제나 담는다(담기마저 실패한 경우만 남는다).
+            raise AssertionError("the parser thread ended without recording a result or an exception")
+        result = outcome[0]
+    if isinstance(result, BaseException):
+        raise result
+    return result
+
+
+def _reused_stack_sizes() -> tuple[int, int]:
+    """스레드를 다시 쓰는 스택 크기(작은 것부터)다: 하한과, 하한에 f-string 몫을 더한 것(1 MiB 배수로 올림)."""
+    sizes = (MIN_PARSE_STACK_BYTES, MIN_PARSE_STACK_BYTES + FSTRING_STACK_ALLOWANCE_BYTES)
+    first, second = (-(-size // PARSE_STACK_ALIGNMENT_BYTES) * PARSE_STACK_ALIGNMENT_BYTES for size in sizes)
+    return first, second
+
+
+def _start_parse_thread(target: Callable[[], None], stack: int) -> threading.Thread:
+    """주어진 크기의 스택을 가진 데몬 스레드에서 `target`을 시작한다.
+
+    `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 스레드를 시작한 직후 원래 값으로 되돌린다. 그 사이에
+    다른 스레드가 스레드를 만들면 그 스레드도 이 크기를 받는다. pythograph CLI는 파싱하는 동안 다른 스레드를 만들지
+    않지만, pythograph를 라이브러리로 불러 여러 스레드에서 동시에 쓰면 그런 겹침이 생길 수 있다(재사용하는 스레드는
+    크기마다 한 번만 만든다).
+
+    Args:
+        target: 스레드에서 돌릴 함수.
+        stack: 스레드 스택 크기(바이트).
+
+    Returns:
+        시작한 스레드.
+
+    Raises:
+        ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때.
+    """
     previous = threading.stack_size()
     try:
         threading.stack_size(stack)
-        worker = threading.Thread(target=work, name="pythograph-parse", daemon=True)
-        worker.start()
+        thread = threading.Thread(target=target, name="pythograph-parse", daemon=True)
+        thread.start()
     except (RuntimeError, ValueError) as error:
         raise ParseStackUnavailableError(f"could not start a {stack}-byte parser thread") from error
     finally:
         threading.stack_size(previous)
-    worker.join()
-    if not outcome:
-        raise ParseStackUnavailableError("the parser thread ended without a result")
-    result = outcome[0]
-    if isinstance(result, BaseException):
-        raise result
-    return result
+    return thread
+
+
+class _ParseWorker:
+    """큰 스택을 가진 파싱 전용 스레드 하나다. 넘겨받은 작업을 차례로 돌리고 결과나 예외를 돌려준다.
+
+    스레드는 프로세스가 끝날 때까지 남는다(데몬, 작업이 없으면 큐에서 기다린다). 작업의 예외는 담아서 돌려주므로 어떤
+    작업 뒤에도 스레드는 살아 있다.
+    """
+
+    def __init__(self, stack: int) -> None:
+        """스레드를 시작한다.
+
+        Args:
+            stack: 스레드 스택 크기(바이트).
+
+        Raises:
+            ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때.
+        """
+        self.stack = stack
+        self._jobs: queue.SimpleQueue[tuple[Callable[[], object], queue.SimpleQueue[object]]] = queue.SimpleQueue()
+        self._thread = _start_parse_thread(self._serve, stack)
+
+    def alive(self) -> bool:
+        """스레드가 살아 있는지 돌려준다(fork한 자식에서는 부모의 스레드가 없어 False다)."""
+        return self._thread.is_alive()
+
+    def run(self, work: Callable[[], _Result]) -> _Result | BaseException:
+        """작업을 넘기고 끝날 때까지 기다린다.
+
+        Args:
+            work: 돌릴 작업.
+
+        Returns:
+            작업의 결과, 또는 작업이 낸 예외.
+        """
+        reply: queue.SimpleQueue[object] = queue.SimpleQueue()
+        self._jobs.put((work, reply))
+        return cast("_Result | BaseException", reply.get())
+
+    def _serve(self) -> None:
+        """작업을 하나씩 받아 돌린다. 끝난 작업과 결과는 다음 작업을 기다리기 전에 놓는다."""
+        while True:
+            work, reply = self._jobs.get()
+            try:
+                reply.put(work())
+            except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(`_run_on_large_stack`).
+                reply.put(error)
+            del work, reply
+
+
+class _ParseWorkers:
+    """스택 크기마다 하나씩 둔 재사용 파싱 스레드(`_ParseWorker`)다. 여러 스레드에서 함께 불러도 된다."""
+
+    def __init__(self) -> None:
+        """비어 있는 상태로 만든다."""
+        self._lock = threading.Lock()
+        self._workers: dict[int, _ParseWorker] = {}
+
+    def get(self, stack: int) -> _ParseWorker:
+        """그 크기의 살아 있는 스레드를 돌려주고, 없으면 만든다.
+
+        Args:
+            stack: 스레드 스택 크기(바이트).
+
+        Returns:
+            파싱 스레드.
+
+        Raises:
+            ParseStackUnavailableError: 스레드를 새로 만들 수 없을 때(다음 요청에서 다시 시도한다).
+        """
+        with self._lock:
+            worker = self._workers.get(stack)
+            if worker is None or not worker.alive():
+                worker = self._workers[stack] = _ParseWorker(stack)
+            return worker
+
+    def forget(self) -> None:
+        """fork한 자식에서 부모의 스레드를 잊는다. 그 스레드는 자식에 없고, 잠금은 잠긴 채 복사됐을 수 있다."""
+        self._lock = threading.Lock()
+        self._workers = {}
+
+
+_parse_workers = _ParseWorkers()
+
+
+def _forget_parse_workers_after_fork() -> None:
+    """fork한 자식이 부모의 파싱 스레드에 작업을 넘겨 영원히 기다리지 않게 한다."""
+    _parse_workers.forget()
+
+
+if hasattr(os, "register_at_fork"):  # Windows에는 fork가 없다.
+    os.register_at_fork(after_in_child=_forget_parse_workers_after_fork)
 
 
 def _longest_chain(text: str) -> int:
