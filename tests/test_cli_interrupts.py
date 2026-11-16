@@ -19,7 +19,7 @@ from pythograph.cli.common import InputError, UsageError
 from pythograph.source import syntax
 from pythograph.source.syntax import MAX_CHAIN_TOKENS
 from tests.conftest import REPOSITORY
-from tests.test_source import _record_thread_starts, _RefusedThread, _stacks
+from tests.test_source import _record_start_confirmations, _record_thread_starts, _RefusedThread, _stacks
 
 #: CLI 테스트가 쓰는 고정 생성 시각이다.
 _GENERATED_AT = "2026-01-01T00:00:00.000Z"
@@ -164,10 +164,14 @@ def test_closed_stdin_roots_are_a_usage_error(tmp_path: Path, monkeypatch: pytes
     assert "--roots-from could not be read" in err.getvalue()
 
 
-def test_interrupt_during_start_never_runs_the_command_twice(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("inside_except", [False, True])
+def test_interrupt_during_start_never_runs_the_command_twice(
+    monkeypatch: pytest.MonkeyPatch, inside_except: bool
+) -> None:
     """시작을 기다리던 중 Ctrl+C가 끊어 `Thread.start`가 "release unlocked lock"(앞 예외 KeyboardInterrupt)으로 끝나도,
     스레드가 이미 시작했으면 시작하지 못한 것으로 보지 않는다: 계산 스레드를 멈추게 하고 KeyboardInterrupt를 다시 낸다.
-    전에는 부른 스레드에서 계산을 한 번 더 돌려 Ctrl+C를 잃고 출력이 두 번, 종료 코드 0이었다."""
+    전에는 부른 스레드에서 계산을 한 번 더 돌려 Ctrl+C를 잃고 출력이 두 번, 종료 코드 0이었다. 부른 쪽이 다른 예외를
+    처리하는 중이어도 같다(시작 중에 난 예외만 끊김으로 본다)."""
     monkeypatch.setattr(syntax, "largest_parse_stack_bytes", lambda: syntax.MIN_PARSE_STACK_BYTES)
     calls: list[str] = []
     unwound: list[str] = []
@@ -196,10 +200,48 @@ def test_interrupt_during_start_never_runs_the_command_twice(monkeypatch: pytest
     monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=InterruptedStart, stack_size=threading.stack_size))
     out = io.StringIO()
     with pytest.raises(KeyboardInterrupt):
-        cli_main.main(["graph"], out, io.StringIO())
+        if inside_except:
+            try:
+                raise KeyError("unrelated")
+            except KeyError:
+                cli_main.main(["graph"], out, io.StringIO())
+        else:
+            cli_main.main(["graph"], out, io.StringIO())
     assert calls == ["pythograph-parse"]
     assert unwound == ["pythograph-parse"]
     assert out.getvalue() == ""
+
+
+def test_refused_threads_do_not_wait_once_per_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """스레드를 하나도 만들 수 없으면(실제 `ulimit -v`, 프로세스 수 한도, Windows 커밋 한도) 명령은 부른 스레드에서
+    돌고, 파일마다 실패하는 스레드 시작이 시작 확인을 기다리지 않는다. 출력은 스레드가 있을 때와 바이트까지 같다. 전에는
+    명령을 첫 시작 실패의 `except` 블록 안에서 돌려, 뒤의 시작 실패가 모두 "시작이 끊겼을 수 있다"로 보여 파일마다 1초를
+    기다렸다(`ulimit -v 45000`에서 31개 파일 30.3초, 0.3.1은 0.26초)."""
+    monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
+    padding = "#" * (syntax.INLINE_PARSE_CHARACTERS * 2)
+    for index in range(6):
+        (tmp_path / f"long{index}.py").write_bytes(f"def f{index}():\n    return {index}  {padding}\n".encode())
+    arguments = ["graph", "--project", str(tmp_path), "--revision", "r", "--generated-at", _GENERATED_AT]
+    threaded = io.StringIO()
+    assert cli_main.main(arguments, threaded) == 0
+    confirmations = _record_start_confirmations(monkeypatch)
+    attempts: list[str] = []
+
+    class CountedRefusal(_RefusedThread):
+        """시작 시도를 세고 언제나 실패한다."""
+
+        def start(self) -> None:
+            attempts.append(threading.current_thread().name)
+            super().start()
+
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=CountedRefusal, stack_size=threading.stack_size))
+    refused = io.StringIO()
+    assert cli_main.main(arguments, refused) == 0
+    assert refused.getvalue() == threaded.getvalue()
+    assert '"unparsedFiles":0' in refused.getvalue().replace(" ", "")
+    assert len(attempts) == 1 + 6  # 명령 스레드 하나와 파일마다 하나다.
+    assert set(attempts) == {threading.current_thread().name}
+    assert confirmations == []
 
 
 #: 계산이 끝난 뒤 아무도 읽지 않는 파이프에 큰 출력을 쓰다 막힌 CLI다. 출력 쓰기가 명령 스레드에서 일어나던 때는

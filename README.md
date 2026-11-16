@@ -478,12 +478,19 @@ When pythograph is used as a library from another thread, every source longer th
 long chain on 3.10, and every source that may contain an f-string on 3.10 and 3.11 is parsed on a non-daemon thread
 with a larger stack that is joined at once, and a tree over the limits is discarded on that thread; up to 3.13 the
 results are the same. If that thread cannot be started (threadless builds, isolated subinterpreters on 3.10 and 3.11,
-resource exhaustion), a source is still parsed on the calling thread as in 0.3.1 unless it has a logical line with
-more than 2,000 chain tokens (3.10), an f-string inside an f-string (3.10 and 3.11), an estimated `ast2obj` need above
-8 MiB (3.11 with a raised recursion limit), or more than 128 characters while the caller is not the main thread; those
-are reported with the reason "could not start a parser thread with a large enough stack" (an annotation becomes
-unknown). On 3.11, a source whose estimated stack exceeds 255 MiB (a logical line with about a million chain tokens
-under a huge recursion limit) is reported as nested too deeply without parsing, like 3.10's chain limit. The stack
+resource exhaustion such as a tight `ulimit -v`), a source is still parsed on the calling thread as in 0.3.1, without
+waiting, unless it has a logical line with more than 2,000 chain tokens (3.10), a replacement field whose expression
+holds another f-string literal, including a field inside a format spec (3.10 and 3.11; also a source the tokenizer
+cannot split, and the rest of an f-string from a field the parser rejects), a logical line whose `ast2obj` estimate
+exceeds 8 MiB (3.11 at a recursion limit of 10,923 or more: from 2,769 chain tokens on that line when the source may
+contain an f-string, 26,769 otherwise), or more than 128 characters while the caller is not the main thread; those are
+reported with the reason "could not start a parser thread with a large enough stack" (an annotation becomes unknown).
+Logical lines end at `\n`, `\r\n` and a lone `\r`, as in the parser. These rules assume an 8 MiB main thread: on the
+Windows main thread (2,000,000 B) or under a lowered `ulimit -s`, a source within them can still crash the process, as
+in 0.3.1 (for example a 25,000-term chain on 3.11 with a recursion limit of 10,000). On 3.11, a source whose estimated
+stack, including the 16 MiB f-string allowance, exceeds 255 MiB (a logical line with about a million chain tokens under
+a huge recursion limit; grouping and display brackets count, so a flat literal with a million parentheses on one line
+is included) is reported as nested too deeply without parsing, like 3.10's chain limit. The stack
 size setting is process-wide; pythograph serializes its own stack-size changes, but a thread the host program starts
 at the same moment may get the larger stack. Under a tight `RLIMIT_AS`, the CLI thread's stack and, with glibc, its
 malloc arena make the command run out of memory (exit 2) earlier than 0.3.1. The stack guarantee covers parsing only:

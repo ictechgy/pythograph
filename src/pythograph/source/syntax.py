@@ -126,8 +126,8 @@ _JOIN_POLL_SECONDS = 0.1
 #: 입출력을 쓰지 않으므로 버려도 된다).
 COMMAND_STOP_GRACE_SECONDS = 20.0
 
-#: 스레드 시작이 다른 예외를 처리하던 중 실패했을 때, 스레드가 실제로 시작해 작업에 들어오는지 기다리는 시간(초)이다.
-#: 시작한 스레드는 밀리초 안에 들어온다.
+#: 스레드 시작이 시작 도중에 난 다른 예외(Ctrl+C 등)를 처리하던 중 실패했을 때, 스레드가 실제로 시작해 작업에 들어오는지
+#: 기다리는 시간(초)이다. 시작한 스레드는 밀리초 안에 들어온다. 부른 쪽이 시작 전부터 처리하던 예외는 해당하지 않는다.
 _START_CONFIRM_SECONDS = 1.0
 
 #: 전용 스택 스레드를 만들지 못해 파싱하지 않은 모듈의 읽지 못한 소스 이유다(파서의 깊이 한도와 구분한다).
@@ -358,8 +358,10 @@ def guarded_stack_bytes(text: str, bound: int) -> int:
     fstrings = _FSTRING_PARSERS_STACK and may_contain_fstring(text)
     if not chains and not fstrings and (_PARSER_CHECKS_C_STACK or len(text) <= INLINE_PARSE_CHARACTERS):
         return 0
-    stack = max(chains or MIN_PARSE_STACK_BYTES, _ast2obj_stack_bytes(text))
-    return stack + FSTRING_STACK_ALLOWANCE_BYTES if fstrings else stack
+    allowance = FSTRING_STACK_ALLOWANCE_BYTES if fstrings else 0
+    return (
+        max(chains or MIN_PARSE_STACK_BYTES, _ast2obj_stack_bytes(text, MAX_PARSE_STACK_BYTES - allowance)) + allowance
+    )
 
 
 def largest_parse_stack_bytes() -> int:
@@ -443,6 +445,12 @@ def run_on_parse_stack(work: Callable[[], _Result]) -> _Result:
         thread = _ParseThread(work, stack, daemon=True)
         thread.start()
     except ParseStackUnavailableError:
+        unavailable = True
+    else:
+        unavailable = False
+    if unavailable:
+        # `except` 블록 밖에서 돌린다. 안에서 돌리면 명령 전체가 그 예외를 처리하는 중이 되어, 뒤에 실패한 스레드
+        # 시작마다 그 예외가 앞 예외(`__context__`)로 붙는다.
         return work()
     return thread.wait()
 
@@ -504,14 +512,19 @@ class _ParseThread(Generic[_Result]):
 
         `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 잠금(`_stack_size_guard`) 안에서 바꾸고 시작한 직후
         되돌린다. 그 순간 호스트 프로그램이 만든 스레드는 이 크기를 받을 수 있다. 시작이 RuntimeError·ValueError로
-        끝나도 그 예외가 다른 예외를 처리하다 난 것(시작을 기다리던 중 Ctrl+C가 끊어 "release unlocked lock"이 된 경우
-        등)이고 스레드가 실제로 작업에 들어왔으면, 시작하지 못한 것으로 보지 않고 스레드를 멈추게 한 뒤 그 앞의 예외를
-        다시 낸다(작업을 부른 스레드에서 한 번 더 돌리지 않는다). 다른 예외(KeyboardInterrupt)도 스레드를 멈추게 한 뒤
-        다시 낸다.
+        끝나도 그 예외가 시작 도중에 난 다른 예외를 처리하다 난 것(시작을 기다리던 중 Ctrl+C가 끊어 "release unlocked
+        lock"이 된 경우 등)이고 스레드가 실제로 작업에 들어왔으면, 시작하지 못한 것으로 보지 않고 스레드를 멈추게 한 뒤
+        그 앞의 예외를 다시 낸다(작업을 부른 스레드에서 한 번 더 돌리지 않는다). 다른 예외(KeyboardInterrupt)도 스레드를
+        멈추게 한 뒤 다시 낸다.
+
+        시작 도중에 났는지는 앞 예외(`__context__`)가 시작 전에 부른 쪽이 처리하던 예외(`sys.exc_info()`)와 다른지로
+        가린다. 부른 쪽이 `except` 블록 안에서 파싱하면 실패한 시작의 앞 예외가 그 예외이고, 그때 기다리면 실패마다
+        `_START_CONFIRM_SECONDS`가 더 걸린다(4차 리뷰 B1: CLI가 명령 전체를 그런 블록 안에서 돌려 파일마다 1초).
 
         Raises:
             ParseStackUnavailableError: 스레드가 시작하지 않은 것이 확실할 때.
         """
+        handled = sys.exc_info()[1]
         with _stack_size_guard.lock:
             try:
                 previous = threading.stack_size()
@@ -528,7 +541,7 @@ class _ParseThread(Generic[_Result]):
                 threading.stack_size(previous)
         if isinstance(failure, (RuntimeError, ValueError)):
             interrupted = failure.__context__
-            if interrupted is None or not self._entered.wait(_START_CONFIRM_SECONDS):
+            if interrupted is None or interrupted is handled or not self._entered.wait(_START_CONFIRM_SECONDS):
                 self._cancelled.set()
                 raise ParseStackUnavailableError(f"could not start a {self._stack}-byte parser thread") from failure
             failure = interrupted
@@ -614,11 +627,12 @@ def _parses_safely_inline(text: str, bound: int) -> bool:
     """전용 스레드를 만들 수 없을 때 이 소스를 부른 스레드에서 파싱해도 되는지 본다.
 
     다음 중 하나면 안 된다(0.3.1은 모두 부른 스레드에서 파싱했다): 3.10에서 사슬 토큰이
-    2,000개(`SMALL_STACK_CHAIN_TOKENS`) 넘는 논리 줄이 있다, 3.10·3.11에서 f-string 안에 f-string이 있다(파서가 셋 이상
-    겹친다), 3.11에서 `ast2obj` 몫이 `MIN_PARSE_STACK_BYTES`를 넘는다(재귀 한도를 올린 호출자),
-    128자(`INLINE_PARSE_CHARACTERS`)를 넘는데 부른 스레드가 주 스레드가 아니다(라이브러리 스레드의 스택은 알 수 없다. 주
-    스레드는 Linux·macOS 8 MiB, Windows python.exe 2,000,000 B가 기본이다). 토큰으로 나눌 수 없는 소스는 판단할 수 없어
-    안 된다고 본다.
+    2,000개(`SMALL_STACK_CHAIN_TOKENS`) 넘는 논리 줄이 있다, 3.10·3.11에서 치환 필드의 식 안에 f-string이
+    있다(`_may_nest_fstrings`, 파서가 셋 이상 겹친다), 3.11에서 가장 긴 논리 줄로 어림한 `ast2obj` 몫이
+    `MIN_PARSE_STACK_BYTES`를 넘는다(재귀 한도를 올린 호출자), 128자(`INLINE_PARSE_CHARACTERS`)를 넘는데 부른 스레드가
+    주 스레드가 아니다(라이브러리 스레드의 스택은 알 수 없다). 토큰으로 나눌 수 없는 소스는 판단할 수 없어 안 된다고
+    본다. 주 스레드는 Linux·macOS 기본 8 MiB로 본다: Windows python.exe의 주 스레드(2,000,000 B)나 `ulimit -s`를 줄인
+    프로세스에서는 이 규칙 안의 소스도 0.3.1처럼 넘칠 수 있다(4차 리뷰 N3, 실측 없는 Windows 예산은 두지 않는다).
 
     Args:
         text: 소스.
@@ -629,7 +643,7 @@ def _parses_safely_inline(text: str, bound: int) -> bool:
     """
     if len(text) > INLINE_PARSE_CHARACTERS and current_thread() is not main_thread():
         return False
-    if _ast2obj_stack_bytes(text) > MIN_PARSE_STACK_BYTES:
+    if _ast2obj_stack_bytes(text, MIN_PARSE_STACK_BYTES) > MIN_PARSE_STACK_BYTES:
         return False
     if bound > SMALL_STACK_CHAIN_TOKENS:
         longest = _logical_line_chain(text, SMALL_STACK_CHAIN_TOKENS)
@@ -638,15 +652,19 @@ def _parses_safely_inline(text: str, bound: int) -> bool:
     return not (_FSTRING_PARSERS_STACK and may_contain_fstring(text) and _may_nest_fstrings(text))
 
 
-def _ast2obj_stack_bytes(text: str) -> int:
+def _ast2obj_stack_bytes(text: str, budget: int) -> int:
     """3.11 `ast2obj`가 이 소스에서 쓸 수 있는 스택(바이트, 1 MiB 배수)을 어림한다(다른 버전은 0).
 
     허용 깊이는 재귀 한도의 3배 단계다. 트리가 그만큼 깊어질 수 있는 것은 왼쪽 결합 사슬뿐이라(다른 중첩은 파서 하나에
     `_PARSER_DEPTH_LEVELS`, f-string이 있으면 파서 다섯) 깊이를 사슬 문자 수(`_count_marks`)와 그 몫의 합으로 묶는다. 그
-    어림이 상한을 넘으면 논리 줄마다 사슬 토큰을 세어 다시 어림한다. 평평한 큰 모듈은 몇 MiB로 끝난다.
+    어림이 `budget`을 넘으면 논리 줄마다 사슬 토큰을 세어(가장 긴 줄) 다시 어림한다. 평평한 큰 모듈은 몇 MiB로 끝난다.
+    `budget`은 부르는 쪽이 이 값을 비교할 한도다(전용 스택은 상한에서 f-string 몫을 뺀 값, 스레드를 만들 수 없을 때는
+    `MIN_PARSE_STACK_BYTES`). 다른 한도와 비교하면 다시 세지 않은 파일 전체 어림이 한도를 넘어 평평한 모듈을
+    거부했다(4차 리뷰 S2·N2).
 
     Args:
         text: 소스.
+        budget: 파일 전체 어림이 이보다 크면 논리 줄마다 다시 센다(바이트).
 
     Returns:
         스택 크기(바이트).
@@ -656,7 +674,7 @@ def _ast2obj_stack_bytes(text: str) -> int:
     limit = 3 * sys.getrecursionlimit()
     nesting = _PARSER_DEPTH_LEVELS * (5 if may_contain_fstring(text) else 1)
     levels = min(limit, _count_marks(text) + nesting)
-    if levels * AST2OBJ_STACK_BYTES_PER_LEVEL > MAX_PARSE_STACK_BYTES:
+    if levels * AST2OBJ_STACK_BYTES_PER_LEVEL > budget:
         chain = _logical_line_chain(text, limit)
         if chain is not None:
             levels = min(limit, chain + nesting)
@@ -728,7 +746,7 @@ def _logical_line_chain(text: str, limit: int, *, partial: bool = False) -> int 
     """
     longest = count = 0
     try:
-        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        for token in tokenize.generate_tokens(_parser_lines(text)):
             if token.type == tokenize.NEWLINE:
                 count = 0
                 continue
@@ -742,11 +760,30 @@ def _logical_line_chain(text: str, limit: int, *, partial: bool = False) -> int 
     return longest
 
 
-def _may_nest_fstrings(text: str) -> bool:
-    """3.10·3.11 토크나이저로 f-string 토큰 안에 다른 f-string이 시작할 수 있는지 넉넉히 본다.
+def _parser_lines(text: str) -> Callable[[], str]:
+    """파서와 같은 줄로 소스를 내는 `readline`을 돌려준다.
 
-    3.12 전 토크나이저는 f-string 전체를 STRING 토큰 하나로 낸다. 그 안(접두사 뒤)에 f-string 시작(`_FSTRING_START`)이
-    있으면 파서가 셋 이상 겹칠 수 있다. 토큰으로 나눌 수 없으면 판단할 수 없어 True다.
+    3.10·3.11의 C 토크나이저는 문자열 소스의 `\\r\\n`과 홀로 선 `\\r`를 `\\n`으로 바꾼 뒤 읽는다. 순수 파이썬
+    토크나이저에 `io.StringIO(text).readline`을 그대로 주면 `\\n`에서만 줄이 나뉘어, CR만 쓰는 파일 전체가 한 논리 줄이
+    된다(4차 리뷰 N1). 열 위치는 쓰지 않으므로 바꿔도 된다.
+
+    Args:
+        text: 소스.
+
+    Returns:
+        줄마다 부를 함수.
+    """
+    if "\r" in text:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return io.StringIO(text).readline
+
+
+def _may_nest_fstrings(text: str) -> bool:
+    """3.10·3.11에서 f-string 치환 필드의 식 안에 다른 f-string이 있을 수 있는지 본다(`_fstring_nests`).
+
+    3.12 전 토크나이저는 f-string 전체를 STRING 토큰 하나로 낸다. 접두사에 `f`가 든 토큰마다 치환 필드를 훑는다.
+    토큰으로 나눌 수 없으면 판단할 수 없어 True다(그런 소스는 대개 문법 오류지만, 순수 파이썬 토크나이저가 거부한 지점
+    뒤를 C 토크나이저가 받아들이지 않는다고 확인하지 않았다).
 
     Args:
         text: 소스.
@@ -755,15 +792,237 @@ def _may_nest_fstrings(text: str) -> bool:
         겹친 f-string이 있을 수 있으면 True.
     """
     try:
-        for token in tokenize.generate_tokens(io.StringIO(text).readline):
-            if token.type != tokenize.STRING:
-                continue
-            prefix = _string_prefix(token.string)
-            if "f" in prefix.lower() and may_contain_fstring(token.string[len(prefix) + 1 :]):
+        for token in tokenize.generate_tokens(_parser_lines(text)):
+            prefix = _string_prefix(token.string) if token.type == tokenize.STRING else ""
+            if "f" in prefix.lower() and _fstring_nests(token.string):
                 return True
     except (tokenize.TokenError, SyntaxError):
         return True
     return False
+
+
+def _fstring_nests(literal: str) -> bool:
+    """f-string 리터럴 토큰 하나의 치환 필드 식 안에 f-string이 있을 수 있는지 본다(3.10·3.11 파서가 셋 이상 겹친다).
+
+    3.10·3.11 `Parser/string_parser.c`(`fstring_find_literal`·`fstring_find_expr`)가 토큰을 훑는 순서를 그대로 따른다:
+    리터럴 부분(`{{`·`}}`, 원시가 아니면 `\\N{…}`와 백슬래시 짝)은 건너뛰고, 치환 필드의 식에서 따옴표가 여는 문자열
+    리터럴에 f 접두사가 있는지 본다(`_opens_fstring`). 형식 지정 안의 필드(`{x:{y}}`)도 같은 식으로 본다. 형식 지정
+    필드는 파서를 차례로 만들 뿐 겹치지 않으므로 그것만으로는 겹친 것이 아니다. CPython이 문법 오류로 멈추는 필드를
+    만나면 그 필드부터 끝까지 f-string 시작(`_FSTRING_START`)이 있는지로 넉넉히 판단한다.
+
+    Args:
+        literal: STRING 토큰 문자열(접두사에 `f`가 있다).
+
+    Returns:
+        겹친 f-string이 있을 수 있으면 True.
+    """
+    prefix = _string_prefix(literal)
+    quote = literal[len(prefix)]
+    width = 3 if literal.startswith(quote * 3, len(prefix)) and len(literal) >= len(prefix) + 6 else 1
+    body = literal[len(prefix) + width : len(literal) - width]
+    raw = "r" in prefix.lower()
+    index = 0
+    while True:
+        found = _fstring_literal_end(body, index, raw, 0)
+        if found is None:
+            return _FSTRING_START.search(body, index) is not None
+        if found >= len(body):
+            return False
+        nests, after = _fstring_field_nests(body, found, raw, 0)
+        if nests:
+            return True
+        if after is None:
+            return _FSTRING_START.search(body, found) is not None
+        index = after
+
+
+def _fstring_literal_end(body: str, start: int, raw: bool, level: int) -> int | None:
+    """f-string 리터럴 부분을 `start`부터 훑어 치환 필드를 여는 `{`나 형식 지정을 닫는 `}`의 위치를 돌려준다.
+
+    `fstring_find_literal`과 같다: 원시가 아니면 백슬래시는 다음 글자와 짝이고(`\\{`의 `{`는 그대로 괄호다), `\\N{…}`의
+    괄호는 필드가 아니다. 맨 바깥(`level` 0)에서만 `{{`·`}}`가 글자이고 홀로 선 `}`는 문법 오류다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 훑기 시작할 위치.
+        raw: 원시 문자열인지.
+        level: 형식 지정 중첩 수준(맨 바깥 0).
+
+    Returns:
+        `{`나 `}`의 위치, 끝까지 없으면 `len(body)`, 문법 오류면 None.
+    """
+    index = start
+    end = len(body)
+    while index < end:
+        char = body[index]
+        index += 1
+        if not raw and char == "\\" and index < end:
+            char = body[index]
+            index += 1
+            if char == "N":
+                if index < end:
+                    index += 1
+                    if body[index - 1] == "{":
+                        while index < end:
+                            index += 1
+                            if body[index - 1] == "}":
+                                break
+                continue
+        if char in "{}":
+            if level == 0:
+                if index < end and body[index] == char:
+                    index += 1
+                    continue
+                if char == "}":
+                    return None
+            return index - 1
+    return end
+
+
+def _fstring_field_nests(body: str, start: int, raw: bool, level: int) -> tuple[bool, int | None]:
+    """`body[start]`의 `{`로 시작하는 치환 필드를 `fstring_find_expr`처럼 훑는다.
+
+    식(`_fstring_expression_end`)이 끝나면 `=`, 변환(`!r`), 형식 지정(`:` 뒤, `_fstring_format_spec_end`)을 지나 `}`에
+    닿는다. 두 단계 넘는 형식 지정 필드와 잘못된 변환은 CPython이 문법 오류로 멈춘다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: `{`의 위치.
+        raw: 원시 문자열인지.
+        level: 형식 지정 중첩 수준.
+
+    Returns:
+        (식 안에 f-string이 있을 수 있는지, 필드 다음 위치 — 문법 오류면 None).
+    """
+    if level >= 2:
+        return False, None
+    nests, index = _fstring_expression_end(body, start + 1)
+    if nests or index is None:
+        return nests, None
+    end = len(body)
+    if body[index] == "=":
+        index += 1
+        while index < end and body[index] in " \t\n\r\x0b\x0c":
+            index += 1
+        if index >= end:
+            return False, None
+    if body[index] == "!":
+        if index + 1 >= end or body[index + 1] not in "sra":
+            return False, None
+        index += 2
+    if index < end and body[index] == ":":
+        nests, found = _fstring_format_spec_end(body, index + 1, raw, level + 1)
+        if nests or found is None:
+            return nests, None
+        index = found
+    if index >= end or body[index] != "}":
+        return False, None
+    return False, index + 1
+
+
+def _fstring_expression_end(body: str, start: int) -> tuple[bool, int | None]:
+    """치환 필드의 식을 `start`부터 훑어 식을 끝낸 글자의 위치를 찾는다(`fstring_find_expr`의 첫 반복문).
+
+    식은 괄호 밖의 `!`·`:`·`}`·`=`(`!=`·`==`·`<=`·`>=` 제외)에서 끝나고, 그 안의 문자열 리터럴은 같은 따옴표(세 겹이면
+    세 겹)까지 건너뛴다. 백슬래시·`#`·짝이 맞지 않는 괄호·닫지 않은 문자열은 CPython이 식을 파싱하기 전에 문법 오류로
+    멈춘다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 식이 시작하는 위치(`{` 다음).
+
+    Returns:
+        (식 안에 f-string이 있을 수 있는지, 식을 끝낸 글자의 위치 — 문법 오류면 None).
+    """
+    end = len(body)
+    index = start
+    quote = ""
+    triple = False
+    depth = 0
+    while index < end:
+        char = body[index]
+        if char == "\\":
+            return False, None
+        if quote:
+            if char == quote:
+                if not triple:
+                    quote = ""
+                elif body.startswith(char * 3, index):
+                    index += 2
+                    quote = ""
+        elif char in "'\"":
+            if _opens_fstring(body, start, index):
+                return True, None
+            triple = body.startswith(char * 3, index)
+            index += 2 if triple else 0
+            quote = char
+        elif char in "[{(":
+            depth += 1
+        elif char == "#":
+            return False, None
+        elif depth == 0 and char in "!:}=<>":
+            following = body[index + 1] if index + 1 < end else ""
+            if following == "=" and char in "!=<>":
+                index += 1
+            elif not (following and char in "<>"):
+                break
+        elif char in "])}":
+            if depth == 0:
+                return False, None
+            depth -= 1
+        index += 1
+    if quote or depth or index >= end:
+        return False, None
+    return False, index
+
+
+def _fstring_format_spec_end(body: str, start: int, raw: bool, level: int) -> tuple[bool, int | None]:
+    """형식 지정을 `start`부터 훑어 그것을 닫는 `}`의 위치를 찾는다(리터럴과 수준 `level`의 필드가 번갈아 온다).
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 형식 지정이 시작하는 위치(`:` 다음).
+        raw: 원시 문자열인지.
+        level: 형식 지정 안 필드의 수준.
+
+    Returns:
+        (필드의 식 안에 f-string이 있을 수 있는지, 닫는 `}`의 위치 — 문법 오류면 None).
+    """
+    index = start
+    while True:
+        found = _fstring_literal_end(body, index, raw, level)
+        if found is None or found >= len(body):
+            return False, None
+        if body[found] == "}":
+            return False, found
+        nests, after = _fstring_field_nests(body, found, raw, level)
+        if nests or after is None:
+            return nests, None
+        index = after
+
+
+def _opens_fstring(text: str, start: int, quote: int) -> bool:
+    """치환 필드의 식(`text[start:]`)에서 `text[quote]`의 따옴표가 여는 문자열 리터럴에 f 접두사가 있을 수 있는지 본다.
+
+    C 토크나이저는 이름 토큰의 첫 글자부터만 접두사(`b`·`r`·`u`·`f` 조합)를 읽는다. 따옴표 앞의 접두사 글자에 `f`가
+    있고 그 앞이 이름 글자(글자·`_`)가 아니면 f-string이 시작한다고 본다. 숫자 뒤(`1f'…'`, 숫자 토큰 뒤에 새 토큰이
+    시작할 수 있다)나 판단하기 어려운 글자 뒤도 f-string으로 본다. `if'a'`·`elif"…"`처럼 이름 안의 `f`는 아니다.
+
+    Args:
+        text: 따옴표 안 글자.
+        start: 식이 시작하는 위치.
+        quote: 따옴표의 위치.
+
+    Returns:
+        f 접두사가 있을 수 있으면 True.
+    """
+    index = quote
+    while index > start and text[index - 1] in "bBrRuUfF":
+        index -= 1
+    if "f" not in text[index:quote].lower():
+        return False
+    before = text[index - 1] if index > start else ""
+    return not (before == "_" or before.isalpha())
 
 
 def _chain_weight(token: tokenize.TokenInfo) -> int:

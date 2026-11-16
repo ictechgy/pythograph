@@ -912,6 +912,52 @@ class _RefusedThread:
         raise RuntimeError("can't start new thread")
 
 
+def _record_start_confirmations(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
+    """전용 스레드가 시작했는지 확인하려는 대기(`_START_CONFIRM_SECONDS`)를 기다리지 않고 기록하게 한다.
+
+    시작이 실패했을 때 그 대기는 시작이 끊겼을 수 있는 경우에만 해야 한다. 기록된 대기는 실패마다 1초씩 더 걸렸을
+    시간이다(기다리지 않으므로 테스트는 느려지지 않는다).
+
+    Returns:
+        기록한 대기 시간 목록.
+    """
+    confirmations: list[float | None] = []
+
+    class RecordingEvent(threading.Event):
+        """시작 확인 대기를 기록하고 바로 돌아오는 이벤트다."""
+
+        def wait(self, timeout: float | None = None) -> bool:
+            if timeout == syntax._START_CONFIRM_SECONDS:
+                confirmations.append(timeout)
+                return self.is_set()
+            return super().wait(timeout)
+
+    monkeypatch.setattr(syntax, "Event", RecordingEvent)
+    return confirmations
+
+
+def test_refused_threads_fail_fast_inside_an_except_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """다른 예외를 처리하는 중(`except` 블록 안)에 스레드 시작이 실패해도 시작이 끊긴 것으로 보지 않고 바로 스레드
+    이유로 넘어간다. 전에는 실패한 RuntimeError의 앞 예외(`__context__`)가 부른 쪽이 처리하던 예외라 "시작이 끊겼을 수
+    있다"고 보고 매번 1초씩 기다렸다(CLI는 명령 전체를 그런 `except` 블록 안에서 돌려 파일마다 1초, 31개 파일 30초)."""
+    monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
+    confirmations = _record_start_confirmations(monkeypatch)
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=_RefusedThread, stack_size=threading.stack_size))
+    long_plain = "x = 1  #" + "#" * (syntax.INLINE_PARSE_CHARACTERS * 2) + "\n"
+    for index in range(3):
+        (tmp_path / f"long{index}.py").write_bytes(long_plain.encode())
+    try:
+        raise KeyError("unrelated")
+    except KeyError:
+        with pytest.raises(syntax.ParseStackUnavailableError):
+            syntax._ParseThread(lambda: 1, syntax.MIN_PARSE_STACK_BYTES, daemon=False).start()
+        project = Project.open(tmp_path)
+        assert all(isinstance(project.module(f"long{index}.py"), SourceModule) for index in range(3))
+        assert syntax.run_on_parse_stack(lambda: threading.current_thread().name) == threading.current_thread().name
+    assert confirmations == []
+
+
 def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1563,6 +1609,188 @@ def test_refused_threads_parse_inline_only_what_is_safe_there(tmp_path: Path, mo
         monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
         assert syntax._parses_safely_inline(long_plain + 'y = f"{a}"\n', 0)
         assert not syntax._parses_safely_inline(long_plain + "y = f\"{f'{a}'}\"\n", 0)
+
+
+#: f-string 토큰 하나와 그 치환 필드의 식 안에 f-string이 있는지다(3.10·3.11 파서가 셋 이상 겹치는지). 앞쪽은 4차
+#: 리뷰가 찾은 오탐(리터럴 끝의 `f`, 식 안 문자열 끝의 `f`)과 비슷한 모양이고, 뒤쪽은 접두사 철자·따옴표·위치를 바꾼
+#: 실제 중첩과, 넉넉히 겹친 것으로 보는 경우(숫자 뒤의 f 접두사, CPython이 문법 오류로 멈추는 필드 뒤)다.
+_FSTRING_NESTING = [
+    ('f"{name}.pdf"', False),
+    ('f"turning {x} off"', False),
+    ("f\"{d['f']}\"", False),
+    ('f"{x:>10}"', False),
+    ('f"{x:{width}}"', False),
+    ("f\"{'%.2f' % x}\"", False),
+    ('f"{x!r:>{w}} half"', False),
+    ("f'{a if b else c}'", False),
+    ("f\"\\N{LATIN SMALL LETTER F}'{x}' of\"", False),
+    ('rf"\\{x}f\'"', False),
+    ("f\"{{f'x'}}\"", False),
+    ("f'''{x}f\"\"\"'''", False),
+    ("f\"{x if'a'else y}\"", False),
+    ('f"{x != y} of\'"', False),
+    ("f\"{f'{x}'}\"", True),
+    ("f'{F\"{x}\"}'", True),
+    ("f\"{rf'{x}'}\"", True),
+    ("f\"{Rf'{x}'}\"", True),
+    ("F\"{fR'{x}'}\"", True),
+    ('f"""{f\'{x}\'}"""', True),
+    ('f\'\'\'{"""a""" f"{x}"}\'\'\'', True),
+    ("f\"{x:{f'{y}'}}\"", True),
+    ("f\"{x=!r:{f'{y}'}}\"", True),
+    ("f\"{'a' f'{x}'}\"", True),
+    ("f\"{(lambda: f'{x}')()}\"", True),
+    ("f\"{[f'{y}' for y in z]}\"", True),
+    ("f\"{d[f'{k}']}\"", True),
+    ("f\"\\\\N{f'{x}'}\"", True),
+    ("f\"{x != f'{y}'}\"", True),
+    ("f\"{1f'{x}'}\"", True),
+    ("f\"{x!z} {f'{y}'}\"", True),
+]
+
+
+@pytest.mark.parametrize(("literal", "nests"), _FSTRING_NESTING)
+def test_nested_fstring_detection_reads_replacement_fields(literal: str, nests: bool) -> None:
+    """겹친 f-string은 치환 필드의 식(형식 지정 안의 필드 포함) 안에서 f 접두사로 시작하는 문자열 리터럴만이다. 리터럴
+    부분의 글자, 식 안 다른 문자열의 내용, `{{`·`\\N{…}`은 보지 않는다. 전에는 따옴표 바로 앞의 `f`를 토큰 어디서나
+    찾아 `f"{name}.pdf"`·`f"{d['f']}"` 같은 단일 f-string을 겹친 것으로 세어, 스레드를 만들 수 없을 때 3.10·3.11이
+    0.3.1이 읽던 파일을 스레드 이유로 남겼다(4차 리뷰 S1). 판단이 어려운 곳(숫자 바로 뒤의 f 접두사, CPython이 문법
+    오류로 멈추는 필드부터)은 겹친 것으로 본다."""
+    assert syntax._fstring_nests(literal) is nests
+
+
+def _nested_fstring_cases(text: str) -> Iterator[tuple[str, bool]]:
+    """소스의 f-string 리터럴 토큰마다 (토큰, 파서 트리에서 치환 필드 값 안에 `JoinedStr`가 있는지)를 낸다.
+
+    한 줄에 토큰 하나뿐인 f-string만 쓴다(암묵적 이어 붙이기는 트리에서 노드 하나라 토큰과 짝지을 수 없다). 3.12부터는
+    토크나이저가 f-string을 나눠 내므로, 트리 노드의 소스 구간을 다시 토큰으로 나눠 리터럴 하나인지 본다.
+    """
+    tree = ast.parse(text)
+    inner = {
+        id(node)
+        for outer in ast.walk(tree)
+        if isinstance(outer, ast.JoinedStr)
+        for node in ast.walk(outer)
+        if node is not outer and isinstance(node, ast.JoinedStr)
+    }
+    fstring_start = getattr(tokenize, "FSTRING_START", None)
+    fstring_end = getattr(tokenize, "FSTRING_END", None)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.JoinedStr) or id(node) in inner:
+            continue
+        segment = ast.get_source_segment(text, node)
+        if segment is None or "f" not in syntax._string_prefix(segment).lower():
+            continue
+        literals = depth = 0
+        try:
+            for token in tokenize.generate_tokens(io.StringIO(segment).readline):
+                if token.type == fstring_start:
+                    literals += depth == 0
+                    depth += 1
+                elif token.type == fstring_end:
+                    depth -= 1
+                elif token.type == tokenize.STRING and depth == 0:
+                    literals += 1
+        except (tokenize.TokenError, SyntaxError):
+            continue
+        if literals != 1:
+            continue
+        nested = any(
+            isinstance(inner, ast.JoinedStr)
+            for value in ast.walk(node)
+            if isinstance(value, ast.FormattedValue)
+            for inner in ast.walk(value.value)
+        )
+        yield segment, nested
+
+
+def test_nested_fstring_detection_agrees_with_the_parser_on_repository_fstrings() -> None:
+    """저장소 소스·테스트의 모든 f-string 리터럴에서 겹침 판정이 파서가 만든 트리(치환 필드 값 안의 `JoinedStr`)와 같다
+    (놓침도 오탐도 없다)."""
+    checked = 0
+    for path in sorted((REPOSITORY / "src").rglob("*.py")) + sorted((REPOSITORY / "tests").rglob("*.py")):
+        for segment, nested in _nested_fstring_cases(path.read_text(encoding="utf-8")):
+            assert syntax._fstring_nests(segment) is nested, (path, segment)
+            checked += 1
+    assert checked > 500
+
+
+def test_refused_threads_parse_single_fstrings_inline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """스레드를 만들 수 없을 때 3.10·3.11도 겹치지 않은 f-string은 0.3.1처럼 부른 스레드에서 파싱하고, 겹친 f-string만
+    스레드 이유로 센다(4차 리뷰 S1: `f"{name}.pdf"`·`f"turning {x} off"`·`f"{d['f']}"`를 겹친 것으로 셌다)."""
+    sources = {
+        "pdf.py": 'def report(name):\n    return f"{name}.pdf"\n',
+        "off.py": 'x = 1\nprint(f"turning {x} off")\n',
+        "lookup.py": "d = {}\ndef g():\n    return f\"{d['f']}\"\n",
+        "nested.py": "x = 1\ny = f\"{f'{x}'}\"\n",
+    }
+    for name, text in sources.items():
+        (tmp_path / name).write_bytes(text.encode())
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=_RefusedThread, stack_size=threading.stack_size))
+    project = Project.open(tmp_path)
+    outcomes = {name: getattr(project.module(name), "reason", "parsed") for name in sources}
+    nested = syntax.PARSE_STACK_UNAVAILABLE_REASON if syntax._FSTRING_PARSERS_STACK else "parsed"
+    assert outcomes == {"pdf.py": "parsed", "off.py": "parsed", "lookup.py": "parsed", "nested.py": nested}
+
+
+def test_logical_lines_follow_the_parser_newlines() -> None:
+    """논리 줄은 파서처럼 `\\r\\n`과 홀로 선 `\\r`에서도 끝난다. 전에는 순수 파이썬 토크나이저에 `\\n`으로만 나눈 줄을
+    줘 CR만 쓰는 파일 전체가 한 논리 줄이 되어, 스레드를 만들 수 없는 3.10이 사슬 토큰 2,000개 넘는 그런 파일을 스레드
+    이유로 남겼다(0.3.1은 파싱했다. 4차 리뷰 N1)."""
+    lines = [f'p{index} = os.path.join("a", "b{index}")' for index in range(700)]
+    for newline in ("\n", "\r\n", "\r"):
+        text = "import os" + newline + newline.join(lines) + newline
+        assert syntax._logical_line_chain(text, syntax.SMALL_STACK_CHAIN_TOKENS) == 3, repr(newline)
+        assert syntax._parses_safely_inline(text, syntax.SMALL_STACK_CHAIN_TOKENS + 1), repr(newline)
+    assert syntax._logical_line_chain("x = a.b\r\ny = c.d\rz = e.f\n", 10) == 1
+    assert syntax._fstring_nests("f'{x}'") is False
+    assert not syntax._may_nest_fstrings("x = 1\ry = f'{x}'\rz = f\"{y}.pdf\"\r")
+
+
+def test_refused_threads_estimate_ast2obj_per_logical_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """스레드를 만들 수 없을 때 3.11의 `ast2obj` 몫은 가장 긴 논리 줄의 사슬로 어림한다. 전에는 파일 전체의 사슬 문자
+    수에 f-string 몫을 더해, 재귀 한도를 10,923 이상으로 올리면 표준 라이브러리 `inspect.py` 같은 평범한 모듈이 스레드
+    이유로 남았다(4차 리뷰 N2). 한 논리 줄의 사슬이 많으면 여전히 거부한다."""
+    monkeypatch.setattr(syntax, "_AST2OBJ_SCALES_WITH_RECURSION_LIMIT", True)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
+    spread = "a.b\n" * 4_000 + 'y = f"{a}"\n'
+    line = "X = " + " + ".join(["a"] * 3_000) + '\ny = f"{a}"\n'
+    limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(20_000)
+        assert syntax._parses_safely_inline(spread, 0)
+        assert not syntax._parses_safely_inline(line, 0)
+        sys.setrecursionlimit(10_000)
+        assert syntax._parses_safely_inline(line, 0)
+    finally:
+        sys.setrecursionlimit(limit)
+
+
+def test_huge_recursion_limits_recount_with_the_fstring_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.11 전용 스택의 상한 비교는 f-string 몫을 더한 크기로 한다: 파일 전체 어림에 그 몫을 더해 상한을 넘으면 논리
+    줄마다 다시 센다. 전에는 파일 전체 어림만 상한과 비교해, 그 어림이 상한보다 f-string 몫 이내로 작은 평평한 모듈이
+    다시 세지 않고 f-string 몫이 더해져 "source nesting too deep to parse"가 됐다(4차 리뷰 S2)."""
+    monkeypatch.setattr(syntax, "_AST2OBJ_SCALES_WITH_RECURSION_LIMIT", True)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", True)
+    mebibyte = syntax.PARSE_STACK_ALIGNMENT_BYTES
+    monkeypatch.setattr(syntax, "MAX_PARSE_STACK_BYTES", 64 * mebibyte)
+    band = "a.b\n" * 200_000 + 'y = f"{a}"\n'
+    levels = syntax._count_marks(band) + 5 * syntax._PARSER_DEPTH_LEVELS
+    assert 48 * mebibyte < levels * syntax.AST2OBJ_STACK_BYTES_PER_LEVEL <= 64 * mebibyte
+    limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(1_000_000)
+        assert (
+            syntax.guarded_stack_bytes(band, 0) == syntax.MIN_PARSE_STACK_BYTES + syntax.FSTRING_STACK_ALLOWANCE_BYTES
+        )
+        tree, overflow = syntax.parse_guarded(band, "band.py", "exec", 0, MAX_AST_DEPTH, sys.maxsize)
+        assert isinstance(tree, ast.Module)
+        assert overflow is None
+    finally:
+        sys.setrecursionlimit(limit)
 
 
 def test_stack_size_changes_are_serialized(monkeypatch: pytest.MonkeyPatch) -> None:
