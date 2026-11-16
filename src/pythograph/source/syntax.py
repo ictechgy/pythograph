@@ -12,9 +12,47 @@ from __future__ import annotations
 
 import ast
 import io
+import os
+import re
 import sys
+import threading
+import threading as _stdlib_threading
+import time
 import tokenize
-from typing import Literal
+import warnings
+from collections.abc import Callable
+from threading import current_thread, main_thread
+from typing import Generic, Literal, Protocol, TypeVar, cast
+
+from pythograph.source.cancel import (
+    NO_OUTCOME,
+    WAIT_SLICE_SECONDS,
+    CancelToken,
+    Completion,
+    bind_token,
+    daemon_threads_allowed,
+    forget_finished_thread,
+    raise_if_cancelled,
+    start_interruption,
+    take_outcome,
+)
+
+
+class _RLock(Protocol):
+    """스택 크기 잠금이 쓰는 `RLock`의 메서드다(`_is_owned`는 `threading.Condition`도 쓰는 C 구현의 메서드다)."""
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        """잠금을 얻는다."""
+
+    def release(self) -> None:
+        """잠금을 푼다."""
+
+    def _is_owned(self) -> bool:
+        """지금 스레드가 쥐고 있는지다."""
+
+
+#: 전용 스레드에서 돌린 작업의 결과 타입이다.
+_Result = TypeVar("_Result")
 
 #: 실행 중인 파서가 깊은 왼쪽 결합 사슬(`a + a + …`, `x.a.a…`, `f()()…`, `x[0][0]…`)에서 C 스택을 넘기는지다.
 #: 3.10의 `ast.parse`는 그런 트리를 파이썬 객체로 바꾸다 프로세스가 신호로 죽고(종료 코드 139), 3.11부터는
@@ -25,6 +63,113 @@ _PARSER_OVERFLOWS_ON_CHAINS = sys.version_info < (3, 11)
 #: 8만 개(트리 깊이 16만)·`+` 15만 항에서 죽고, 메서드 사슬 5만 개·다른 사슬 10만 항은 안전했다. f-string 치환 필드
 #: 안의 사슬도 임계가 같고(10만 항 안전, 15만 항에서 죽음), 바깥 사슬과 깊이가 더해진다.
 MAX_CHAIN_TOKENS = 50_000
+
+#: 3.10에서 부른 스레드의 스택으로 바로 파싱하는 사슬 추정치(`chain_bound`)의 상한이다. 추정치는 파일 전체의 사슬
+#: 문자 수(문자열 안 포함)가 `MAX_CHAIN_TOKENS` 이하면 그 수이고, 넘으면 가장 긴 논리 줄의 사슬 토큰 수다. `ast.parse`는
+#: C 트리를 파이썬 객체로 바꾸는 재귀(`ast2obj`)에 깊이 검사가 없어 트리 한 단계에 C 스택을 약 64 B 쓴다(3.10.20·clang
+#: 실측: 1 MiB 스레드는 약 1.6만, Windows python.exe 주 스레드 크기인 2,000,000 B는 약 3.2만 단계에서 죽고, 메서드
+#: 사슬은 고리 하나가 두 단계라 그 절반). `MAX_CHAIN_TOKENS`는 Linux 주 스레드(8 MiB)로 정한 값이라 Windows에서는
+#: 상한 안의 사슬도 프로세스를 죽였다. 2,000은 1 MiB 임계의 1/8이라 MSVC의 더 큰 프레임과 호출자 프레임을 더해도
+#: 남는다. 넘으면 전용 스택 스레드에서 파싱한다(`_run_on_large_stack`).
+SMALL_STACK_CHAIN_TOKENS = 2_000
+
+#: 긴 사슬을 파싱하는 전용 스레드가 사슬 토큰 하나에 잡는 스택(바이트)이다. 실측 한 단계(약 64 B)의 16배다. 토큰 수는
+#: 트리 깊이의 상한이다(사슬 토큰 하나가 많아야 한 단계를 만든다).
+PARSE_STACK_BYTES_PER_TOKEN = 1024
+
+#: 전용 스레드 스택의 하한(Linux 주 스레드 기본값)이다. 상한은 `MAX_CHAIN_TOKENS` × 토큰당 바이트(약 49 MiB)로,
+#: CPython이 Windows에서 받는 스레드 스택 상한(256 MiB 미만) 안이다.
+MIN_PARSE_STACK_BYTES = 8 * 1024 * 1024
+
+#: 전용 스레드 스택 크기를 맞추는 단위(1 MiB)다. macOS의 `pthread_attr_setstacksize`는 페이지 크기의 배수가 아니면
+#: EINVAL을 돌려주고 CPython은 이를 ValueError로 낸다(arm64 macOS의 페이지는 16 KiB). 1 MiB는 4·16·64 KiB 페이지의
+#: 공배수라 어느 플랫폼에서도 받는다.
+PARSE_STACK_ALIGNMENT_BYTES = 1024 * 1024
+
+#: 실행 중인 파서가 f-string 치환 필드를 따로 만든 파서로 다시 파싱하고, 그 파서의 깊이 한도(MAXSTACK, 약 6,000단)를
+#: 처음부터 다시 세는지다(3.10·3.11). 사슬 수로 걸리지 않는 오른쪽 재귀(`~`·`not`·단항 `-`·`lambda`·조건식·`**`)를 겹친
+#: f-string마다 파서 하나만큼의 C 스택이 더 쌓인다. 3.12부터는 f-string도 같은 파서가 읽어 한도를 넘으면 MemoryError다.
+_FSTRING_PARSERS_STACK = sys.version_info < (3, 12)
+
+#: f-string이 시작할 수 있는 곳(대소문자를 가리지 않는 `f`·`fr`·`rf` 바로 뒤의 따옴표)이다. 모든 접두사 철자(`f`·`F`·
+#: `fr`·`fR`·`Fr`·`FR`·`rf`·`rF`·`Rf`·`RF`)가 따옴표 바로 앞에 `f`나 `fr`를 두므로 놓치는 f-string이 없다.
+#: `if"x"`처럼 넉넉히 맞는 것은 그 소스를 f-string 몫을 더한 전용 스택에서 파싱하게 할 뿐이다.
+_FSTRING_START = re.compile(r"[fF][rR]?['\"]")
+
+#: 실행 중인 파서가 C 스택 경계를 직접 보는지다(3.14부터 문법 규칙마다 스택 포인터로 남은 스택을 확인한다). 3.13까지는
+#: 깊이를 MAXSTACK(약 6,000단) 수로만 막아, 그 한도 안의 식도 작은 스택(1 MiB 스레드, 2,000,000 B인 Windows 주 스레드)을
+#: 넘길 수 있다. macOS 3.13(arm64)은 1 MiB 스레드에서 `~` 5,900개를 f-string 셋에 겹친 식을 파싱하다 죽었다(SIGBUS,
+#: 같은 식이 Linux 3.13.18에서는 768 KiB). Linux 3.13.18의 `~` 5,967개 식은 파싱에 768 KiB, 같은 스레드에서 트리까지
+#: 해제하면 1,264 KiB가 든다(해제 재귀는 `parse_guarded` 참고).
+_PARSER_CHECKS_C_STACK = sys.version_info >= (3, 14)
+
+#: 3.13까지 전용 스택 밖(라이브러리로 부른 스레드)에서 바로 파싱하는 최대 길이(문자)다. 넘는 소스는 전용 스택에서
+#: 파싱한다(3.10·3.11에서 f-string이 있을 수 있는 소스는 길이와 무관하게 전용 스택이다). 가장 비싼 모양은 닫지 않은
+#: 여는 괄호다: 여는 괄호 하나가 문법 규칙 여럿을 지나 약 2 KiB(빌드에 따라 1.6–2.6 KiB)를 쓰고, 토크나이저의 괄호
+#: 200단 한도에서 문법 오류로 끝나기 전까지 쌓인다(닫는 괄호는 거의 쓰지 않아 짝을 맞춘 식은 글자당 약 1 KiB).
+#: 스레드 스택 16 KiB 단위 이분 탐색(닫지 않은·짝을 맞춘 `[`·`(`·`{`와 `~`, 식·모듈 문맥)의 128자 최악은 3.10.20(uv)
+#: 272 KiB, 3.11.18(Ubuntu) 256 KiB, 3.11.15(uv 독립 빌드, CI가 쓰는 빌드) 348 KiB(`[`×126+`x=`, 4 KiB 단위),
+#: 3.12.3(Ubuntu) 240 KiB, 3.12.13(uv) 304 KiB, 3.13.18·3.13.14(uv) 272 KiB다. 256자였다면 3.11.15에서 544 KiB였다.
+#: 최악의 2배(696 KiB)가 1 MiB 스레드에 들어간다. macOS(arm64)는 Linux보다 프레임이 적어도 1.33배 크다(위 SIGBUS
+#: 식으로 잰 하한). 임계 이하 최악 식을 512 KiB 스레드에서 읽는 테스트가 Linux·macOS CI 판마다 2배 여유를
+#: 확인한다(Windows의 스레드 크기는 커밋 크기라 실제 예약은 python.exe 기본값 2,000,000 B이고, 그 테스트는 거기
+#: 들어간다는 것만 보인다).
+INLINE_PARSE_CHARACTERS = 128
+
+#: 3.10·3.11에서 f-string이 있을 수 있는 소스를 파싱하는 전용 스레드에 더하는 스택(바이트)이다. 3.10·3.11의 f-string은
+#: 따옴표 종류 넷(`"""`·`'''`·`"`·`'`)으로 4단까지 겹치고 파서마다 깊이 한도와 괄호 200단 한도를 다시 세므로 파서가 최대
+#: 다섯 쌓인다. Linux 실측: 파서마다 한도 가까이 오른쪽 재귀를 두면 가장 비싼 조건식(`x if x else `)이 3.10.20(uv)
+#: 4,656 KiB, 3.11.18(Ubuntu) 3,728 KiB, 3.11.15(uv 독립 빌드) 7,424 KiB(`not` 6,032, `~` 5,120)이고, 괄호 199단씩이면
+#: 3.10.20 2,032 KiB(2,319자)다. 16 MiB는 최악의 약 2.2배다(전용 스택은 하한 8 MiB를 더해 24 MiB). 3.10의 `ast2obj`는
+#: 파싱이 끝난 뒤 따로 돌아(합 약 3만 단, 약 1.9 MiB) 더하지 않는다.
+FSTRING_STACK_ALLOWANCE_BYTES = 16 * 1024 * 1024
+
+#: 3.11의 `ast2obj`(C 트리 → 파이썬 객체)가 허용하는 깊이가 재귀 한도에 비례하는지다(한도의 3배 단계, 3.12부터는 고정
+#: 상수). 재귀 한도를 크게 올린 호출자에서는 그 깊이만큼의 C 스택이 필요하다.
+_AST2OBJ_SCALES_WITH_RECURSION_LIMIT = (3, 11) <= sys.version_info < (3, 12)
+
+#: 3.11 `ast2obj`가 트리 한 단계에 잡는 스택(바이트)이다. 실측(재귀 한도 1만·4만, 1 MiB 단위 이분 탐색): 3.11.18(Ubuntu)
+#: 96–104 B, 3.11.15(uv) 87–104 B. 그 2.4배 이상이다.
+AST2OBJ_STACK_BYTES_PER_LEVEL = 256
+
+#: 3.13까지 PEG 파서 하나가 재귀할 수 있는 깊이(MAXSTACK)다. 왼쪽 결합 사슬(`_CHAIN_MARKS`)이 아닌 중첩은 파서 하나에서
+#: 이 깊이를 넘지 못하고, 3.10·3.11의 f-string은 파서를 다섯까지 겹친다.
+_PARSER_DEPTH_LEVELS = 6_000
+
+#: 전용 스레드 스택의 상한(바이트)이다. CPython은 Windows에서 256 MiB(`THREAD_MAX_STACKSIZE`) 미만의 스레드 스택만
+#: 받는다(`thread_nt.h`의 `size < THREAD_MAX_STACKSIZE`). 그보다 작은 가장 큰 1 MiB 배수다. 이보다 큰 스택이 필요하다고
+#: 어림한 소스(재귀 한도를 아주 크게 올린 3.11에서 사슬 토큰이 약 100만 개 넘는 논리 줄)는 파싱하지 않고 중첩 이유로
+#: 센다(3.10의 사슬 상한과 같다).
+MAX_PARSE_STACK_BYTES = 255 * 1024 * 1024
+
+#: 전용 스레드를 기다리는 스레드가 깨어나는 간격(초)이다(`source.cancel.WAIT_SLICE_SECONDS`). Windows의 잠금 대기는
+#: Ctrl+C를 받지 못해 그 간격마다 돌아와 받는다(Windows CI에는 이를 확인하는 테스트가 없다).
+_JOIN_POLL_SECONDS = WAIT_SLICE_SECONDS
+
+#: 주 스레드가 Ctrl+C 같은 예외를 받은 뒤 명령 스레드가 멈추기를 기다리는 시간(초)이다. 명령 스레드는 취소 표시를 정해
+#: 둔 자리(`source.cancel.raise_if_cancelled`)에서만 보므로 C 호출 하나가 끝날 때까지 늦는다. 가장 긴 C 호출 하나는
+#: 4 MiB 소스의 `ast.parse`로, 실측(Linux, 3.10.20·3.11.18·uv 3.11.15·3.12.3·3.13.18) 최대 12.1초였다(짧은 문장 100만
+#: 개. 3.13의 들여쓴 `json.dumps`도 C 호출이지만 108 MiB에 1.4초). 그 약 1.7배다. 두 번째 Ctrl+C나 시간이 다 되면 주
+#: 스레드는 기다리지 않고 예외를 다시 낸다(명령 스레드는 데몬이고 표준 입출력을 쓰지 않으므로 버려도 된다).
+COMMAND_STOP_GRACE_SECONDS = 20.0
+
+#: `Thread.is_alive`를 신호를 받는 스레드에서 믿어도 되는지다. 3.13부터는 스레드 핸들의 상태만 읽는다. 3.12까지는
+#: 그 안에 신호 예외가 떨어지면 bpo-45274 처리가 아직 도는 스레드의 잠금을 풀고 끝난 것으로 표시한다(5차 리뷰 C-F1).
+_IS_ALIVE_SIGNAL_SAFE = sys.version_info >= (3, 13)
+
+#: 분석 대상 소스를 파싱할 때 파서에 주는 파일 이름이다. 3.12부터 컴파일러는 잘못된 이스케이프(`"\\Q"`) 같은 소스에
+#: SyntaxWarning을 내고(3.10·3.11은 DeprecationWarning), 기본 처리기는 그 줄을 표준 오류에 쓴다. 분석 대상의 비밀 값이
+#: 출력에 섞이고(4차 리뷰 CLI-3), 계산 스레드가 표준 오류에 쓰게 된다. 컴파일 경고의 모듈 이름은 파서에 준 파일 이름
+#: (`.py`를 뗀 것)이므로(3.10–3.14 확인) 이 고정 이름만 고르는 무시 필터 하나를 import할 때 건다
+#: (`warnings.catch_warnings`는 3.14 전에는 프로세스 전체 상태를 바꿔 스레드에 안전하지 않다). 그 필터는 맨 앞에 들어가
+#: 시작할 때의 `-W error::SyntaxWarning`보다 앞서므로 결과가 바뀌지 않는다. 호스트가 그 뒤에 넣은 필터는 이 필터보다
+#: 앞서고, `warnings.resetwarnings()`는 이 필터를 지워 경고를 다시 보이게 한다.
+PARSE_FILENAME = "<pythograph-source>"
+
+warnings.filterwarnings("ignore", module=re.escape(PARSE_FILENAME) + r"\Z")
+
+#: 전용 스택 스레드를 만들지 못해 파싱하지 않은 모듈의 읽지 못한 소스 이유다(파서의 깊이 한도와 구분한다).
+PARSE_STACK_UNAVAILABLE_REASON = "could not start a parser thread with a large enough stack"
 
 #: 사슬을 잇는 연산자 토큰이다. `(`·`[`는 호출·첨자일 때만 잇지만 넉넉히 센다(상한 판정에서 더 세는 쪽은 안전하다).
 _CHAIN_OPERATORS = frozenset({"+", "-", "*", "/", "//", "%", "@", "**", "<<", ">>", "&", "|", "^", ".", "(", "["})
@@ -52,6 +197,10 @@ MAX_AST_DEPTH = 128
 #: 약 400, 깊은 식 여러 개를 엮은 입력은 300까지 세 명령이 모두 0이었고, client는 함수 안 메서드 사슬 깊이
 #: 465(3.10)까지 통과하고 525(3.13)에서 실패했다. 그래서 400은 여유가 없고 256을 쓴다.
 MAX_EXTRACTION_AST_DEPTH = 256
+
+
+class ParseStackUnavailableError(Exception):
+    """긴 소스를 파싱할 큰 스택의 스레드를 만들 수 없었다. 호출자는 그 모듈·주석을 분석하지 못한 것으로 센다."""
 
 
 def exceeds_depth(tree: ast.AST, limit: int = MAX_AST_DEPTH) -> bool:
@@ -134,13 +283,14 @@ def parse_annotation(text: str) -> ast.expr | None:
     Returns:
         식, 파싱할 수 없거나 상한을 넘으면 None.
     """
-    if chain_too_long(text):
+    bound = chain_bound(text)
+    if bound > MAX_CHAIN_TOKENS:
         return None
     try:
-        tree = ast.parse(text, mode="eval")
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        tree, overflow = parse_guarded(text, "<unknown>", "eval", bound, MAX_AST_DEPTH, sys.maxsize)
+    except (SyntaxError, ValueError, RecursionError, MemoryError, ParseStackUnavailableError):
         return None
-    return None if exceeds_depth(tree) else tree.body
+    return None if overflow is not None else cast(ast.Expression, tree).body
 
 
 def chain_too_long(text: str) -> bool:
@@ -148,7 +298,8 @@ def chain_too_long(text: str) -> bool:
 
     파싱 전에 걸러야 하는 이유: 3.10은 파싱 도중 프로세스가 죽어 잡을 예외가 없다. 걸러진 소스는 파서가 거부한 깊은
     소스와 같은 실패로 남긴다. f-string 치환 필드 안의 사슬도 센다. 상한을 넘는 얕은 줄(사슬 토큰이 아주 많은 한 줄짜리
-    목록, 사슬 문자가 아주 많은 f-string)도 3.10에서는 함께 걸러진다.
+    목록, 사슬 문자가 아주 많은 f-string)도 3.10에서는 함께 걸러진다. 상한 안의 사슬도 작은 스택에서는 넘칠 수 있어
+    `parse_guarded`가 전용 스택에서 파싱한다.
 
     Args:
         text: 파싱할 소스.
@@ -156,7 +307,555 @@ def chain_too_long(text: str) -> bool:
     Returns:
         파싱하면 안 되면 True. 3.11 이상은 파서가 스스로 RecursionError를 내므로 늘 False다.
     """
-    return _PARSER_OVERFLOWS_ON_CHAINS and _longest_chain(text) > MAX_CHAIN_TOKENS
+    return chain_bound(text) > MAX_CHAIN_TOKENS
+
+
+def chain_bound(text: str) -> int:
+    """3.10에서 논리 줄 하나의 사슬 토큰 수의 상한(`_longest_chain`)을 돌려준다. 3.11 이상은 볼 필요가 없어 0이다.
+
+    Args:
+        text: 파싱할 소스.
+
+    Returns:
+        사슬 토큰 수의 상한(3.11 이상은 0).
+    """
+    return _longest_chain(text) if _PARSER_OVERFLOWS_ON_CHAINS else 0
+
+
+def parse_guarded(
+    text: str, filename: str, mode: Literal["exec", "eval"], bound: int, depth_limit: int, node_limit: int
+) -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
+    """`ast.parse`와 트리 상한 판정(`tree_overflow`)을 하되, 부른 스레드의 스택을 넘길 수 있는 소스는 C 스택이 넉넉한
+    스레드에서 한다.
+
+    필요한 스택(`guarded_stack_bytes`)이 0이거나 지금 스레드가 이미 그만한 전용 스택이면(`run_on_parse_stack`으로 돌린
+    CLI 명령, 전용 스레드 안) 그 자리에서 파싱한다. 아니면 그 크기의 스레드를 만들어 파싱하고 바로 합류한다. 상한을
+    넘는 트리는 파싱한 스레드에서 버리고 이유만 돌려준다: 3.13은 깊은 트리를 해제하는 재귀를 C 재귀 한도(Linux·macOS
+    약 1만, Windows 3,000)에 거의 닿을 때까지 미루지 않아, 깊은 트리를 작은 스택에서 버리면 해제하다 죽는다.
+
+    스레드를 만들 수 없으면(스레드 없는 빌드, 3.10·3.11의 격리 하위 인터프리터, 자원 부족) 부른 스레드에서 파싱해도
+    되는 소스(`_parses_safely_inline`)만 그 자리에서 파싱하고 나머지는 `ParseStackUnavailableError`다. 0.3.1은 모든
+    소스를 부른 스레드에서 파싱했다. 필요한 스택이 `MAX_PARSE_STACK_BYTES`를 넘는다고 어림한 소스(3.11)는 파싱하지 않고
+    RecursionError로 센다. 결과와 예외는 같은 스레드에서 한 것과 같다.
+
+    Args:
+        text: 소스.
+        filename: 소스의 파일 이름(부르는 쪽 기록용). 파서에는 언제나 `PARSE_FILENAME`을 준다(컴파일 경고를 그 이름으로
+            걸러 낸다).
+        mode: `exec`(모듈)나 `eval`(식).
+        bound: 사슬 추정치(`chain_bound`, `MAX_CHAIN_TOKENS` 이하로 확인한 값).
+        depth_limit: 허용하는 트리 깊이(`tree_overflow`).
+        node_limit: 허용하는 트리 노드 수(`tree_overflow`).
+
+    Returns:
+        (트리, None), 상한을 넘으면 (None, `"depth"`나 `"nodes"`).
+
+    Raises:
+        SyntaxError: 문법 오류.
+        ValueError: NUL 등 파서가 받지 않는 입력.
+        RecursionError: 파서의 깊이 한도, 또는 필요한 스택이 `MAX_PARSE_STACK_BYTES`를 넘는다고 어림했을 때.
+        MemoryError: 파서의 메모리 부족·깊이 한도.
+        ParseStackUnavailableError: 그 스레드를 만들 수 없고 부른 스레드에서 파싱하면 안전하지 않을 때.
+    """
+
+    def parse_and_measure() -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
+        """파싱하고 상한을 잰다. 넘는 트리는 이 스레드에서 해제되도록 돌려주지 않는다."""
+        tree = ast.parse(text, filename=PARSE_FILENAME, mode=mode)
+        overflow = tree_overflow(tree, depth_limit, node_limit)
+        return (None, overflow) if overflow is not None else (tree, None)
+
+    raise_if_cancelled()
+    stack = guarded_stack_bytes(text, bound)
+    if stack <= current_parse_stack_bytes():
+        return parse_and_measure()
+    if stack > MAX_PARSE_STACK_BYTES:
+        raise RecursionError(f"the source may need a {stack}-byte parser stack (cap {MAX_PARSE_STACK_BYTES})")
+    try:
+        return _run_on_large_stack(parse_and_measure, stack)
+    except ParseStackUnavailableError:
+        if not _parses_safely_inline(text, bound):
+            raise
+    return parse_and_measure()
+
+
+def guarded_stack_bytes(text: str, bound: int) -> int:
+    """소스를 파싱할 스택의 크기를 돌려준다. 어느 스레드에서 파싱해도 되면 0이다.
+
+    3.13까지 `INLINE_PARSE_CHARACTERS`보다 긴 소스, 3.10의 긴 사슬, 3.10·3.11에서 f-string이 있을 수 있는 소스(길이와
+    무관, 델타 재리뷰 S1: 파서가 f-string마다 한도를 다시 세어 글자 수로 상한을 잡기 어렵다)가 전용 스택을 쓴다.
+    기본은 `MIN_PARSE_STACK_BYTES`, 3.10의 긴 사슬은 토큰에 비례한 크기(`parse_stack_bytes`), 3.11은 재귀 한도에 비례한
+    `ast2obj` 몫(`_ast2obj_stack_bytes`) 중 큰 것이다. f-string이 있을 수 있으면 겹친 파서 몫
+    (`FSTRING_STACK_ALLOWANCE_BYTES`)을 더한다. 모두 1 MiB의 배수라 합도 플랫폼이 받는 크기다.
+
+    Args:
+        text: 소스.
+        bound: 사슬 추정치(`chain_bound`).
+
+    Returns:
+        스택 크기(바이트), 필요 없으면 0.
+    """
+    chains = parse_stack_bytes(bound) if bound > SMALL_STACK_CHAIN_TOKENS else 0
+    fstrings = _FSTRING_PARSERS_STACK and may_contain_fstring(text)
+    if not chains and not fstrings and (_PARSER_CHECKS_C_STACK or len(text) <= INLINE_PARSE_CHARACTERS):
+        return 0
+    allowance = FSTRING_STACK_ALLOWANCE_BYTES if fstrings else 0
+    return (
+        max(chains or MIN_PARSE_STACK_BYTES, _ast2obj_stack_bytes(text, MAX_PARSE_STACK_BYTES - allowance)) + allowance
+    )
+
+
+def largest_parse_stack_bytes() -> int:
+    """실행 중인 파이썬에서 어떤 허용 소스라도 그 자리에서 파싱할 수 있는 스택 크기를 돌려준다(필요 없으면 0).
+
+    3.10은 가장 긴 허용 사슬(`MAX_CHAIN_TOKENS`)과 f-string 몫(65 MiB), 3.11은 f-string 몫과 재귀 한도에 비례한
+    `ast2obj` 몫(기본 한도에서 24 MiB), 3.12·3.13은 `MIN_PARSE_STACK_BYTES`다. 3.14부터는 0이다.
+
+    Returns:
+        스택 크기(바이트, `MAX_PARSE_STACK_BYTES` 이하).
+    """
+    if _PARSER_CHECKS_C_STACK and not _PARSER_OVERFLOWS_ON_CHAINS:
+        return 0
+    stack = MIN_PARSE_STACK_BYTES
+    if _PARSER_OVERFLOWS_ON_CHAINS:
+        stack = max(stack, parse_stack_bytes(MAX_CHAIN_TOKENS))
+    if _AST2OBJ_SCALES_WITH_RECURSION_LIMIT:
+        stack = max(stack, _aligned_stack_bytes(3 * sys.getrecursionlimit() * AST2OBJ_STACK_BYTES_PER_LEVEL))
+    if _FSTRING_PARSERS_STACK:
+        stack += FSTRING_STACK_ALLOWANCE_BYTES
+    return min(stack, MAX_PARSE_STACK_BYTES)
+
+
+def current_parse_stack_bytes() -> int:
+    """지금 스레드가 pythograph가 만든 전용 스택 스레드면 그 크기, 아니면 0을 돌려준다."""
+    return cast(int, getattr(_parse_stack, "bytes", 0))
+
+
+def may_contain_fstring(text: str) -> bool:
+    """소스에 f-string이 있을 수 있는지 넉넉히 본다(`_FSTRING_START`, 문자열·주석 안의 것도 맞는다).
+
+    Args:
+        text: 소스.
+
+    Returns:
+        f-string 시작이 있을 수 있으면 True(놓치는 f-string은 없다).
+    """
+    return _FSTRING_START.search(text) is not None
+
+
+def parse_stack_bytes(bound: int) -> int:
+    """사슬 토큰 수 상한 `bound`를 파싱할 전용 스레드의 스택 크기(바이트)를 돌려준다.
+
+    토큰당 `PARSE_STACK_BYTES_PER_TOKEN`을 잡되 `MIN_PARSE_STACK_BYTES` 이상이고, 플랫폼이 받는 크기가 되도록
+    `PARSE_STACK_ALIGNMENT_BYTES`의 배수로 올린다.
+
+    Args:
+        bound: 사슬 토큰 수의 상한.
+
+    Returns:
+        스레드 스택 크기(바이트).
+    """
+    return _aligned_stack_bytes(max(MIN_PARSE_STACK_BYTES, bound * PARSE_STACK_BYTES_PER_TOKEN))
+
+
+def run_on_parse_stack(work: Callable[[], _Result]) -> _Result:
+    """`work`(CLI 명령의 계산 부분)를 `largest_parse_stack_bytes` 크기의 스레드에서 돌려, 그 안의 파싱이 모두 그
+    자리에서 일어나게 한다.
+
+    파일마다 스레드를 오가면 트리를 다른 코어에서 만들고 부른 코어에서 읽고 해제하는 비용이 든다. 명령 전체를 한
+    스레드에서 돌리면 그런 이동이 없다. `work`는 표준 입출력에 쓰지 않아야 한다(결과는 부른 스레드가 쓴다). 그래야
+    Ctrl+C가 출력 쓰기를 부른 스레드에서 끊고, 명령 스레드를 버려도 출력 버퍼 잠금을 쥔 채 남지 않는다.
+
+    부른 스레드는 `_JOIN_POLL_SECONDS`씩 나눠 기다린다(`_ParseThread.run`). 기다리는 동안 예외(Ctrl+C의
+    KeyboardInterrupt, 신호 처리기가 낸 예외)를 받으면 명령 스레드의 취소 표시를 세워, 명령 스레드가 다음 확인 자리
+    (`source.cancel.raise_if_cancelled`)에서 KeyboardInterrupt로 `with`·`finally`(임시 디렉터리 지우기, git 자식 정리)를
+    풀게 하고 `COMMAND_STOP_GRACE_SECONDS`까지 기다린 뒤 그 예외를 다시 낸다. 기다리는 중 두 번째 예외는 바로 나간다.
+    `work`의 결과와 예외는 부른 스레드에서 그대로 돌려주거나 다시 낸다. `work`는 두 번 돌지 않는다. 스택이 필요
+    없거나(3.14 이상) 이미 그만한 전용 스택이거나 스레드를 만들 수 없으면(데몬 스레드를 막은 하위 인터프리터, 스레드
+    없는 빌드) 부른 스레드에서 돌린다(파싱마다 `parse_guarded`가 다시 판단한다). 그때는 신호가 `work`에 바로 닿는다.
+
+    Args:
+        work: 돌릴 작업.
+
+    Returns:
+        작업의 결과.
+    """
+    stack = largest_parse_stack_bytes()
+    if stack <= current_parse_stack_bytes():
+        return work()
+    thread: _ParseThread[_Result] | None = None
+    try:
+        thread = _ParseThread(work, stack, daemon=True)
+        return thread.run()
+    except ParseStackUnavailableError:
+        if thread is not None and not thread.refused:
+            raise  # 스레드에서 돈 작업이 낸 예외다.
+    # `except` 블록 밖에서 돌린다. 안에서 돌리면 명령 전체가 그 예외를 처리하는 중이 되어, 뒤에 실패한 스레드 시작마다
+    # 그 예외가 앞 예외(`__context__`)로 붙는다(4차 리뷰 B1).
+    return work()
+
+
+def _run_on_large_stack(work: Callable[[], _Result], stack: int) -> _Result:
+    """주어진 크기의 스택을 가진 스레드를 만들어 `work`를 돌리고, 바로 합류해 결과나 예외를 부른 스레드로 넘긴다.
+
+    바로 합류하므로 남아 있는 스레드가 없어 하위 인터프리터를 끝낼 수 있고 fork 경고도 없다. 스레드는 인터프리터가
+    허락하면 데몬이고, 데몬 스레드를 막은 3.12 이상 격리 하위 인터프리터에서만 데몬이 아니다
+    (`_thread.daemon_threads_allowed`). 데몬이어야 하는 이유: 부른 스레드가 `Thread.start` 안(표준 라이브러리가 새
+    스레드의 시작을 기다리는 `Event`)에서 신호 처리기의 예외를 받으면 그 `Event`의 잠금이 부른 스레드에 남아, 새
+    스레드가 시작을 알리다 영원히 멈춘다. 그 스레드는 작업을 차지하지 못해 작업은 돌지 않지만, 데몬이 아니면 인터프리터
+    종료가 그 스레드를 끝없이 기다렸다(4차 리뷰 반영 중 스트레스 실험에서 찾음). 작업 스레드에서 난 예외는
+    `BaseException`까지 담아 부른 스레드에서 그대로 다시 낸다. 기다리는 중 부른 스레드가 예외를 받으면 그 스레드를
+    멈추게 하고 다시 낸다(`_ParseThread.run`).
+
+    Args:
+        work: 돌릴 작업.
+        stack: 스레드 스택 크기(바이트, `PARSE_STACK_ALIGNMENT_BYTES`의 배수).
+
+    Returns:
+        작업의 결과.
+
+    Raises:
+        ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때(스레드가 작업을 맡지 않은 것이 확실할 때만).
+    """
+    return _ParseThread(work, stack, daemon=daemon_threads_allowed()).run()
+
+
+class _ParseThread(Generic[_Result]):
+    """전용 스택 스레드 하나와 그 결과·취소 상태다.
+
+    부른 스레드는 신호를 받을 수 있으므로 `threading.Event`·`Condition`으로 기다리지 않는다(`source.cancel.Completion`).
+    작업 스레드에는 비동기 예외를 넣지 않고 취소 표시(`CancelToken`)만 세운다. 작업을 누가 맡는지는 `_claims`의 첫
+    항목이 정한다: 작업 스레드는 시작하자마자 `"worker"`를, 부른 쪽은 시작을 포기하거나 멈출 때 `"caller"`를 덧붙인다.
+    `list.append`는 한 번의 C 호출이라 신호 처리기의 예외가 그 사이에 끼지 못하고, 늦게 시작한 스레드는 첫 항목을 보고
+    작업하지 않는다.
+    """
+
+    def __init__(self, work: Callable[[], _Result], stack: int, *, daemon: bool) -> None:
+        """스레드를 만든다(아직 시작하지 않는다).
+
+        Args:
+            work: 스레드에서 돌릴 작업.
+            stack: 스레드 스택 크기(바이트).
+            daemon: 데몬 스레드인지.
+
+        Raises:
+            ParseStackUnavailableError: 스레드를 만들 수 없을 때(데몬 스레드를 막은 하위 인터프리터 등).
+        """
+        #: 작업 스레드에서 돌릴 작업이다.
+        self._work = work
+        #: 스레드 스택 크기(바이트)다.
+        self._stack = stack
+        #: 작업의 결과나 예외를 담는 자리 하나다(미리 만들어 두어 담을 때 메모리를 잡지 않는다). 부른 쪽은 꺼내며
+        #: 비운다: 담긴 예외의 traceback이 `f_back`으로 `_run` 프레임을 거쳐 이 객체를 다시 가리켜, 남겨 두면 순환
+        #: 참조가 되어 분석 힙 전체가 순환 GC 전까지 남았다(4차 리뷰 CLI-1).
+        self._outcome: list[object] = [NO_OUTCOME]
+        #: 작업 스레드의 취소 표시다.
+        self._token = CancelToken()
+        #: 작업을 맡은 쪽이 첫 항목이다(`"worker"`나 `"caller"`).
+        self._claims: list[str] = []
+        #: 작업 스레드가 결과나 예외를 담고 알린다.
+        self._finished = Completion()
+        #: 부른 쪽이 유예가 지나 기다리기를 그만뒀는지다. 그 뒤에 담긴 결과는 아무도 꺼내지 않으므로 작업 스레드가
+        #: 비운다.
+        self._abandoned = False
+        #: `_wait`가 끊기지 않고 작업 스레드와 합류를 마쳤는지다. 그러면 스레드는 이미 끝났으므로 `stop`이 기다리지
+        #: 않는다(끝을 알리지 못하고 죽은 스레드의 예외를 20초 늦게 전하지 않는다, 6차 리뷰 F1).
+        self._joined = False
+        #: 끝을 알리는 메서드를 미리 묶어 둔다(메모리가 모자라도 `_run`의 `finally`가 새 객체를 만들지 않게 한다).
+        self._signal_finished = self._finished.set
+        try:
+            self._thread = threading.Thread(target=self._run, name="pythograph-parse", daemon=daemon)
+        except (RuntimeError, ValueError) as error:
+            raise ParseStackUnavailableError(f"could not create a {stack}-byte parser thread") from error
+
+    @property
+    def refused(self) -> bool:
+        """부른 쪽이 작업을 맡았는지(작업 스레드가 작업하지 않는지)다."""
+        return bool(self._claims) and self._claims[0] == "caller"
+
+    def run(self) -> _Result:
+        """스레드를 시작하고 결과를 기다려 돌려주거나 예외를 다시 낸다.
+
+        시작 직전부터 기다림이 끝날 때까지 한 `try`가 감싼다. 어디서 예외가 나든(시작 중의 Ctrl+C, 스택 크기를 되돌리는
+        `finally`, 기다림) 스레드를 멈추게 하고(`stop`) 다시 낸다(4차 리뷰 I-N2: 시작과 기다림 사이에 난 예외는 시작한
+        스레드를 감독 없이 남겼다).
+
+        Returns:
+            작업의 결과.
+
+        Raises:
+            ParseStackUnavailableError: 스레드가 작업을 맡지 않은 것이 확실할 때(`refused`).
+        """
+        handled = sys.exc_info()[1]
+        failure: BaseException | None = None
+        try:
+            failure = self._start()
+            if failure is not None:
+                self._settle_failed_start(failure, handled)
+            return self._wait()
+        except BaseException:
+            self.stop()
+            raise
+        finally:
+            # 나가는 예외의 traceback이 이 프레임을 가리키므로, 예외를 가리키는 지역 변수를 비워 순환을 끊는다.
+            failure = handled = None
+
+    def _start(self) -> BaseException | None:
+        """스레드를 시작한다. 시작이 낸 예외는 돌려준다(잠금을 놓은 뒤 가린다).
+
+        `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 잠금(`_stack_size_guard`) 안에서 바꾸고 시작한 직후
+        되돌린다. 그 순간 호스트 프로그램이 만든 스레드는 이 크기를 받을 수 있다.
+
+        Returns:
+            시작이 낸 예외, 성공하면 None.
+
+        Raises:
+            ParseStackUnavailableError: 스택 크기를 바꿀 수 없을 때.
+        """
+        guard = _stack_size_guard
+        guard.enter()
+        try:
+            try:
+                guard.previous = threading.stack_size()
+            except (RuntimeError, ValueError) as error:
+                raise ParseStackUnavailableError("thread stack sizes cannot be set") from error
+            guard.dirty = True
+            try:
+                threading.stack_size(self._stack)
+                self._thread.start()
+            except BaseException as error:  # 잠금을 놓은 뒤 가린다(멈추기를 기다리는 동안 잠금을 쥐지 않는다).
+                return error
+            finally:
+                threading.stack_size(guard.previous)
+                guard.dirty = False
+        finally:
+            guard.lock.release()
+        return None
+
+    def _settle_failed_start(self, failure: BaseException, handled: BaseException | None) -> None:
+        """시작이 예외로 끝났을 때 누가 작업을 맡는지 정한다. 작업 스레드가 작업을 맡았고 끊긴 시작이 아니면 돌아온다.
+
+        먼저 부른 쪽이 작업을 차지해 본다(늦게 시작한 스레드는 작업하지 않는다). 시작이 낸 예외의 앞 예외
+        (`__context__`)가 시작 도중에 난 예외면(`start_interruption`: 시작 전에 처리하던 예외와 다르다, 4차 리뷰 B1)
+        끊긴 시작이라 그 앞 예외(Ctrl+C, 신호 처리기의 예외)를 다시 낸다. 시작을 기다리던 중 끊기면 표준 라이브러리
+        안에서 "release unlocked lock" 같은 RuntimeError가 되고, `Exception`인 신호 예외가 `Thread.start` 자신의 정리
+        (`del _limbo[self]`)와 새 스레드가 겨루면 KeyError가 되기도 한다. 어느 쪽이든 작업은 한 번도 더 돌지 않고
+        Ctrl+C는 사라지지 않는다(작업 스레드가 이미 차지했으면 `run`이 멈추게 한다). 3b7343e까지는 1초 안에 스레드가
+        들어오지 않으면 스레드 이유로 보고 작업을 부른 스레드에서 돌려 Ctrl+C를 잃었다(4차 리뷰 R1). 끊긴 시작이 아닌
+        RuntimeError·ValueError는 부른 쪽이 차지했으면 `ParseStackUnavailableError`, 작업 스레드가 이미 차지했으면 그
+        결과를 기다린다. 다른 예외(시작 중의 KeyboardInterrupt)는 그대로 다시 낸다.
+
+        Args:
+            failure: 시작이 낸 예외.
+            handled: 시작 전에 부른 쪽이 처리하던 예외.
+
+        Raises:
+            ParseStackUnavailableError: 스레드가 작업을 맡지 않은 것이 확실할 때.
+        """
+        interrupted = start_interruption(failure, handled)
+        try:
+            self._claims.append("caller")
+            if interrupted is not None:
+                raise interrupted
+            if not isinstance(failure, (RuntimeError, ValueError)):
+                raise failure
+            if self.refused:
+                raise ParseStackUnavailableError(f"could not start a {self._stack}-byte parser thread") from failure
+        finally:
+            del failure, handled, interrupted  # 나가는 예외의 traceback이 이 프레임을 가리키므로 순환을 끊는다.
+
+    def _wait(self) -> _Result:
+        """작업 스레드가 끝나기를 나눠 기다려 결과를 돌려주거나 예외를 다시 낸다.
+
+        기다리는 스레드가 그 자체로 취소할 수 있는 작업 스레드면(전용 스택 안의 파싱이 더 큰 스택을 부른 경우) 조각마다
+        자기 취소 표시도 본다. 조각마다 스레드가 살아 있는지도 본다: 끝을 알리지 못하고 죽은 스레드(메모리가 모자라
+        `finally`마저 실패한 경우)를 영원히 기다리지 않고 내부 오류로 끝낸다(4차 리뷰 R-B1. 합류가 끊긴 적이 없으므로
+        `is_alive`를 믿을 수 있다). 끝난 뒤에는 스레드가 완전히 나갈 때까지 합류한다(하위 인터프리터 종료·fork는 남은
+        스레드를 싫어한다). 합류 중 예외는 그대로 나가고 다시 기다리지 않는다. 결과는 꺼내며 비우고, 다시 낸 예외를
+        가리키는 지역 변수도 비워 순환 참조를 남기지 않는다.
+
+        Returns:
+            작업의 결과.
+
+        Raises:
+            AssertionError: 작업 스레드가 결과도 예외도 남기지 못하고 끝났을 때(CLI에서는 종료 코드 2).
+        """
+        while not self._finished.wait(_JOIN_POLL_SECONDS):
+            raise_if_cancelled()
+            if not self._thread.is_alive() and not self._finished.done:
+                break
+        while self._thread.is_alive():
+            self._thread.join(_JOIN_POLL_SECONDS)
+        self._joined = True
+        return cast(_Result, take_outcome(self._outcome))
+
+    def stop(self) -> None:
+        """스레드를 멈추게 하고 `COMMAND_STOP_GRACE_SECONDS`까지 끝나기를 기다린다.
+
+        취소 표시를 먼저 세우고 그다음 작업을 차지해 본다(4차 리뷰 R-N1의 순서). 부른 쪽이 차지했으면(시작하지 않았거나
+        아직 작업을 차지하지 않은 스레드) 스레드는 작업하지 않으므로 기다리지 않는다. 끝을 알렸거나, `_wait`가 끊기지
+        않고 합류를 마쳤으면(끝을 알리지 못하고 죽은 스레드의 예외를 전하는 경우) 기다리지 않는다. 작업 중이면 다음 확인
+        자리에서 KeyboardInterrupt로 풀리기를 기다린다. 기다리는 동안 살아 있는지는 끝 알림과 유예로 판단하고,
+        `is_alive`는 그것을 믿을 수 있는 3.13부터만 함께 본다(`_IS_ALIVE_SIGNAL_SAFE`): 3.12까지
+        `is_alive` 안에 신호 예외가 떨어지면 표준 라이브러리의 bpo-45274 처리가 아직 도는 작업 스레드의 잠금을 풀고 끝난
+        것으로 표시해, 이전 판은 첫 Ctrl+C에도 정리를 기다리지 않고 나갈 수 있었다(5차 리뷰 C-F1, 약 5만 번에 한 번).
+        그래서 3.12까지는 기다림이 끊긴 뒤 끝을 알리지 못하고 죽은 스레드를 유예까지 기다린다. 기다리는 중 받은 예외는
+        그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다). 작업 스레드가 남긴 결과·예외는 버린다(그 traceback이 분석 힙을
+        붙잡지 않게 한다).
+
+        기다림은 C 호출 하나를 끊지 못한다: GIL을 쥔 채 도는 C 호출(큰 소스의 `ast.parse`)이 끝날 때까지는 주 스레드도
+        신호 처리기를 돌리지 못해 이 함수에 들어오지도 않는다. 20초 유예는 GIL을 놓고 막힌 호출에만 걸린다.
+        """
+        self._token.cancelled = True
+        self._claims.append("caller")
+        try:
+            if self.refused or self._finished.done or self._joined:
+                return
+            deadline = time.monotonic() + COMMAND_STOP_GRACE_SECONDS
+            while not self._finished.wait(min(_JOIN_POLL_SECONDS, max(0.0, deadline - time.monotonic()))):
+                if time.monotonic() >= deadline or (_IS_ALIVE_SIGNAL_SAFE and not self._thread.is_alive()):
+                    return
+        finally:
+            # 결과를 버린다. 아직 끝나지 않았으면 그만둔다고 먼저 표시하고 끝났는지 본다: 작업 스레드는 끝을 알린 뒤 이
+            # 표시를 보므로 둘 중 늦게 보는 쪽이 비운다.
+            self._abandoned = True
+            if self._finished.done:
+                self._outcome[0] = NO_OUTCOME
+
+    def _run(self) -> None:
+        """작업을 차지했으면 스레드에 스택 크기와 취소 표시를 두고 작업의 결과나 예외를 담는다.
+
+        담긴 예외의 traceback 프레임은 `f_back`으로 이 프레임에 닿고, 이 프레임의 `self`는 결과 자리를 가리킨다. 그래서
+        부른 쪽이 꺼내며 비우고(`take_outcome`), 부른 쪽이 그만둔 뒤 담긴 결과는 여기서 비워 순환 참조를 남기지 않는다.
+        끝을 알리는 일은 미리 묶어 둔 메서드로 하고 새 객체를 만들지 않는다.
+        """
+        self._claims.append("worker")
+        try:
+            if self._claims[0] != "worker":
+                return
+            bind_token(self._token)
+            _parse_stack.bytes = self._stack
+            self._outcome[0] = self._work()
+        except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(`_wait`).
+            self._outcome[0] = error
+        finally:
+            forget_finished_thread()
+            self._signal_finished()
+            if self._abandoned:
+                self._outcome[0] = NO_OUTCOME
+
+
+def _parses_safely_inline(text: str, bound: int) -> bool:
+    """전용 스레드를 만들 수 없을 때 이 소스를 부른 스레드에서 파싱해도 되는지 본다.
+
+    다음 중 하나면 안 된다(0.3.1은 모두 부른 스레드에서 파싱했다): 3.10에서 사슬 토큰이
+    2,000개(`SMALL_STACK_CHAIN_TOKENS`) 넘는 논리 줄이 있다, 3.10·3.11에서 치환 필드의 식 안에 f-string이
+    있다(`_may_nest_fstrings`, 파서가 셋 이상 겹친다), 3.11에서 가장 긴 논리 줄로 어림한 `ast2obj` 몫이
+    `MIN_PARSE_STACK_BYTES`를 넘는다(재귀 한도를 올린 호출자), 128자(`INLINE_PARSE_CHARACTERS`)를 넘는데 부른 스레드가
+    주 스레드가 아니다(라이브러리 스레드의 스택은 알 수 없다). 토큰으로 나눌 수 없는 소스는 판단할 수 없어 안 된다고
+    본다. 주 스레드는 Linux·macOS 기본 8 MiB로 본다: Windows python.exe의 주 스레드(2,000,000 B)나 `ulimit -s`를 줄인
+    프로세스에서는 이 규칙 안의 소스도 0.3.1처럼 넘칠 수 있다(4차 리뷰 N3, 실측 없는 Windows 예산은 두지 않는다).
+
+    Args:
+        text: 소스.
+        bound: 사슬 추정치(`chain_bound`).
+
+    Returns:
+        부른 스레드에서 파싱해도 되면 True.
+    """
+    if len(text) > INLINE_PARSE_CHARACTERS and current_thread() is not main_thread():
+        return False
+    if _ast2obj_stack_bytes(text, MIN_PARSE_STACK_BYTES) > MIN_PARSE_STACK_BYTES:
+        return False
+    if bound > SMALL_STACK_CHAIN_TOKENS:
+        longest = _logical_line_chain(text, SMALL_STACK_CHAIN_TOKENS)
+        if longest is None or longest > SMALL_STACK_CHAIN_TOKENS:
+            return False
+    return not (_FSTRING_PARSERS_STACK and may_contain_fstring(text) and _may_nest_fstrings(text))
+
+
+def _ast2obj_stack_bytes(text: str, budget: int) -> int:
+    """3.11 `ast2obj`가 이 소스에서 쓸 수 있는 스택(바이트, 1 MiB 배수)을 어림한다(다른 버전은 0).
+
+    허용 깊이는 재귀 한도의 3배 단계다. 트리가 그만큼 깊어질 수 있는 것은 왼쪽 결합 사슬뿐이라(다른 중첩은 파서 하나에
+    `_PARSER_DEPTH_LEVELS`, f-string이 있으면 파서 다섯) 깊이를 사슬 문자 수(`_count_marks`)와 그 몫의 합으로 묶는다. 그
+    어림이 `budget`을 넘으면 논리 줄마다 사슬 토큰을 세어(가장 긴 줄) 다시 어림한다. 평평한 큰 모듈은 몇 MiB로 끝난다.
+    `budget`은 부르는 쪽이 이 값을 비교할 한도다(전용 스택은 상한에서 f-string 몫을 뺀 값, 스레드를 만들 수 없을 때는
+    `MIN_PARSE_STACK_BYTES`). 다른 한도와 비교하면 다시 세지 않은 파일 전체 어림이 한도를 넘어 평평한 모듈을
+    거부했다(4차 리뷰 S2·N2).
+
+    Args:
+        text: 소스.
+        budget: 파일 전체 어림이 이보다 크면 논리 줄마다 다시 센다(바이트).
+
+    Returns:
+        스택 크기(바이트).
+    """
+    if not _AST2OBJ_SCALES_WITH_RECURSION_LIMIT:
+        return 0
+    limit = 3 * sys.getrecursionlimit()
+    nesting = _PARSER_DEPTH_LEVELS * (5 if may_contain_fstring(text) else 1)
+    levels = min(limit, _count_marks(text) + nesting)
+    if levels * AST2OBJ_STACK_BYTES_PER_LEVEL > budget:
+        chain = _logical_line_chain(text, limit)
+        if chain is not None:
+            levels = min(limit, chain + nesting)
+    return _aligned_stack_bytes(levels * AST2OBJ_STACK_BYTES_PER_LEVEL)
+
+
+def _aligned_stack_bytes(wanted: int) -> int:
+    """`wanted` 이상인 가장 작은 `PARSE_STACK_ALIGNMENT_BYTES`의 배수를 돌려준다."""
+    return -(-wanted // PARSE_STACK_ALIGNMENT_BYTES) * PARSE_STACK_ALIGNMENT_BYTES
+
+
+class _StackSizeGuard:
+    """`threading.stack_size`를 바꾸고 스레드를 시작하고 되돌리는 동안 잡는 잠금과, 바꾼 채 끊겼는지의 표시다.
+
+    잠금은 주인을 아는 `RLock`이다. 주 스레드가 잠금을 얻는 C 호출이 끝난 직후 신호 처리기의 예외를 받으면(3.14의
+    `with`는 `__enter__`를 보통 호출로 불러 그 끝에서 신호 처리기가 돈다) 잠금을 쥔 채 빠져나간다. 같은 스레드의 다음
+    시작이 그것을 알아보고 풀며(4차 리뷰 반영 중 3.14 스트레스에서 찾음), 바꾼 채 남은 스택 크기 설정도 되돌린다.
+    """
+
+    def __init__(self) -> None:
+        """잠금을 만든다."""
+        self.lock = _new_guard_lock()
+        #: 바꾸기 전의 프로세스 스택 크기 설정이다.
+        self.previous = 0
+        #: 스택 크기를 바꾸고 아직 되돌리지 않았는지다.
+        self.dirty = False
+
+    def reset(self) -> None:
+        """fork한 자식에서 잠금을 새로 만든다(부모의 다른 스레드가 잡은 채 복사됐을 수 있다)."""
+        self.lock = _new_guard_lock()
+
+    def enter(self) -> None:
+        """잠금을 얻는다. 이 스레드가 앞선 시작에서 쥔 채 끊겼으면 먼저 푼다. 바꾼 채 남은 설정은 되돌린다."""
+        while self.lock._is_owned():
+            self.lock.release()
+        self.lock.acquire()
+        if self.dirty:
+            threading.stack_size(self.previous)
+            self.dirty = False
+
+
+def _new_guard_lock() -> _RLock:
+    """스택 크기 잠금으로 쓸 `RLock`을 만든다(주인을 알아야 끊긴 획득을 풀 수 있다)."""
+    return cast(_RLock, _stdlib_threading.RLock())
+
+
+#: 전용 스택 스레드가 자기 스택 크기를 표시하는 스레드별 저장소다(`current_parse_stack_bytes`).
+_parse_stack = threading.local()
+
+#: `threading.stack_size` 설정·스레드 시작·복원을 직렬화하는 잠금이다(fork한 자식은 새로 만든다).
+_stack_size_guard = _StackSizeGuard()
+
+
+def _reset_stack_size_guard_after_fork() -> None:
+    """fork한 자식이 부모에서 잡힌 채 복사된 잠금을 기다리지 않게 한다."""
+    _stack_size_guard.reset()
+
+
+if hasattr(os, "register_at_fork"):  # Windows에는 fork가 없다.
+    os.register_at_fork(after_in_child=_reset_stack_size_guard_after_fork)
 
 
 def _longest_chain(text: str) -> int:
@@ -174,20 +873,300 @@ def _longest_chain(text: str) -> int:
     marks = _count_marks(text)
     if marks <= MAX_CHAIN_TOKENS:
         return marks
+    longest = _logical_line_chain(text, MAX_CHAIN_TOKENS, partial=True)
+    return 0 if longest is None else longest
+
+
+def _logical_line_chain(text: str, limit: int, *, partial: bool = False) -> int | None:
+    """논리 줄 하나에 든 사슬 토큰 수의 최댓값을 토큰으로 나눠 센다. `limit`을 넘는 줄을 만나면 바로 멈춘다.
+
+    Args:
+        text: 소스.
+        limit: 이 수를 넘으면 더 세지 않는다.
+        partial: 토큰으로 나눌 수 없을 때 센 데까지 돌려줄지(아니면 None).
+
+    Returns:
+        가장 긴 논리 줄의 사슬 토큰 수(`limit`을 넘으면 넘은 수), 나눌 수 없으면 `partial`에 따라 센 데까지나 None.
+    """
     longest = count = 0
     try:
-        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        for token in tokenize.generate_tokens(_parser_lines(text)):
             if token.type == tokenize.NEWLINE:
                 count = 0
                 continue
             count += _chain_weight(token)
             longest = max(longest, count)
-            if longest > MAX_CHAIN_TOKENS:
+            if longest > limit:
                 return longest
     except (tokenize.TokenError, SyntaxError):
-        # 토큰으로 나눌 수 없는 소스는 파서도 문법 오류로 거부해 트리를 만들지 않으므로 센 데까지만 본다.
-        return longest
+        # 토큰으로 나눌 수 없는 소스는 파서도 문법 오류로 거부해 트리를 만들지 않으므로 센 데까지만 볼 수 있다.
+        return longest if partial else None
     return longest
+
+
+def _parser_lines(text: str) -> Callable[[], str]:
+    """파서와 같은 줄로 소스를 내는 `readline`을 돌려준다.
+
+    3.10·3.11의 C 토크나이저는 문자열 소스의 `\\r\\n`과 홀로 선 `\\r`를 `\\n`으로 바꾼 뒤 읽는다. 순수 파이썬
+    토크나이저에 `io.StringIO(text).readline`을 그대로 주면 `\\n`에서만 줄이 나뉘어, CR만 쓰는 파일 전체가 한 논리 줄이
+    된다(4차 리뷰 N1). 열 위치는 쓰지 않으므로 바꿔도 된다.
+
+    Args:
+        text: 소스.
+
+    Returns:
+        줄마다 부를 함수.
+    """
+    if "\r" in text:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return io.StringIO(text).readline
+
+
+def _may_nest_fstrings(text: str) -> bool:
+    """3.10·3.11에서 f-string 치환 필드의 식 안에 다른 f-string이 있을 수 있는지 본다(`_fstring_nests`).
+
+    3.12 전 토크나이저는 f-string 전체를 STRING 토큰 하나로 낸다. 접두사에 `f`가 든 토큰마다 치환 필드를 훑는다.
+    토큰으로 나눌 수 없으면 판단할 수 없어 True다(그런 소스는 대개 문법 오류지만, 순수 파이썬 토크나이저가 거부한 지점
+    뒤를 C 토크나이저가 받아들이지 않는다고 확인하지 않았다).
+
+    Args:
+        text: 소스.
+
+    Returns:
+        겹친 f-string이 있을 수 있으면 True.
+    """
+    try:
+        for token in tokenize.generate_tokens(_parser_lines(text)):
+            prefix = _string_prefix(token.string) if token.type == tokenize.STRING else ""
+            if "f" in prefix.lower() and _fstring_nests(token.string):
+                return True
+    except (tokenize.TokenError, SyntaxError):
+        return True
+    return False
+
+
+def _fstring_nests(literal: str) -> bool:
+    """f-string 리터럴 토큰 하나의 치환 필드 식 안에 f-string이 있을 수 있는지 본다(3.10·3.11 파서가 셋 이상 겹친다).
+
+    3.10·3.11 `Parser/string_parser.c`(`fstring_find_literal`·`fstring_find_expr`)가 토큰을 훑는 순서를 그대로 따른다:
+    리터럴 부분(`{{`·`}}`, 원시가 아니면 `\\N{…}`와 백슬래시 짝)은 건너뛰고, 치환 필드의 식에서 따옴표가 여는 문자열
+    리터럴에 f 접두사가 있는지 본다(`_opens_fstring`). 형식 지정 안의 필드(`{x:{y}}`)도 같은 식으로 본다. 형식 지정
+    필드는 파서를 차례로 만들 뿐 겹치지 않으므로 그것만으로는 겹친 것이 아니다. CPython이 문법 오류로 멈추는 필드를
+    만나면 그 필드부터 끝까지 f-string 시작(`_FSTRING_START`)이 있는지로 넉넉히 판단한다.
+
+    Args:
+        literal: STRING 토큰 문자열(접두사에 `f`가 있다).
+
+    Returns:
+        겹친 f-string이 있을 수 있으면 True.
+    """
+    prefix = _string_prefix(literal)
+    quote = literal[len(prefix)]
+    width = 3 if literal.startswith(quote * 3, len(prefix)) and len(literal) >= len(prefix) + 6 else 1
+    body = literal[len(prefix) + width : len(literal) - width]
+    raw = "r" in prefix.lower()
+    index = 0
+    while True:
+        found = _fstring_literal_end(body, index, raw, 0)
+        if found is None:
+            return _FSTRING_START.search(body, index) is not None
+        if found >= len(body):
+            return False
+        nests, after = _fstring_field_nests(body, found, raw, 0)
+        if nests:
+            return True
+        if after is None:
+            return _FSTRING_START.search(body, found) is not None
+        index = after
+
+
+def _fstring_literal_end(body: str, start: int, raw: bool, level: int) -> int | None:
+    """f-string 리터럴 부분을 `start`부터 훑어 치환 필드를 여는 `{`나 형식 지정을 닫는 `}`의 위치를 돌려준다.
+
+    `fstring_find_literal`과 같다: 원시가 아니면 백슬래시는 다음 글자와 짝이고(`\\{`의 `{`는 그대로 괄호다), `\\N{…}`의
+    괄호는 필드가 아니다. 맨 바깥(`level` 0)에서만 `{{`·`}}`가 글자이고 홀로 선 `}`는 문법 오류다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 훑기 시작할 위치.
+        raw: 원시 문자열인지.
+        level: 형식 지정 중첩 수준(맨 바깥 0).
+
+    Returns:
+        `{`나 `}`의 위치, 끝까지 없으면 `len(body)`, 문법 오류면 None.
+    """
+    index = start
+    end = len(body)
+    while index < end:
+        char = body[index]
+        index += 1
+        if not raw and char == "\\" and index < end:
+            char = body[index]
+            index += 1
+            if char == "N":
+                if index < end:
+                    index += 1
+                    if body[index - 1] == "{":
+                        while index < end:
+                            index += 1
+                            if body[index - 1] == "}":
+                                break
+                continue
+        if char in "{}":
+            if level == 0:
+                if index < end and body[index] == char:
+                    index += 1
+                    continue
+                if char == "}":
+                    return None
+            return index - 1
+    return end
+
+
+def _fstring_field_nests(body: str, start: int, raw: bool, level: int) -> tuple[bool, int | None]:
+    """`body[start]`의 `{`로 시작하는 치환 필드를 `fstring_find_expr`처럼 훑는다.
+
+    식(`_fstring_expression_end`)이 끝나면 `=`, 변환(`!r`), 형식 지정(`:` 뒤, `_fstring_format_spec_end`)을 지나 `}`에
+    닿는다. 두 단계 넘는 형식 지정 필드와 잘못된 변환은 CPython이 문법 오류로 멈춘다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: `{`의 위치.
+        raw: 원시 문자열인지.
+        level: 형식 지정 중첩 수준.
+
+    Returns:
+        (식 안에 f-string이 있을 수 있는지, 필드 다음 위치 — 문법 오류면 None).
+    """
+    if level >= 2:
+        return False, None
+    nests, index = _fstring_expression_end(body, start + 1)
+    if nests or index is None:
+        return nests, None
+    end = len(body)
+    if body[index] == "=":
+        index += 1
+        while index < end and body[index] in " \t\n\r\x0b\x0c":
+            index += 1
+        if index >= end:
+            return False, None
+    if body[index] == "!":
+        if index + 1 >= end or body[index + 1] not in "sra":
+            return False, None
+        index += 2
+    if index < end and body[index] == ":":
+        nests, found = _fstring_format_spec_end(body, index + 1, raw, level + 1)
+        if nests or found is None:
+            return nests, None
+        index = found
+    if index >= end or body[index] != "}":
+        return False, None
+    return False, index + 1
+
+
+def _fstring_expression_end(body: str, start: int) -> tuple[bool, int | None]:
+    """치환 필드의 식을 `start`부터 훑어 식을 끝낸 글자의 위치를 찾는다(`fstring_find_expr`의 첫 반복문).
+
+    식은 괄호 밖의 `!`·`:`·`}`·`=`(`!=`·`==`·`<=`·`>=` 제외)에서 끝나고, 그 안의 문자열 리터럴은 같은 따옴표(세 겹이면
+    세 겹)까지 건너뛴다. 백슬래시·`#`·짝이 맞지 않는 괄호·닫지 않은 문자열은 CPython이 식을 파싱하기 전에 문법 오류로
+    멈춘다.
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 식이 시작하는 위치(`{` 다음).
+
+    Returns:
+        (식 안에 f-string이 있을 수 있는지, 식을 끝낸 글자의 위치 — 문법 오류면 None).
+    """
+    end = len(body)
+    index = start
+    quote = ""
+    triple = False
+    depth = 0
+    while index < end:
+        char = body[index]
+        if char == "\\":
+            return False, None
+        if quote:
+            if char == quote:
+                if not triple:
+                    quote = ""
+                elif body.startswith(char * 3, index):
+                    index += 2
+                    quote = ""
+        elif char in "'\"":
+            if _opens_fstring(body, start, index):
+                return True, None
+            triple = body.startswith(char * 3, index)
+            index += 2 if triple else 0
+            quote = char
+        elif char in "[{(":
+            depth += 1
+        elif char == "#":
+            return False, None
+        elif depth == 0 and char in "!:}=<>":
+            following = body[index + 1] if index + 1 < end else ""
+            if following == "=" and char in "!=<>":
+                index += 1
+            elif not (following and char in "<>"):
+                break
+        elif char in "])}":
+            if depth == 0:
+                return False, None
+            depth -= 1
+        index += 1
+    if quote or depth or index >= end:
+        return False, None
+    return False, index
+
+
+def _fstring_format_spec_end(body: str, start: int, raw: bool, level: int) -> tuple[bool, int | None]:
+    """형식 지정을 `start`부터 훑어 그것을 닫는 `}`의 위치를 찾는다(리터럴과 수준 `level`의 필드가 번갈아 온다).
+
+    Args:
+        body: 따옴표 안 글자.
+        start: 형식 지정이 시작하는 위치(`:` 다음).
+        raw: 원시 문자열인지.
+        level: 형식 지정 안 필드의 수준.
+
+    Returns:
+        (필드의 식 안에 f-string이 있을 수 있는지, 닫는 `}`의 위치 — 문법 오류면 None).
+    """
+    index = start
+    while True:
+        found = _fstring_literal_end(body, index, raw, level)
+        if found is None or found >= len(body):
+            return False, None
+        if body[found] == "}":
+            return False, found
+        nests, after = _fstring_field_nests(body, found, raw, level)
+        if nests or after is None:
+            return nests, None
+        index = after
+
+
+def _opens_fstring(text: str, start: int, quote: int) -> bool:
+    """치환 필드의 식(`text[start:]`)에서 `text[quote]`의 따옴표가 여는 문자열 리터럴에 f 접두사가 있을 수 있는지 본다.
+
+    C 토크나이저는 이름 토큰의 첫 글자부터만 접두사(`b`·`r`·`u`·`f` 조합)를 읽는다. 따옴표 앞의 접두사 글자에 `f`가
+    있고 그 앞이 이름 글자(글자·`_`)가 아니면 f-string이 시작한다고 본다. 숫자 뒤(`1f'…'`, 숫자 토큰 뒤에 새 토큰이
+    시작할 수 있다)나 판단하기 어려운 글자 뒤도 f-string으로 본다. `if'a'`·`elif"…"`처럼 이름 안의 `f`는 아니다.
+
+    Args:
+        text: 따옴표 안 글자.
+        start: 식이 시작하는 위치.
+        quote: 따옴표의 위치.
+
+    Returns:
+        f 접두사가 있을 수 있으면 True.
+    """
+    index = quote
+    while index > start and text[index - 1] in "bBrRuUfF":
+        index -= 1
+    if "f" not in text[index:quote].lower():
+        return False
+    before = text[index - 1] if index > start else ""
+    return not (before == "_" or before.isalpha())
 
 
 def _chain_weight(token: tokenize.TokenInfo) -> int:

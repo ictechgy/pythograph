@@ -221,6 +221,22 @@ def declared_minimum(project: Project, package: str) -> tuple[int, int] | None:
     return min(item for item in minimums if item is not None)
 
 
+def _compact(spec: str) -> str:
+    """지정자에서 공백 문자(공백·탭·CR·LF)를 모두 지운다.
+
+    요구 정규식은 지정자 앞뒤와 절 사이의 공백을 줄바꿈까지 함께 잡는다. 공백(` `)만 지우면 CRLF 선언 파일(Windows
+    체크아웃의 Git 기본값)의 줄 끝 `\\r`이나 탭이 버전 조각에 남아 `<6\\r`의 메이저와 `>=3.11\\r`의 마이너를
+    읽지 못했다.
+
+    Args:
+        spec: 지정자 원문.
+
+    Returns:
+        공백 없는 지정자.
+    """
+    return "".join(spec.split())
+
+
 def spec_minimum(spec: str) -> tuple[int, int] | None:
     """버전 지정자의 하한 (메이저, 마이너)를 돌려준다.
 
@@ -230,7 +246,7 @@ def spec_minimum(spec: str) -> tuple[int, int] | None:
     Returns:
         하한, 없으면 None.
     """
-    text = spec.replace(" ", "")
+    text = _compact(spec)
     if text[:1] in "^~" and text[1:2].isdigit():
         return _major_minor(text[1:])
     lowers = []
@@ -283,7 +299,7 @@ def spec_major(spec: str) -> int | None:
     Returns:
         메이저 또는 None.
     """
-    text = spec.replace(" ", "")
+    text = _compact(spec)
     if text[:1] in "^~" and text[1:2].isdigit():
         return _major(text[1:])
     lower: int | None = None

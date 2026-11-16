@@ -44,7 +44,8 @@ def test_graph_and_supplemental_test_omissions_have_disjoint_denominators(
         "tests/test_oversized.py": "DATA = [" + "0," * 100 + "]\n",
     }
     monkeypatch.setattr(project_module, "MAX_TOTAL_SOURCE_BYTES", 96)
-    graph = build_graph(Project.open(make_project(sources)), include_tests)
+    root = make_project(sources)
+    graph = build_graph(Project.open(root), include_tests)
     analysis = graph.statistics["sourceAnalysis"]
     assert isinstance(analysis, dict)
     budget = source_budget_reason()
@@ -59,7 +60,8 @@ def test_graph_and_supplemental_test_omissions_have_disjoint_denominators(
     assert analysis["allParseAttempts"] == counts(6, 3, all_failures)
     assert analysis["sourceBudget"] == {
         "limitBytes": 96,
-        "parsedBytes": len(sources["app.py"]) + len(sources["tests/helpers.py"]),
+        # 예산은 디스크의 바이트를 센다. Windows 텍스트 모드 쓰기는 줄마다 CR을 더하므로 문자열 길이가 아닌 파일 크기다.
+        "parsedBytes": (root / "app.py").stat().st_size + (root / "tests/helpers.py").stat().st_size,
         "skippedFiles": 1,
     }
     assert graph.statistics["unparsedFiles"] == (3 if include_tests else 1)

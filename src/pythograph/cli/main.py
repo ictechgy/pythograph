@@ -8,6 +8,7 @@ isthmus 상한을 넘는 출력, 예기치 못한 내부 오류), 64 사용법 �
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -34,7 +35,7 @@ from pythograph.routes.client.extract import ClientOptions, extract_client_calls
 from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
-from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH
+from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH, run_on_parse_stack
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 성공 종료 코드다.
@@ -161,6 +162,35 @@ def main(
 ) -> int:
     """명령을 실행하고 종료 코드를 돌려준다.
 
+    명령의 계산(`run`)은 3.13까지 어떤 허용 소스라도 그 자리에서 파싱할 만큼 스택이 큰 스레드 하나에서 돌고
+    (`run_on_parse_stack`), 표준 출력·오류 쓰기는 부른 스레드에서 한다. Ctrl+C는 계산 중이면 계산 스레드를 멈추게 한 뒤,
+    쓰는 중이면 쓰기를 끊고 부른 스레드에서 KeyboardInterrupt로 나간다. 어떤 내부 오류도(오류를 알리다 난 MemoryError
+    포함) 예약된 1이 아니라 2다.
+
+    Args:
+        argv: 인자(없으면 `sys.argv[1:]`).
+        stdout: 표준 출력(테스트 주입용).
+        stderr: 표준 오류(테스트 주입용).
+        stdin: 표준 입력(`--roots-from -`, 테스트 주입용).
+
+    Returns:
+        종료 코드.
+    """
+    try:
+        return _main(argv, stdout, stderr, stdin)
+    except Exception:  # 마지막 방어선: 오류를 알리는 중에 난 오류(MemoryError 등)도 예약된 1로 새지 않게 한다.
+        with contextlib.suppress(Exception):
+            (stderr or sys.stderr).write(_LAST_RESORT_MESSAGE)
+        return EXIT_INPUT
+
+
+#: 오류를 알리다 다시 실패했을 때 쓰는 고정 문구다(서식을 만들지 않아 메모리가 모자라도 쓸 수 있게 미리 만든다).
+_LAST_RESORT_MESSAGE = "pythograph: internal error; please report it with the command line\n"
+
+
+def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | None, stdin: TextIO | None) -> int:
+    """`main`의 본문이다. 계산만 전용 스택 스레드에서 돌리고 결과·오류는 이 스레드에서 쓴다.
+
     Args:
         argv: 인자(없으면 `sys.argv[1:]`).
         stdout: 표준 출력(테스트 주입용).
@@ -171,10 +201,11 @@ def main(
         종료 코드.
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
-    out = stdout or sys.stdout
+    out = stdout or _exchange_stdout(sys.stdout)
     err = stderr or sys.stderr
+    source = stdin or sys.stdin
     try:
-        text = run(arguments, stdin)
+        text = run_on_parse_stack(lambda: run(arguments, source))
     except RootNotFoundExit as partial:
         _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
         return _write(out, err, partial.text, EXIT_USAGE)
@@ -190,8 +221,34 @@ def main(
     return _write(out, err, text, EXIT_OK)
 
 
-def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
-    """표준 출력에 결과를 쓴다. 닫힌 파이프·인코딩 실패도 1이 아니라 2다.
+def _exchange_stdout(stream: TextIO) -> TextIO:
+    """프로세스 표준 출력을 교환 형식의 바이트(UTF-8·LF)로 맞춘다.
+
+    문서는 UTF-8 JSON이다(isthmus는 UTF-8로 읽는다). 파이썬은 파이프·파일로 돌린 표준 출력을 로캘 인코딩으로 연다.
+    Windows의 ANSI 코드 페이지(예: cp1252)나 UTF-8이 아닌 로캘에서는 그 코드 페이지에 없는 문자(한글 경로·식별자)를
+    쓰다 실패해 종료 2였고, 있는 문자는 UTF-8이 아닌 바이트가 됐다. Windows 텍스트 모드는 `\\n`을 CRLF로 바꿔 같은
+    입력의 출력 바이트가 플랫폼마다 달랐다.
+
+    오류 처리는 strict로 바꾼다. C·C.UTF-8 로캘과 UTF-8 모드(`PYTHONUTF8`)에서 파이썬이 고른 surrogateescape도 strict가
+    되지만, 모든 문서는 쓰기 전에 짝 없는 서러게이트를 거부하므로(`DocumentEncodingError`) 그런 로캘에서 쓰는 바이트는
+    같다. 표준 입력은 `--roots-from -`이 읽을 때만 다시 연다(`graph.roots`). `reconfigure`가 없는 대역이나 바꿀 수
+    없는 스트림(닫힌 스트림)은 그대로 둔다.
+
+    Args:
+        stream: 프로세스 표준 출력(없을 수 있다: 출력을 닫고 실행한 경우).
+
+    Returns:
+        같은 스트림.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        with contextlib.suppress(OSError, ValueError):
+            reconfigure(encoding="utf-8", errors="strict", newline="\n")
+    return stream
+
+
+def _write(out: TextIO | None, err: TextIO | None, text: str, code: int) -> int:
+    """표준 출력에 결과를 쓴다. 닫힌 파이프·닫힌 표준 출력·인코딩 실패도 1이 아니라 2다.
 
     Args:
         out: 표준 출력.
@@ -202,6 +259,9 @@ def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
     Returns:
         종료 코드.
     """
+    if out is None:  # 표준 출력을 닫고 실행하면 `sys.stdout`이 None이다.
+        _report(err, "could not write the output (standard output is closed); check the output destination")
+        return EXIT_INPUT
     try:
         out.write(text)
         out.flush()
@@ -211,13 +271,15 @@ def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
     return code
 
 
-def _report(err: TextIO, message: str) -> None:
+def _report(err: TextIO | None, message: str) -> None:
     """표준 오류에 한 줄을 쓴다. 표준 오류 자체가 실패해도 종료 코드 계약을 지키도록 오류를 삼키지 않고 무시한다.
 
     Args:
-        err: 표준 오류.
+        err: 표준 오류(닫고 실행하면 None).
         message: 문구.
     """
+    if err is None:  # 표준 오류를 닫고 실행했다. 종료 코드가 원인을 전한다.
+        return
     try:
         err.write(f"pythograph: {message}\n")
     except (OSError, UnicodeError):

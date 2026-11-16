@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import io
 import json
+import os
+import tempfile
 import textwrap
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -36,6 +38,60 @@ DEEP_SOURCES = {
     "elifs.py": "def dispatch(code):\n    if code == 0:\n        return 0\n"
     + "".join(f"    elif code == {index}:\n        return {index}\n" for index in range(1, 500)),
 }
+
+
+def _can_create_symlinks() -> bool:
+    """이 프로세스가 심볼릭 링크를 만들 수 있는지 일회용 디렉터리에서 실제로 만들어 본다.
+
+    Windows는 SeCreateSymbolicLinkPrivilege(관리자)나 개발자 모드가 있어야 링크를 만든다. 권한이 없는 Windows에서는
+    링크 거부 규칙을 검증할 입력 자체를 만들 수 없다.
+
+    Returns:
+        만들 수 있으면 True.
+    """
+    with tempfile.TemporaryDirectory(prefix="pythograph-symlink-probe-") as directory:
+        try:
+            (Path(directory) / "link").symlink_to(directory, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+#: 이 프로세스가 심볼릭 링크를 만들 수 있는지다.
+CAN_CREATE_SYMLINKS = _can_create_symlinks()
+
+#: 링크 입력이 필요한 테스트를 건너뛰는지다. 권한 없는 Windows에서만 건너뛴다. POSIX에서 링크를 못 만들면 건너뛰지 않고
+#: 테스트 실패로 드러낸다(링크 거부는 보안 경계라 조용히 빠지면 안 된다). 권한이 있는 Windows(GitHub 호스트 러너는
+#: 관리자로 돈다)에서는 재분석 지점·링크 거부를 실제로 검증한다.
+SKIP_SYMLINK_TESTS = os.name == "nt" and not CAN_CREATE_SYMLINKS
+
+#: 링크 테스트를 건너뛰는 이유다.
+SYMLINK_SKIP_REASON = (
+    "this Windows process cannot create symbolic links (it needs SeCreateSymbolicLinkPrivilege or Developer Mode)"
+)
+
+#: 권한 없는 Windows에서만 링크 입력이 필요한 pytest 테스트를 건너뛰는 표시다(unittest 쪽은 `SKIP_SYMLINK_TESTS`).
+SYMLINKS = pytest.mark.skipif(SKIP_SYMLINK_TESTS, reason=SYMLINK_SKIP_REASON)
+
+#: 켜면(`1`) 링크를 만들 수 없을 때 테스트를 시작하지 않는 환경 변수다. Windows CI가 켜서 러너 권한이 바뀌어도 링크
+#: 거부 테스트가 건너뛰기로 조용히 빠지지 않게 한다.
+REQUIRE_SYMLINKS_VARIABLE = "PYTHOGRAPH_REQUIRE_SYMLINKS"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """링크가 필요하다고 선언한 환경에서 링크를 만들 수 없으면 테스트를 시작하지 않는다.
+
+    Args:
+        config: pytest 설정.
+
+    Raises:
+        pytest.UsageError: `PYTHOGRAPH_REQUIRE_SYMLINKS=1`인데 링크를 만들 수 없다.
+    """
+    if os.environ.get(REQUIRE_SYMLINKS_VARIABLE) == "1" and not CAN_CREATE_SYMLINKS:
+        raise pytest.UsageError(
+            f"{REQUIRE_SYMLINKS_VARIABLE}=1 but this process cannot create symbolic links, so the link-rejection "
+            "tests would be skipped; run with symlink privileges (Windows: administrator or Developer Mode)"
+        )
 
 
 def class_lattice(depth: int, bottom_bases: str = "", bottom_body: str = "pass", back_edge: bool = False) -> str:
@@ -223,7 +279,11 @@ def make_project(tmp_path: Path) -> Callable[[dict[str, str]], Path]:
     """
 
     def build(files: dict[str, str]) -> Path:
-        """파일을 쓴다(내용은 들여쓰기를 걷어 낸다)."""
+        """파일을 쓴다(내용은 들여쓰기를 걷어 낸다).
+
+        텍스트 모드라 Windows에서는 줄바꿈이 CRLF가 된다. Git 기본 설정(`core.autocrlf=true`)으로 받은 Windows
+        체크아웃과 같은 입력이라 일부러 그대로 둔다. 바이트 수를 기대하는 테스트는 문자열 길이 대신 파일 크기를 쓴다.
+        """
         root = tmp_path / "project"
         for relative, content in files.items():
             path = root / relative

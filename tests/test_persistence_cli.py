@@ -351,7 +351,7 @@ def test_long_parameter_marker_runs_stay_linear(tmp_path: Path) -> None:
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", "schema", "--project", str(root), "--generated-at", GENERATED_AT],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,

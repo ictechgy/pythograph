@@ -16,6 +16,7 @@ from pythograph.graph import change
 from pythograph.graph.build import build_graph
 from pythograph.graph.traversal import TraversalRequest
 from pythograph.source.project import Project, is_test_path
+from tests.conftest import SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON
 
 
 class ChangeCaptureContracts(unittest.TestCase):
@@ -27,6 +28,9 @@ class ChangeCaptureContracts(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
         self.git("init", "-q")
+        # Git for Windows의 시스템 설정은 core.autocrlf=true라 커밋 blob과 작업 트리 바이트가 줄바꿈만 달라진다.
+        # 커밋과 작업 트리를 바이트로 비교하는 시나리오를 플랫폼과 무관하게 같게 두려고 끈다(test_change_impact와 같다).
+        self.git("config", "core.autocrlf", "false")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         self.write("value.py", "def value():\n    return 1\n")
@@ -124,7 +128,7 @@ class ChangeCaptureContracts(unittest.TestCase):
         self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
         self.assertEqual(rows["caller.py#caller"]["evidence"], "direct")
 
-    @unittest.skipUnless(hasattr(os, "symlink"), "symlink unavailable")
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_source_link_omission_preserves_open_program_evidence(self) -> None:
         """원래 스캔이 여는 모듈 함수를 캡처 후 bound로 승격하지 않는다."""
         self.bound_fixture()
@@ -139,7 +143,7 @@ class ChangeCaptureContracts(unittest.TestCase):
         self.assertEqual(rows["app.py#main.inner"]["evidence"], "bound")
         self.assertIn("caller.py#caller", {node.id for node in original.nodes})
 
-    @unittest.skipUnless(hasattr(os, "symlink"), "symlink unavailable")
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_working_capture_rechecks_a_link_swap(self) -> None:
         """사전 검사 뒤 교체된 링크의 별도 소유 sentinel을 읽지 않는다."""
         self.commit()
@@ -160,9 +164,11 @@ class ChangeCaptureContracts(unittest.TestCase):
             self.assertRaises((InputError, OSError)),
         ):
             change.capture(self.root)
+        # 링크를 만들지 못한 OSError도 위 단언을 지나므로 교체가 실제로 일어났는지 따로 본다.
+        self.assertTrue((self.root / "value.py").is_symlink())
         self.assertEqual(sentinel.read_bytes(), b"outside-capture")
 
-    @unittest.skipUnless(hasattr(os, "symlink"), "symlink unavailable")
+    @unittest.skipIf(SKIP_SYMLINK_TESTS, SYMLINK_SKIP_REASON)
     def test_non_source_link_does_not_erase_closed_program_facts(self) -> None:
         """문서 링크만 빠진 경우 정상 모듈 함수의 bound 양성을 보존한다."""
         self.bound_fixture()
@@ -203,7 +209,7 @@ class ChangeCaptureContracts(unittest.TestCase):
             [sys.executable, "-m", "pythograph", "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         document = json.loads(result.stdout)
@@ -233,7 +239,7 @@ raise SystemExit(main())
             [sys.executable, "-c", program, "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             timeout=3,
         )
         self.assertEqual(result.returncode, 2)
@@ -258,7 +264,7 @@ raise SystemExit(main())
             [sys.executable, "-c", program, "change-impact", "--project", str(self.root), "--base", "HEAD"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, "")

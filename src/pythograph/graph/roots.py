@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 from pathlib import Path
 from typing import TextIO
 
+from pythograph.source.cancel import call_interruptibly
 from pythograph.source.inputs import open_input_file
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
@@ -26,13 +28,13 @@ class RootsError(Exception):
     """root 입력 오류(사용법 오류 64). 메시지는 원인과 해결 방향을 담고 입력 원문은 싣지 않는다."""
 
 
-def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO) -> tuple[str, ...]:
+def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO | None) -> tuple[str, ...]:
     """root id를 모아 검증한다.
 
     Args:
         positional: 위치 인자 id.
         roots_from: `--roots-from` 값(없으면 None).
-        stdin: 표준 입력(`-`).
+        stdin: 표준 입력(`-`, 닫고 실행하면 None).
 
     Returns:
         중복 없는 id(처음 나온 순서).
@@ -53,11 +55,13 @@ def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO) 
     return unique
 
 
-def _read(argument: str, stdin: TextIO) -> str:
+def _read(argument: str, stdin: TextIO | None) -> str:
     """`--roots-from` 입력을 읽는다.
 
     파일은 일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 연다(마지막 링크는 따라간다). 장치는 끝이 없고 디렉터리는
-    읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다.
+    읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다. 열기와 읽기는 모두 데몬 스레드에서 하고
+    부른 스레드는 나눠 기다린다(`call_interruptibly`): 쓰는 쪽이 열어 둔 채 쓰지 않는 파이프·FIFO·`/dev/stdin`의 C
+    읽기는 취소 표시를 볼 수 없어, 명령 스레드에서 읽으면 Ctrl+C 뒤 20초를 기다렸다(4차 리뷰 I-S2).
 
     Args:
         argument: 파일 경로 또는 `-`.
@@ -70,11 +74,7 @@ def _read(argument: str, stdin: TextIO) -> str:
         RootsError: 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
     """
     try:
-        if argument == "-":
-            text = stdin.read(MAX_ROOTS_INPUT + 1)
-        else:
-            with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
-                text = handle.read(MAX_ROOTS_INPUT + 1)
+        text = call_interruptibly(lambda: _read_source(argument, stdin), "pythograph-roots")
     except (OSError, UnicodeError, ValueError) as error:
         raise RootsError(
             "--roots-from could not be read as UTF-8 text; pass a readable regular file or pipe, or - for stdin."
@@ -82,6 +82,49 @@ def _read(argument: str, stdin: TextIO) -> str:
     if len(text) > MAX_ROOTS_INPUT:
         raise RootsError("--roots-from is larger than 16 MiB; split the roots into several runs.")
     return text
+
+
+def _read_source(argument: str, stdin: TextIO | None) -> str:
+    """`--roots-from` 입력을 열고 상한 + 1까지 읽는다(`_read`가 데몬 스레드에서 부른다).
+
+    Args:
+        argument: 파일 경로 또는 `-`.
+        stdin: 표준 입력.
+
+    Returns:
+        텍스트.
+
+    Raises:
+        OSError: 열지 못하거나 일반 파일·파이프가 아니거나 표준 입력이 닫혔을 때.
+        UnicodeError: UTF-8이 아닐 때.
+    """
+    if argument == "-":
+        if stdin is None:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
+            raise OSError("standard input is closed")
+        return _read_stdin(stdin)
+    with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
+        return handle.read(MAX_ROOTS_INPUT + 1)
+
+
+def _read_stdin(stdin: TextIO) -> str:
+    """표준 입력을 파일 입력과 같은 엄격한 UTF-8로 읽는다(상한 + 1까지).
+
+    파이썬은 파이프로 받은 표준 입력을 로캘 인코딩(Windows의 ANSI 코드 페이지 등)으로, C·C.UTF-8 로캘과 UTF-8
+    모드에서는 surrogateescape로 연다. 그대로 읽으면 한글 id가 깨지거나 UTF-8이 아닌 바이트가 서러게이트로 지나간다.
+    프로세스 표준 입력은 이 명령이 실제로 읽을 때만 다시 설정한다(다른 명령은 건드리지 않는다). `reconfigure`가 없는
+    대역(`StringIO`)이나 바꿀 수 없는 스트림은 그대로 읽는다(닫힌 스트림은 읽기에서 실패한다).
+
+    Args:
+        stdin: 표준 입력.
+
+    Returns:
+        텍스트.
+    """
+    reconfigure = getattr(stdin, "reconfigure", None)
+    if reconfigure is not None:
+        with contextlib.suppress(OSError, ValueError):
+            reconfigure(encoding="utf-8", errors="strict")
+    return stdin.read(MAX_ROOTS_INPUT + 1)
 
 
 def parse_roots_text(text: str) -> list[str]:

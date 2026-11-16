@@ -11,13 +11,15 @@ import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 import pytest
 
 from pythograph.graph.build import build_graph
 from pythograph.source import project as project_module
+from pythograph.source import syntax
 from pythograph.source.project import Project, ReadFailure, SourceModule, source_budget_reason, syntax_nodes_reason
+from pythograph.source.syntax import MAX_CHAIN_TOKENS
 from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
 
 MakeProject = Callable[[dict[str, str]], Path]
@@ -39,39 +41,34 @@ for command in (["graph"], ["schema"], ["routes", "--role", "server"], ["routes"
 """
 
 
-class _CountingAst:
-    """`source.project`가 보는 `ast` 대역: 파서에 들어간 파일 이름만 기록하고 나머지는 표준 `ast`로 넘긴다.
+class _CountingParser:
+    """`source.project`가 부르는 파서(`parse_guarded`) 대역: 파서에 들어간 파일 이름만 기록하고 실제 파서로 넘긴다.
 
-    전역 `ast.parse`를 바꾸면 pytest가 실패를 보고하며 부르는 파서까지 바뀌므로 그 모듈의 이름 하나만 바꾼다.
+    전역 `ast.parse`를 바꾸면 pytest가 실패를 보고하며 부르는 파서까지 바뀌므로 그 모듈이 쓰는 이름 하나만 바꾼다.
     """
 
     def __init__(self) -> None:
         """기록을 비운다."""
         self.parsed: list[str] = []
 
-    def parse(self, source: str, filename: str) -> ast.Module:
-        """파일 이름을 기록하고 표준 파서로 파싱한다.
+    def __call__(
+        self, text: str, filename: str, mode: Literal["exec", "eval"], bound: int, depth_limit: int, node_limit: int
+    ) -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
+        """파일 이름을 기록하고 실제 파서로 파싱한다.
 
         Args:
-            source: 소스.
+            text: 소스.
             filename: 파일 이름.
+            mode: 파싱 방식.
+            bound: 사슬 토큰 수의 상한.
+            depth_limit: 트리 깊이 상한.
+            node_limit: 트리 노드 수 상한.
 
         Returns:
-            모듈 트리.
+            (트리, 상한 초과 이유).
         """
         self.parsed.append(filename)
-        return ast.parse(source, filename=filename)
-
-    def __getattr__(self, name: str) -> object:
-        """그 밖의 이름은 표준 `ast`에서 찾는다.
-
-        Args:
-            name: 이름.
-
-        Returns:
-            표준 `ast`의 값.
-        """
-        return getattr(ast, name)
+        return syntax.parse_guarded(text, filename, mode, bound, depth_limit, node_limit)
 
 
 def _write_sources(root: Path, sources: dict[str, bytes]) -> None:
@@ -272,8 +269,8 @@ def test_source_budget_skips_modules_that_would_exceed_it_before_parsing(
     root = make_project({})
     _write_sources(root, sources)
     monkeypatch.setattr(project_module, "MAX_TOTAL_SOURCE_BYTES", 20)
-    counting = _CountingAst()
-    monkeypatch.setattr(project_module, "ast", counting)
+    counting = _CountingParser()
+    monkeypatch.setattr(project_module, "parse_guarded", counting)
     project = Project.open(root)
     outcomes = {path: project.module(path) for path in project.python_files()}
     budget = source_budget_reason()
@@ -324,7 +321,7 @@ def test_source_budget_is_checked_before_the_chain_guard(
     # 6바이트(합 6), 7바이트(합 13 이하라 사슬 판정, 트리가 없어 합은 그대로), 11바이트(합 17이라 예산 초과)
     _write_sources(root, {"a.py": b"A = 1\n", "b.py": b"B = 22\n", "c.py": b"C = 333333\n"})
     monkeypatch.setattr(project_module, "MAX_TOTAL_SOURCE_BYTES", 13)
-    monkeypatch.setattr(project_module, "chain_too_long", lambda text: not text.startswith("A"))
+    monkeypatch.setattr(project_module, "chain_bound", lambda text: 0 if text.startswith("A") else MAX_CHAIN_TOKENS + 1)
     project = Project.open(root)
     outcomes = [project.module(path) for path in ("a.py", "b.py", "c.py")]
     assert [getattr(outcome, "reason", "parsed") for outcome in outcomes] == [

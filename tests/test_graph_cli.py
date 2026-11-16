@@ -337,7 +337,7 @@ def test_roots_from_fifo_exits_64_without_waiting_for_a_writer(tmp_path: Path) -
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", *command],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,
@@ -482,7 +482,7 @@ def test_revision_without_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     """저장소가 아니거나 git을 실행하지 못하면 revision이 없다."""
     assert revision_module.git_revision(tmp_path) is None
     (tmp_path / ".git").mkdir()
-    monkeypatch.setattr(revision_module.subprocess, "run", _raise_os_error)
+    monkeypatch.setattr(revision_module.subprocess, "Popen", _raise_os_error)
     assert revision_module.git_revision(tmp_path) is None
 
 

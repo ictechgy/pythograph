@@ -6,7 +6,7 @@
 불러 표식이 없는지와 revision 정책(덮으면 원문 그대로라 깨끗하면 HEAD, 정규화가 풀려 바뀐 것으로 보이면 생략, 덮을 수
 없는 이름·서브모듈이면 생략과 `revision-unverified:` 한계)을 확인한다. 부분 clone(promisor 원격) 테스트는 원격의
 `uploadpack`을 표식 스크립트로 두고 객체를 지워, git이 지연 fetch를 띄우면 표식이 생기게 한다. 뒤쪽 테스트는
-`subprocess.run` 대역으로 인자 계약과 fail-closed 경로를 고정한다.
+git 실행 대역(`_run_git_process`)으로 인자 계약과 fail-closed 경로를 고정한다.
 """
 
 from __future__ import annotations
@@ -514,7 +514,7 @@ def test_git_without_lazy_fetch_control_reads_no_partial_clone(
 
 @dataclass
 class FakeGit:
-    """`subprocess.run` 대역: git 하위 명령마다 정한 (종료 코드, 표준 출력)으로 답하고 받은 인자와 환경을 모은다.
+    """git 실행 대역: git 하위 명령마다 정한 (종료 코드, 표준 출력)으로 답하고 받은 인자와 환경을 모은다.
 
     Attributes:
         answers: 하위 명령 → (종료 코드, 표준 출력 바이트).
@@ -531,7 +531,7 @@ class FakeGit:
 
         Args:
             command: 실행할 인자.
-            keywords: subprocess.run 키워드(환경만 기록한다).
+            keywords: 실행 키워드(환경만 기록한다).
 
         Returns:
             정한 결과.
@@ -611,7 +611,12 @@ def install_fake_git(
     (project / ".git").mkdir(parents=True)
     (project / "app.py").write_text(APP, encoding="utf-8")
     fake = FakeGit(answers)
-    monkeypatch.setattr(revision_module.subprocess, "run", fake)
+
+    def run_process(command: list[str], cwd: Path, environment: dict[str, str]) -> object:
+        """revision 조회의 git 실행(`_run_git_process`)을 대역에 넘긴다."""
+        return fake(command, cwd=cwd, env=environment)
+
+    monkeypatch.setattr(revision_module, "_run_git_process", run_process)
     return project, fake
 
 

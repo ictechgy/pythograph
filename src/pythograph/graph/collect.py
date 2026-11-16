@@ -26,6 +26,7 @@ from pythograph.graph.values import (
     MethodValue,
     Value,
 )
+from pythograph.source.cancel import raise_if_cancelled
 
 
 @dataclass
@@ -66,6 +67,7 @@ def collect_scope(calls: CallResolver, definition: Definition) -> ScopeFacts:
     """
     visitor = _ScopeVisitor(calls, definition)
     for statement in own_statements(definition):
+        raise_if_cancelled()  # 큰 모듈 본문도 문장마다 Ctrl+C로 멈출 수 있다(`source.cancel`).
         visitor.visit(statement)
     return visitor.facts
 

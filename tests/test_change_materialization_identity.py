@@ -77,16 +77,26 @@ def alias_on_filesystem(root: Path, first: str, second: str) -> bool:
 def test_actual_git_capture_refuses_only_physical_path_aliases(
     tmp_path: Path, first: str, second: str, directory: bool
 ) -> None:
-    """Mac 별칭은 코드2·빈 stdout, case-sensitive 파일 시스템의 별개 경로는 그대로 분석한다."""
+    """Mac·Windows 별칭은 코드2·빈 stdout, case-sensitive 파일 시스템의 별개 경로는 그대로 분석한다.
+
+    Windows 캡처는 대소문자만 다른 두 파일 경로를 소문자 철자로 대조해 materialize 전에 거부한다(`_capture_row`).
+    같은 입력이 macOS에서는 캡처를 지나 materialize의 exclusive create에서 거부되므로, 캡처 직접 호출의 기대만
+    플랫폼마다 다르고 CLI 결과(코드 2·빈 stdout)는 같다.
+    """
     aliases = alias_on_filesystem(tmp_path / "probe", first, second)
     names = (f"{first}/a.py", f"{second}/b.py") if directory else (first, second)
     files = {names[0]: b"def one(): return 1\n", names[1]: b"def two(): return 2\n"}
     root = tmp_path / "repository"
     commit = committed_paths(root, files)
-    captured = change.capture(root, commit)
-    assert captured.files == files
-    assert captured.digest == change.content_digest(files)
-    assert captured.omitted == 0
+    collides = os.name == "nt" and names[0].lower() == names[1].lower()
+    if collides:
+        with pytest.raises(InputError, match="colliding file paths"):
+            change.capture(root, commit)
+    else:
+        captured = change.capture(root, commit)
+        assert captured.files == files
+        assert captured.digest == change.content_digest(files)
+        assert captured.omitted == 0
     result = subprocess.run(
         [
             sys.executable,
@@ -102,9 +112,9 @@ def test_actual_git_capture_refuses_only_physical_path_aliases(
         ],
         check=False,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
     )
-    if aliases:
+    if aliases or collides:
         assert result.returncode == 2
         assert result.stdout == ""
         assert "capture" in result.stderr and "Traceback" not in result.stderr

@@ -28,6 +28,7 @@ from pythograph.graph.values import ClassValue, InstanceValue, ModuleValue
 from pythograph.routes.client.compose import Literal, Part, QueryTail, Value
 from pythograph.routes.client.constants import ModuleConstants
 from pythograph.routes.client.formats import Field, Piece, format_pieces, percent_pieces
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.evaluate import MAX_EVALUATED_LENGTH, MAX_MEMO_LENGTH
 from pythograph.source.symbols import ValueSymbol
 
@@ -101,9 +102,11 @@ def collect_attribute_writes(resolver: Resolver) -> AttributeWrites:
     """
     writes = AttributeWrites()
     for definition in sorted(resolver.index.definitions.values(), key=lambda item: item.id):
+        raise_if_cancelled()  # 정의마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
         for node in own_nodes(definition):
             target = _written_attribute(node)
             if target is not None:
+                raise_if_cancelled()  # 큰 모듈 본문도 속성 쓰기마다 멈출 수 있다(해석이 비싸다).
                 _record_write(resolver, definition, target[0], target[1], writes)
     return writes
 

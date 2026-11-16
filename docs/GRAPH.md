@@ -322,7 +322,9 @@ tsograph는 기본이 `bound`지만 pythograph는 `direct`를 유지한다. [DOG
   문서 한계(`root-not-found:`, `evidence-approximated:`, `unresolved-calls-capped:`, 끝에 `revision-unverified:`).
 - `unparsed-files:`는 그래프 정점 대상 파일을 분모로 읽거나 파싱하지 못한 수와 원인을 싣는다(실행 파서의 문법 거부,
   UTF-8 아님, 4 MiB 초과, 구문 트리 중첩 128단 초과, 구문
-  트리 노드 1,000,000개 초과, 실행당 파싱 총량 64 MiB 초과). 깊은 모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령
+  트리 노드 1,000,000개 초과, 실행당 파싱 총량 64 MiB 초과, 필요한 큰 스택 스레드를 만들지 못했고 부른 스레드에서 파싱하면
+  안전하지 않음(긴 사슬 줄, 치환 필드 안의 f-string 등. 규칙은 README의 스택 단락) — "could not start a parser thread with
+  a large enough stack"). 깊은 모듈 하나가 재귀 분석의 파이썬 재귀 한도를 넘겨 명령
   전체를 끝내지 않도록, 노드가 많은 모듈 하나가 구문 트리를 명령 끝까지 메모리에 남기지 않도록 그 모듈만 뺀다.
   파싱 총량 때문에 빠진 파일은 `source-budget:`에 실행 전체 수와 이유("could not be analyzed: the run's total parsed
   source would exceed its 64 MiB budget; pass a narrower --project")를 싣는다. 이 전체 수는 범위별 누락 수와 겹치므로 더하지

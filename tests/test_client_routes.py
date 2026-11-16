@@ -1026,7 +1026,7 @@ def test_wrapper_fifo_without_a_writer_ends_without_waiting(make_project: MakePr
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", *command],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,
@@ -1135,6 +1135,7 @@ def test_format_parsers() -> None:
         (">=3", (3, 0)),
         (">=3.*", (3, 0)),
         (">=x", None),
+        (">=3.11\r\n", (3, 11)),
     ],
 )
 def test_spec_minimum(spec: str, minimum: tuple[int, int] | None) -> None:

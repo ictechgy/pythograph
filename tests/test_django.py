@@ -1371,7 +1371,7 @@ def test_view_class_lattice_routes_finish(make_project: Callable[[dict[str, str]
     result = subprocess.run(
         [sys.executable, "-m", "pythograph", *command],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
         cwd=REPOSITORY,
         timeout=60,
