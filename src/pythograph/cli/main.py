@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 from pythograph import __version__
 from pythograph.cli.change_command import CHANGE_USAGE, run_change
@@ -162,8 +163,10 @@ def main(
 ) -> int:
     """명령을 실행하고 종료 코드를 돌려준다.
 
-    명령은 3.13까지 어떤 허용 소스라도 그 자리에서 파싱할 만큼 스택이 큰 스레드 하나에서 돈다(`run_on_parse_stack`).
-    파일마다 파싱 스레드를 오가지 않으며, 종료 코드·`SystemExit`·Ctrl+C(KeyboardInterrupt)는 부른 스레드에서 같다.
+    명령의 계산(`run`)은 3.13까지 어떤 허용 소스라도 그 자리에서 파싱할 만큼 스택이 큰 스레드 하나에서 돌고
+    (`run_on_parse_stack`), 표준 출력·오류 쓰기는 부른 스레드에서 한다. Ctrl+C는 계산 중이면 계산 스레드를 멈추게 한 뒤,
+    쓰는 중이면 쓰기를 끊고 부른 스레드에서 KeyboardInterrupt로 나간다. 어떤 내부 오류도(오류를 알리다 난 MemoryError
+    포함) 예약된 1이 아니라 2다.
 
     Args:
         argv: 인자(없으면 `sys.argv[1:]`).
@@ -174,11 +177,20 @@ def main(
     Returns:
         종료 코드.
     """
-    return run_on_parse_stack(lambda: _main(argv, stdout, stderr, stdin))
+    try:
+        return _main(argv, stdout, stderr, stdin)
+    except Exception:  # 마지막 방어선: 오류를 알리는 중에 난 오류(MemoryError 등)도 예약된 1로 새지 않게 한다.
+        with contextlib.suppress(Exception):
+            (stderr or sys.stderr).write(_LAST_RESORT_MESSAGE)
+        return EXIT_INPUT
+
+
+#: 오류를 알리다 다시 실패했을 때 쓰는 고정 문구다(서식을 만들지 않아 메모리가 모자라도 쓸 수 있게 미리 만든다).
+_LAST_RESORT_MESSAGE = "pythograph: internal error; please report it with the command line\n"
 
 
 def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | None, stdin: TextIO | None) -> int:
-    """`main`의 본문이다(전용 스택 스레드에서 돈다).
+    """`main`의 본문이다. 계산만 전용 스택 스레드에서 돌리고 결과·오류는 이 스레드에서 쓴다.
 
     Args:
         argv: 인자(없으면 `sys.argv[1:]`).
@@ -192,8 +204,11 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
     arguments = list(sys.argv[1:] if argv is None else argv)
     out = stdout or _exchange_stdout(sys.stdout)
     err = stderr or sys.stderr
+    source = stdin or sys.stdin
+    # 명령은 표준 입력에서 `read`와 `reconfigure`만 쓴다(`graph.roots`).
+    reader = None if source is None else cast(TextIO, _InterruptibleInput(source))
     try:
-        text = run(arguments, stdin)
+        text = run_on_parse_stack(lambda: run(arguments, reader))
     except RootNotFoundExit as partial:
         _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
         return _write(out, err, partial.text, EXIT_USAGE)
@@ -207,6 +222,63 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
         _report(err, f"internal error ({type(error).__name__}); please report it with the command line")
         return EXIT_INPUT
     return _write(out, err, text, EXIT_OK)
+
+
+class _InterruptibleInput:
+    """명령 스레드가 표준 입력(`--roots-from -`)을 읽는 동안에도 Ctrl+C로 멈출 수 있게 하는 표준 입력 대역이다.
+
+    읽기는 따로 된 데몬 스레드에서 하고 명령 스레드는 짧게 나눠 기다린다. 멈추라고 넣은 KeyboardInterrupt
+    (`run_on_parse_stack`)는 C 읽기 중에는 닿지 않기 때문이다. 멈추면 읽던 데몬 스레드는 버려진다(표준 입력만 쥐고
+    있어 종료 처리가 기다리지 않는다). 스레드를 만들 수 없으면 그 자리에서 읽는다. `reconfigure`는 원래 스트림에
+    넘긴다.
+    """
+
+    def __init__(self, stream: TextIO) -> None:
+        """감쌀 스트림을 받는다.
+
+        Args:
+            stream: 원래 표준 입력.
+        """
+        self._stream = stream
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            self.reconfigure = reconfigure
+
+    def read(self, size: int = -1) -> str:
+        """원래 스트림에서 읽는다.
+
+        Args:
+            size: 읽을 최대 문자 수(음수면 끝까지).
+
+        Returns:
+            읽은 텍스트.
+        """
+        outcome: list[str | BaseException] = []
+        done = threading.Event()
+
+        def target() -> None:
+            """읽고 결과나 예외를 담는다."""
+            try:
+                outcome.append(self._stream.read(size))
+            except BaseException as error:  # 읽는 쪽에서 같은 예외로 다시 낸다.
+                outcome.append(error)
+            finally:
+                done.set()
+
+        try:
+            threading.Thread(target=target, name="pythograph-stdin", daemon=True).start()
+        except RuntimeError:
+            return self._stream.read(size)
+        while not done.wait(_INPUT_WAIT_SECONDS):
+            pass
+        result = outcome[0]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+#: `_InterruptibleInput`이 읽기를 기다리는 간격(초)이다.
+_INPUT_WAIT_SECONDS = 0.05
 
 
 def _exchange_stdout(stream: TextIO) -> TextIO:
@@ -235,8 +307,8 @@ def _exchange_stdout(stream: TextIO) -> TextIO:
     return stream
 
 
-def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
-    """표준 출력에 결과를 쓴다. 닫힌 파이프·인코딩 실패도 1이 아니라 2다.
+def _write(out: TextIO | None, err: TextIO | None, text: str, code: int) -> int:
+    """표준 출력에 결과를 쓴다. 닫힌 파이프·닫힌 표준 출력·인코딩 실패도 1이 아니라 2다.
 
     Args:
         out: 표준 출력.
@@ -247,6 +319,9 @@ def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
     Returns:
         종료 코드.
     """
+    if out is None:  # 표준 출력을 닫고 실행하면 `sys.stdout`이 None이다.
+        _report(err, "could not write the output (standard output is closed); check the output destination")
+        return EXIT_INPUT
     try:
         out.write(text)
         out.flush()
@@ -256,13 +331,15 @@ def _write(out: TextIO, err: TextIO, text: str, code: int) -> int:
     return code
 
 
-def _report(err: TextIO, message: str) -> None:
+def _report(err: TextIO | None, message: str) -> None:
     """표준 오류에 한 줄을 쓴다. 표준 오류 자체가 실패해도 종료 코드 계약을 지키도록 오류를 삼키지 않고 무시한다.
 
     Args:
-        err: 표준 오류.
+        err: 표준 오류(닫고 실행하면 None).
         message: 문구.
     """
+    if err is None:  # 표준 오류를 닫고 실행했다. 종료 코드가 원인을 전한다.
+        return
     try:
         err.write(f"pythograph: {message}\n")
     except (OSError, UnicodeError):

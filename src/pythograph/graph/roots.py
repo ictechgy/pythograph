@@ -27,13 +27,13 @@ class RootsError(Exception):
     """root 입력 오류(사용법 오류 64). 메시지는 원인과 해결 방향을 담고 입력 원문은 싣지 않는다."""
 
 
-def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO) -> tuple[str, ...]:
+def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO | None) -> tuple[str, ...]:
     """root id를 모아 검증한다.
 
     Args:
         positional: 위치 인자 id.
         roots_from: `--roots-from` 값(없으면 None).
-        stdin: 표준 입력(`-`).
+        stdin: 표준 입력(`-`, 닫고 실행하면 None).
 
     Returns:
         중복 없는 id(처음 나온 순서).
@@ -54,7 +54,7 @@ def collect_roots(positional: list[str], roots_from: str | None, stdin: TextIO) 
     return unique
 
 
-def _read(argument: str, stdin: TextIO) -> str:
+def _read(argument: str, stdin: TextIO | None) -> str:
     """`--roots-from` 입력을 읽는다.
 
     파일은 일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 연다(마지막 링크는 따라간다). 장치는 끝이 없고 디렉터리는
@@ -72,6 +72,8 @@ def _read(argument: str, stdin: TextIO) -> str:
     """
     try:
         if argument == "-":
+            if stdin is None:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
+                raise OSError("standard input is closed")
             text = _read_stdin(stdin)
         else:
             with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:

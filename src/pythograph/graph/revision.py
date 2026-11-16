@@ -48,6 +48,10 @@ from pythograph.source.text import FORBIDDEN_CHARACTERS
 #: git 명령 시간 제한(초)이다.
 GIT_TIMEOUT_SECONDS = 60
 
+#: git 자식을 기다리는 대기를 나누는 간격(초)이다. 명령 스레드가 Ctrl+C로 멈출 때 넣은 KeyboardInterrupt는 C 대기 중에는
+#: 닿지 않으므로, 이 간격마다 돌아와 받게 한다(`source.syntax.run_on_parse_stack`).
+_WAIT_SLICE_SECONDS = 0.1
+
 #: 커밋 id 형식(SHA-1 40자, SHA-256 64자)이다.
 _OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 
@@ -602,7 +606,7 @@ def _run_git_bounded(
         for reader in readers:
             reader.start()
         # 출력이 끝난 뒤에도 쓰기 실패가 늦게 기록될 수 있으므로 writer가 끝난 것을 확인하고 판정한다.
-        if not drained.wait(max(0, deadline - time.monotonic())) or not _done(readers[2:], deadline) or failed.is_set():
+        if not _wait_event(drained, deadline) or not _done(readers[2:], deadline) or failed.is_set():
             return None
         code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
         return subprocess.CompletedProcess(command, code, b"".join(chunks[0]), b"".join(chunks[1]))
@@ -669,5 +673,22 @@ def _done(writers: list[threading.Thread], deadline: float) -> bool:
         끝났으면 True.
     """
     for writer in writers:
-        writer.join(max(0, deadline - time.monotonic()))
+        while writer.is_alive() and time.monotonic() < deadline:
+            writer.join(min(_WAIT_SLICE_SECONDS, max(0.0, deadline - time.monotonic())))
     return not any(writer.is_alive() for writer in writers)
+
+
+def _wait_event(event: threading.Event, deadline: float) -> bool:
+    """기한까지 표시를 기다리되 `_WAIT_SLICE_SECONDS`씩 나눠 기다린다.
+
+    Args:
+        event: 기다릴 표시.
+        deadline: `time.monotonic` 기한.
+
+    Returns:
+        기한 안에 표시되면 True.
+    """
+    while not event.wait(min(_WAIT_SLICE_SECONDS, max(0.0, deadline - time.monotonic()))):
+        if time.monotonic() >= deadline:
+            return False
+    return True
