@@ -101,7 +101,10 @@ def test_completion_is_set_once_and_never_rewaits() -> None:
 #: 부른 스레드의 기다림·멈춤 도중 아무 곳에서나 신호 처리기의 예외를 받는 프로세스 안 스트레스다(인자: 반복 수, 스위치
 #: 간격, 시드). 짧은 작업(0.2–2 ms)이 끝나는 순간 근처에 SIGALRM을 맞추고, 호출 하나가 5초를 넘거나 종료가 멈추면
 #: 실패한다. 기다림이 `threading.Event`이던 때(3d333ff·3b7343e)는 Condition의 잠금이 부른 스레드에 남아 멈춤을 다시
-#: 기다리다 수십–수천 번째에서 멈췄다(3.10–3.14).
+#: 기다리다 수십–수천 번째에서 멈췄다(3.10–3.14). 처리기는 호출을 감싼 `try` 안(`armed`)에서만 예외를 낸다: 끄기
+#: 직전에 만료된 타이머의 신호를 다른 스레드가 받으면(macOS는 프로세스로 온 신호를 아무 스레드에나 줄 수 있다) C
+#: 처리기가 그 스레드에서 늦게 돌아, 주 스레드가 `try`를 벗어난 뒤 하네스 코드에서 처리기가 돌 수 있다(CI macOS
+#: 3.10·3.13에서 실제로 났다).
 _CALLER_WAIT_STRESS = r"""
 import collections, faulthandler, os, random, signal, sys, threading, time
 faulthandler.dump_traceback_later(90, exit=True)
@@ -120,11 +123,12 @@ class Boom(KeyboardInterrupt):
 
 
 def handler(_signum, _frame):
-    raise Boom
+    if state["armed"]:
+        raise Boom
 
 
 signal.signal(signal.SIGALRM, handler)
-state = {"started": None, "i": 0}
+state = {"started": None, "i": 0, "armed": False}
 
 
 def watchdog():
@@ -156,9 +160,11 @@ for index in range(iterations):
     state["started"] = time.perf_counter()
     try:
         try:
+            state["armed"] = True
             signal.setitimer(signal.ITIMER_REAL, duration * random.uniform(0.7, 1.6))
             call(work)
         finally:
+            state["armed"] = False
             signal.setitimer(signal.ITIMER_REAL, 0)
     except Boom:
         booms += 1
