@@ -6,6 +6,7 @@ import ast
 import io
 import itertools
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -16,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pythograph.cli import main as cli_main
 from pythograph.graph import exposure
 from pythograph.graph.build import scan_modules
 from pythograph.graph.index import DefinitionIndex
@@ -46,6 +48,9 @@ from pythograph.source.syntax import (
 )
 from pythograph.source.text import is_contract_safe
 from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
+
+#: CLI 테스트가 쓰는 고정 생성 시각이다.
+_GENERATED_AT = "2026-01-01T00:00:00.000Z"
 
 
 def _expr(source: str) -> ast.expr:
@@ -877,48 +882,59 @@ def test_long_chains_parse_without_overflowing_a_small_stack(make_project: Calla
     assert result.stdout == "True|source nesting too deep to parse|SourceModule\n"
 
 
-@pytest.fixture
-def fresh_parse_workers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """재사용하는 전용 파싱 스레드를 비워, 이 테스트가 만든 스레드만 보이게 한다(테스트가 끝나면 원래 것으로 돌린다)."""
-    monkeypatch.setattr(syntax, "_parse_workers", syntax._ParseWorkers())
-
-
-def _record_thread_starts(monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    """`syntax`가 시작하는 스레드마다 그때의 스택 설정을 기록하게 하고 그 목록을 돌려준다."""
-    started: list[int] = []
+def _record_thread_starts(monkeypatch: pytest.MonkeyPatch) -> list[threading.Thread]:
+    """`syntax`가 시작하는 스레드를 기록하게 하고 그 목록을 돌려준다(스레드마다 `stack`에 시작할 때의 스택 설정)."""
+    started: list[threading.Thread] = []
 
     class RecordingThread(threading.Thread):
         """시작할 때의 스택 설정을 기록하는 스레드다."""
 
+        stack = 0
+
         def start(self) -> None:
-            started.append(threading.stack_size())
+            self.stack = threading.stack_size()
+            started.append(self)
             super().start()
 
     monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RecordingThread, stack_size=threading.stack_size))
     return started
 
 
-@pytest.mark.usefixtures("fresh_parse_workers")
+def _stacks(threads: list[threading.Thread]) -> list[int]:
+    """기록한 스레드들이 시작할 때의 스택 설정이다."""
+    return [getattr(thread, "stack", 0) for thread in threads]
+
+
+class _RefusedThread:
+    """스레드를 만들 수 없는 환경(스레드 없는 빌드, 격리 하위 인터프리터)을 흉내 낸다."""
+
+    def __init__(self, **_keywords: object) -> None:
+        """인자를 받기만 한다."""
+
+    def start(self) -> None:
+        """언제나 실패한다."""
+        raise RuntimeError("can't start new thread")
+
+
 def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """3.10에서 작은 스택 상한을 넘는 사슬은 전용 스택 스레드에서 같은 결과로 파싱하고, 그 스레드를 만들 수 없으면
     그 이유("could not start a parser thread …")의 읽지 못한 소스·모르는 주석으로 센다. 조용히 버리지 않고, 파서의
-    깊이 한도("source nesting too deep to parse")로 가장하지도 않는다."""
+    깊이 한도("source nesting too deep to parse")로 가장하지도 않는다. 이전 판이 부른 스레드에서 파싱하던 긴 소스는
+    스레드를 만들 수 없어도 그대로 파싱한다(그런 환경의 출력이 바뀌지 않는다)."""
     monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", True)
     monkeypatch.setattr(syntax, "SMALL_STACK_CHAIN_TOKENS", 10)
     chain = " + ".join(["a"] * 40)
-    root = make_project({"chain.py": f"VALUE = {chain}\n", "broken.py": f"VALUE = ({chain}\n", "short.py": "x = a.b\n"})
-    submitted: list[int] = []
-    submit = syntax._ParseWorker.run
-
-    def recording_submit(worker: syntax._ParseWorker, work: Callable[[], object]) -> object:
-        """전용 스레드에 넘긴 작업마다 그 스레드의 스택 크기를 기록한다."""
-        submitted.append(worker.stack)
-        return submit(worker, work)
-
-    monkeypatch.setattr(syntax._ParseWorker, "run", recording_submit)
-    unstarted = syntax._ParseWorkers()
+    long_plain = "x = 1  #" + "#" * (syntax.INLINE_PARSE_CHARACTERS * 2) + "\n"
+    root = make_project(
+        {
+            "chain.py": f"VALUE = {chain}\n",
+            "broken.py": f"VALUE = ({chain}\n",
+            "short.py": "x = a.b\n",
+            "long.py": long_plain,
+        }
+    )
     started = _record_thread_starts(monkeypatch)
     before = threading.stack_size()
     assert isinstance(Project.open(root).module("chain.py"), SourceModule)
@@ -927,33 +943,22 @@ def test_long_chains_use_a_dedicated_stack_and_count_its_failures(
     assert failure.reason == "syntax error or syntax newer than the running Python"
     assert isinstance(parse_annotation(chain), ast.BinOp)
     assert isinstance(Project.open(root).module("short.py"), SourceModule)
-    assert submitted == [syntax.MIN_PARSE_STACK_BYTES] * 3
-    assert started == [syntax.MIN_PARSE_STACK_BYTES]
+    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 3
     assert threading.stack_size() == before
-
-    class RefusedThread:
-        """스레드를 만들 수 없는 환경을 흉내 낸다."""
-
-        def __init__(self, **_keywords: object) -> None:
-            """인자를 받기만 한다."""
-
-        def start(self) -> None:
-            """언제나 실패한다."""
-            raise RuntimeError("can't start new thread")
-
-    monkeypatch.setattr(syntax, "_parse_workers", unstarted)
-    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=RefusedThread, stack_size=threading.stack_size))
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=_RefusedThread, stack_size=threading.stack_size))
     failure = Project.open(root).module("chain.py")
     assert isinstance(failure, ReadFailure)
     assert failure.reason == syntax.PARSE_STACK_UNAVAILABLE_REASON
     assert parse_annotation(chain) is None
     assert isinstance(Project.open(root).module("short.py"), SourceModule)
+    assert isinstance(Project.open(root).module("long.py"), SourceModule)
     assert threading.stack_size() == before
 
 
-#: 1 MiB 스레드에서 f-string으로 파서 셋을 겹친 오른쪽 재귀 식을 주석이나 모듈로 읽고 결과를 내는 별도 프로세스
-#: 스크립트다(인자: 경로 종류, 프로젝트). 3.12 전 파서는 f-string 치환 필드마다 새 파서를 만들고 깊이 한도(MAXSTACK, 약
-#: 6,000단)를 처음부터 다시 세므로 `~` 5,900개짜리 파서 셋이 쌓인다.
+#: 1 MiB 스레드에서 f-string으로 파서 셋이나 다섯을 겹친 오른쪽 재귀 식을 주석이나 모듈로 읽고 결과를 내는 별도
+#: 프로세스 스크립트다(인자: 경로 종류, 프로젝트, 파서 수). 3.12 전 파서는 f-string 치환 필드마다 새 파서를 만들고 깊이
+#: 한도(MAXSTACK, 약 6,000단)를 처음부터 다시 세므로 `~` 5,900개짜리 파서가 쌓인다. 다섯은 따옴표 네 종류로 만드는
+#: 최악(3.10.20 4,672 KiB, uv 3.11.15 5,120 KiB)이다.
 _SMALL_STACK_FSTRINGS = r"""
 import sys
 import threading
@@ -962,7 +967,11 @@ from pathlib import Path
 from pythograph.source.project import Project
 from pythograph.source.syntax import parse_annotation
 
-expression = "~" * 5900 + 'f"{' + "~" * 5900 + "f'{" + "~" * 5900 + "x}'}" + '"'
+quotes = {"3": ("", '"', "'"), "5": ("", '"' * 3, "'" * 3, '"', "'")}[sys.argv[3]]
+expression = "x"
+for quote in quotes[::-1]:
+    core = "~" * 5900 + expression
+    expression = core if not quote else "f" + quote + "{" + core + "}" + quote
 results = []
 
 
@@ -984,18 +993,22 @@ print("|".join(results))
 """
 
 
+@pytest.mark.parametrize("parsers", ["3", "5"])
 @pytest.mark.parametrize(("path", "expected"), [("annotation", "True"), ("module", "source nesting too deep to parse")])
-def test_stacked_fstring_parsers_do_not_overflow_a_small_stack(tmp_path: Path, path: str, expected: str) -> None:
+def test_stacked_fstring_parsers_do_not_overflow_a_small_stack(
+    tmp_path: Path, path: str, expected: str, parsers: str
+) -> None:
     """f-string으로 겹친 파서들이 작은 스택(1 MiB 스레드, Windows 주 스레드 2,000,000 B 미만)을 넘기지 않는다.
 
     3.10·3.11은 f-string 치환 필드를 따로 만든 파서로 다시 파싱하고 그 파서의 깊이 한도를 처음부터 센다. 사슬 수로
     걸리지 않는 오른쪽 재귀(`~`·`not`·`-`·`lambda`·조건식·`**`)를 f-string 안에 겹치면 파서 하나마다 약 0.9 MiB
     (3.10.20 실측)가 쌓여, 17 KB 한 줄 소스로 프로세스가 죽었다(1 MiB·2,000,000 B 스레드 모두). 3.13은 파서 하나가
     MemoryError로 끝내지만 macOS 3.13의 1 MiB 스레드는 그 전에 죽었다(SIGBUS, 종료 -10). 이제 3.13까지 긴 소스는
-    전용 스택에서 파싱해 모든 버전에서 중첩 실패(모듈)·모르는 주석으로 남는다.
+    전용 스택에서 파싱해 모든 버전에서 중첩 실패(모듈)·모르는 주석으로 남는다. 파서 다섯은 f-string 몫(16 MiB)이 덮는
+    최악이다(Windows에서도 전용 스레드는 커밋 크기가 예약 기본값보다 커서 그 크기를 실제로 받는다).
     """
     result = subprocess.run(
-        [sys.executable, "-c", _SMALL_STACK_FSTRINGS, path, str(tmp_path)],
+        [sys.executable, "-c", _SMALL_STACK_FSTRINGS, path, str(tmp_path), parsers],
         capture_output=True,
         encoding="utf-8",
         check=False,
@@ -1007,8 +1020,8 @@ def test_stacked_fstring_parsers_do_not_overflow_a_small_stack(tmp_path: Path, p
 
 
 #: 1 MiB 스레드에서 괄호 199단을 f-string 4단(파서 다섯)에 겹친 2,319자 식을 주석이나 모듈로 읽는 별도 프로세스
-#: 스크립트다(인자: 경로 종류, 프로젝트). 괄호 하나는 문법 규칙 여럿을 지나 약 1 KiB의 C 스택을 쓰고, 토크나이저의 괄호
-#: 200단 한도는 파서마다 다시 센다(3.10·3.11).
+#: 스크립트다(인자: 경로 종류, 프로젝트). 여는 괄호 하나는 문법 규칙 여럿을 지나 약 2 KiB(짝을 맞춘 식은 글자당 약
+#: 1 KiB)의 C 스택을 쓰고, 토크나이저의 괄호 200단 한도는 파서마다 다시 센다(3.10·3.11).
 _SMALL_STACK_BRACKETS = r"""
 import sys
 import threading
@@ -1046,7 +1059,8 @@ print(len(expression), "|".join(results))
 def test_bracket_nested_fstrings_do_not_overflow_a_small_stack(tmp_path: Path, path: str) -> None:
     """괄호를 겹친 짧은 f-string 식(2,319자)도 작은 스택(1 MiB 스레드)을 넘기지 않는다.
 
-    괄호는 한 글자에 약 1 KiB(3.10.20 실측)를 써서 "한 단계에 한 글자" 전제가 틀렸다. 3.10·3.11은 f-string마다 괄호
+    짝을 맞춘 괄호는 한 글자에 약 1 KiB(여는 괄호 하나에 약 2 KiB, 3.10.20 실측)를 써서 "한 단계에 한 글자" 전제가
+    틀렸다. 3.10·3.11은 f-string마다 괄호
     200단 한도를 다시 세므로 파서 다섯이 괄호 199단씩을 쌓아 약 2 MiB가 들었고, 전에는 4,000자 미만이라 부른 스레드에서
     파싱해 죽었다. 결과는 파이썬 버전의 파서가 정한다: 3.12 이상은 f-string 괄호도 한 한도로 세어 문법 오류다.
     """
@@ -1104,9 +1118,10 @@ print("|".join(results))
 def test_deep_unary_expressions_do_not_overflow_a_small_stack(tmp_path: Path, path: str, expected: str) -> None:
     """파서 하나의 깊이 한도(MAXSTACK) 안의 6 KB 식도 작은 스택(1 MiB 스레드)을 넘기지 않는다.
 
-    3.13까지 파서는 깊이를 수로만 막아, `~` 5,967개 식 하나에 3.13.18은 1,280 KiB(Linux)가 들었다. macOS 3.13은 더
-    짧은 입력에서 1 MiB 스레드가 죽었다(SIGBUS). 3.13은 깊은 트리를 해제할 때도 trashcan이 약 1만 단까지 미뤄지지 않아,
-    전용 스택에서 파싱하고 부른 스레드에서 버리면 해제 재귀로 죽었다. 이제 3.13까지 긴 소스는 전용 스택에서 파싱하고
+    3.13까지 파서는 깊이를 수로만 막는다. `~` 5,967개 식은 3.13.18(Linux)에서 파싱에 768 KiB, 같은 스레드에서 트리까지
+    해제하면 1,264 KiB가 들었다. macOS 3.13은 파싱만으로 1 MiB 스레드가 죽었다(SIGBUS). 3.13의 trashcan은 C 재귀
+    한도(약 1만 단, Windows 3,000)에 거의 닿을 때까지 해제를 미루지 않아, 전용 스택에서 파싱하고 부른 스레드에서 버리면
+    해제 재귀로 죽었다. 이제 3.13까지 긴 소스는 전용 스택에서 파싱하고
     상한을 넘는 트리는 그 스레드에서 버린다.
     """
     result = subprocess.run(
@@ -1122,7 +1137,8 @@ def test_deep_unary_expressions_do_not_overflow_a_small_stack(tmp_path: Path, pa
 
 
 #: 임계(`INLINE_PARSE_CHARACTERS`) 이하에서 C 스택을 가장 많이 쓰는 식을 512 KiB 스레드에서 부른 스레드 파싱으로
-#: 읽는 별도 프로세스 스크립트다(인자: 프로젝트). 식마다 "이름:소스 길이:전용 스택 크기들"을 쓴다.
+#: 읽는 별도 프로세스 스크립트다(인자: 프로젝트). 식마다 "이름:문맥:소스 길이:전용 스택 크기"를 쓴다(문맥은 주석
+#: 식과 `X=` 모듈).
 _INLINE_WORST_CASES = r"""
 import sys
 import threading
@@ -1132,15 +1148,18 @@ from pythograph.source import syntax
 from pythograph.source.project import Project
 from pythograph.source.syntax import parse_annotation
 
-budget = syntax.INLINE_PARSE_CHARACTERS - 3
+
+def unclosed(opening, budget):
+    depth = min(budget - 1, 199)
+    return opening * depth + "~" * (budget - 1 - depth) + "x"
 
 
-def nested(opening, closing, unary=""):
+def closed(opening, closing, budget):
     depth = min((budget - 1) // 2, 199)
-    return opening * depth + unary * (budget - 1 - 2 * depth) + "x" + closing * depth
+    return opening * depth + "~" * (budget - 1 - 2 * depth) + "x" + closing * depth
 
 
-def fstrings():
+def fstrings(budget):
     for per_level in range(budget, 0, -1):
         expression = "x"
         for quote in ("", '"' * 3, "'" * 3, '"', "'")[::-1]:
@@ -1151,25 +1170,30 @@ def fstrings():
 
 
 shapes = {
-    "square": nested("[", "]"),
-    "paren": nested("(", ")"),
-    "brace": nested("{", "}"),
-    "mixed": nested("[", "]", "~"),
-    "fstrings": fstrings(),
-    "tilde": "~" * (budget - 1) + "x",
+    "unclosed-square": lambda budget: unclosed("[", budget),
+    "unclosed-paren": lambda budget: unclosed("(", budget),
+    "unclosed-brace": lambda budget: unclosed("{", budget),
+    "square": lambda budget: closed("[", "]", budget),
+    "paren": lambda budget: closed("(", ")", budget),
+    "fstrings": fstrings,
+    "tilde": lambda budget: "~" * (budget - 1) + "x",
 }
 results = []
 
 
 def work():
     root = Path(sys.argv[1])
-    for name, expression in shapes.items():
-        source = "X=" + expression + "\n"
-        (root / f"{name}.py").write_bytes(source.encode())
-        stacks = sorted({syntax.guarded_stack_bytes(text, syntax.chain_bound(text)) for text in (expression, source)})
+    limit = syntax.INLINE_PARSE_CHARACTERS
+    for name, build in shapes.items():
+        expression = build(limit)
+        stack = syntax.guarded_stack_bytes(expression, syntax.chain_bound(expression))
         parse_annotation(expression)
-        Project.open(root).module(f"{name}.py")
-        results.append(f"{name}:{len(source)}:{stacks}")
+        results.append(f"{name}:annotation:{len(expression)}:{stack}")
+        source = "X=" + build(limit - 3) + "\n"
+        (root / "shape.py").write_bytes(source.encode())
+        stack = syntax.guarded_stack_bytes(source, syntax.chain_bound(source))
+        Project.open(root).module("shape.py")
+        results.append(f"{name}:module:{len(source)}:{stack}")
 
 
 threading.stack_size(512 * 1024)
@@ -1184,9 +1208,10 @@ def test_short_sources_parse_inline_with_half_a_small_stack(tmp_path: Path) -> N
     """임계 이하 소스는 부른 스레드에서 파싱하고, 그 최악도 1 MiB의 절반(512 KiB) 스레드에서 끝난다(2배 여유).
     3.10·3.11에서 f-string이 든 식은 길이와 무관하게 전용 스택이다.
 
-    가장 비싼 글자는 괄호(한 글자에 약 1.0–1.1 KiB)다. Linux 실측 최악은 256자 괄호 식의 272 KiB(3.10.20·3.13.18),
-    f-string 4단(파서 다섯)에 나눠 겹친 괄호는 256 KiB 이하였다. 각 CI 판(macOS arm64·MSVC 프레임 포함)에서 이 여유가
-    맞는지 이 테스트가 본다. Windows는 `threading.stack_size`가 커밋 크기라 실제 예약은 기본값(2,000,000 B)이다.
+    가장 비싼 모양은 닫지 않은 여는 괄호(하나에 약 2 KiB, 토크나이저의 200단 한도까지)다. 128자 Linux 실측 최악은 uv
+    독립 빌드 3.11.15의 336 KiB, 나머지 빌드는 240–288 KiB였다(256자였다면 544 KiB). Linux·macOS CI 판마다 이 여유를
+    확인한다. Windows는 `threading.stack_size`가 커밋 크기라 실제 예약이 python.exe 기본값(2,000,000 B)이어서, 거기서는
+    최악이 그 크기에 들어간다는 것만 보인다.
     """
     result = subprocess.run(
         [sys.executable, "-c", _INLINE_WORST_CASES, str(tmp_path)],
@@ -1197,15 +1222,14 @@ def test_short_sources_parse_inline_with_half_a_small_stack(tmp_path: Path) -> N
         timeout=120,
     )
     assert result.returncode == 0, (result.returncode, result.stderr[-2000:])
-    lines = result.stdout.splitlines()
-    assert [line.split(":")[0] for line in lines] == ["square", "paren", "brace", "mixed", "fstrings", "tilde"]
+    names = ["unclosed-square", "unclosed-paren", "unclosed-brace", "square", "paren", "fstrings", "tilde"]
+    rows = [line.split(":") for line in result.stdout.splitlines()]
+    assert [(row[0], row[1]) for row in rows] == [(name, path) for name in names for path in ("annotation", "module")]
     fstring_stack = syntax.MIN_PARSE_STACK_BYTES + syntax.FSTRING_STACK_ALLOWANCE_BYTES
-    for line in lines:
-        name, length, stacks = line.split(":")
-        assert int(length) <= syntax.INLINE_PARSE_CHARACTERS
-        assert int(length) >= syntax.INLINE_PARSE_CHARACTERS - 8
+    for name, _, length, stack in rows:
+        assert syntax.INLINE_PARSE_CHARACTERS - 16 <= int(length) <= syntax.INLINE_PARSE_CHARACTERS
         dedicated = name == "fstrings" and sys.version_info < (3, 12)
-        assert stacks == (f"[{fstring_stack}]" if dedicated else "[0]")
+        assert int(stack) == (fstring_stack if dedicated else 0)
 
 
 def _has_fstring_token(text: str) -> bool:
@@ -1261,7 +1285,6 @@ def test_fstring_detector_finds_every_fstring_in_the_repository() -> None:
     assert checked > 50
 
 
-@pytest.mark.usefixtures("fresh_parse_workers")
 def test_long_sources_use_a_dedicated_stack_until_the_parser_checks_its_stack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1295,7 +1318,7 @@ def test_long_sources_use_a_dedicated_stack_until_the_parser_checks_its_stack(
         (tmp_path / f"{name}.py").write_bytes(text.encode())
     project = Project.open(tmp_path)
     assert all(isinstance(project.module(f"{name}.py"), SourceModule) for name in names)
-    assert started == [base, base + allowance]
+    assert _stacks(started) == [base, base + allowance, base + allowance]
     monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
     assert syntax.guarded_stack_bytes(fstring_edge, 0) == 0
     assert syntax.guarded_stack_bytes(fstring_over, 0) == base
@@ -1304,10 +1327,9 @@ def test_long_sources_use_a_dedicated_stack_until_the_parser_checks_its_stack(
     assert syntax.guarded_stack_bytes(fstring_over, bound) == syntax.parse_stack_bytes(bound)
 
 
-@pytest.mark.usefixtures("fresh_parse_workers")
 def test_parser_thread_relays_base_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
     """작업 스레드의 `BaseException`도 부른 스레드에서 그대로 다시 낸다. 전에는 `Exception`만 담아 결과 목록이 비고
-    IndexError(내부 오류 2)가 됐다. 예외를 낸 작업 뒤에도 같은 스레드가 다음 작업을 받는다."""
+    IndexError(내부 오류 2)가 됐다."""
 
     class Interrupted(BaseException):
         """`Exception`이 아닌 예외다."""
@@ -1320,52 +1342,197 @@ def test_parser_thread_relays_base_exceptions(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(Interrupted):
         syntax._run_on_large_stack(interrupted, syntax.MIN_PARSE_STACK_BYTES)
     assert syntax._run_on_large_stack(lambda: 7, syntax.MIN_PARSE_STACK_BYTES) == 7
-    assert started == [syntax.MIN_PARSE_STACK_BYTES]
+    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 2
 
 
-@pytest.mark.usefixtures("fresh_parse_workers")
-def test_dedicated_parse_threads_are_reused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """전용 스택 파싱은 스택 크기마다 스레드 하나를 만들어 다시 쓴다.
-
-    3.13까지 256자를 넘는 소스를 모두 전용 스택에서 파싱하므로 파싱마다 스레드를 만들면 시작·종료와 스케줄링 대기가 긴
-    파일마다 생긴다(4코어 실측: 파일 하나에 CPU 약 0.2–0.6 ms, 재사용하면 약 0.04–0.2 ms). 하한과 f-string 몫을
-    더한 크기 사이의 요청은 위 크기의 스레드로 올리고, 그보다 큰 3.10의 아주 긴 사슬만 파싱마다 스레드를 만든다.
-    """
+def test_library_parses_join_a_non_daemon_thread_and_nest_inline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI 밖(라이브러리)에서는 긴 소스마다 데몬이 아닌 스레드를 만들고 바로 합류한다. 남는 스레드가 없어 하위
+    인터프리터를 끝낼 수 있고(남은 스레드가 있으면 `Py_EndInterpreter`가 프로세스를 끝냈다), 데몬 스레드를 막은 격리
+    하위 인터프리터에서도 스레드를 만들 수 있으며, fork할 때 여러 스레드 경고가 없다. 전용 스레드 안에서 다시 부른
+    파싱은 그 스택이 충분하면 그 자리에서 한다."""
     monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
     monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
-    base = syntax.MIN_PARSE_STACK_BYTES
-    raised = base + syntax.FSTRING_STACK_ALLOWANCE_BYTES
-    larger = raised + syntax.PARSE_STACK_ALIGNMENT_BYTES
     started = _record_thread_starts(monkeypatch)
-    padding = "#" * syntax.INLINE_PARSE_CHARACTERS
+    long_plain = "x = 1  #" + "#" * (syntax.INLINE_PARSE_CHARACTERS * 2) + "\n"
+    (tmp_path / "long.py").write_bytes(long_plain.encode())
+    assert isinstance(Project.open(tmp_path).module("long.py"), SourceModule)
+    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES]
+    assert [(thread.daemon, thread.is_alive()) for thread in started] == [(False, False)]
+    assert syntax.current_parse_stack_bytes() == 0
+
+    def nested() -> tuple[int, ast.AST | None]:
+        """전용 스레드 안에서 긴 소스를 다시 파싱한다."""
+        tree, _ = syntax.parse_guarded(long_plain, "long.py", "exec", 0, MAX_AST_DEPTH, sys.maxsize)
+        return syntax.current_parse_stack_bytes(), tree
+
+    stack, tree = syntax._run_on_large_stack(nested, syntax.MIN_PARSE_STACK_BYTES)
+    assert stack == syntax.MIN_PARSE_STACK_BYTES
+    assert isinstance(tree, ast.Module)
+    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 2
+
+
+def test_cli_commands_run_on_one_large_stack_thread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI 명령은 어떤 허용 소스라도 그 자리에서 파싱할 크기의 스레드 하나에서 돌고, 그 안의 파싱은 스레드를 더
+    만들지 않는다(파일마다 트리를 다른 코어에서 만들어 옮기던 비용이 없다). 3.14부터는 스레드를 만들지 않는다."""
+    started = _record_thread_starts(monkeypatch)
+    padding = "#" * (syntax.INLINE_PARSE_CHARACTERS * 2)
     for index in range(3):
-        (tmp_path / f"long{index}.py").write_bytes(f"x = {index}  {padding}\n".encode())
-    for _ in range(2):
-        project = Project.open(tmp_path)
-        assert all(isinstance(project.module(f"long{index}.py"), SourceModule) for index in range(3))
-    assert started == [base]
-    assert syntax._run_on_large_stack(lambda: 1, base + syntax.PARSE_STACK_ALIGNMENT_BYTES) == 1
-    assert syntax._run_on_large_stack(lambda: 2, raised) == 2
-    assert started == [base, raised]
-    assert syntax._run_on_large_stack(lambda: 3, larger) == 3
-    assert syntax._run_on_large_stack(lambda: 4, larger) == 4
-    assert started == [base, raised, larger, larger]
+        (tmp_path / f"long{index}.py").write_bytes(f'x = f"{{{index}}}"  {padding}\n'.encode())
+    out = io.StringIO()
+    code = cli_main.main(["graph", "--project", str(tmp_path), "--revision", "r", "--generated-at", _GENERATED_AT], out)
+    assert code == 0
+    assert '"unparsedFiles":0' in out.getvalue().replace(" ", "")
+    largest = syntax.largest_parse_stack_bytes()
+    assert _stacks(started) == ([largest] if largest else [])
+    assert all(thread.daemon and not thread.is_alive() for thread in started)
+    if sys.version_info < (3, 11):
+        assert largest == syntax.parse_stack_bytes(MAX_CHAIN_TOKENS) + syntax.FSTRING_STACK_ALLOWANCE_BYTES
+    elif sys.version_info < (3, 12):
+        assert largest == syntax.MIN_PARSE_STACK_BYTES + syntax.FSTRING_STACK_ALLOWANCE_BYTES
+    elif sys.version_info < (3, 14):
+        assert largest == syntax.MIN_PARSE_STACK_BYTES
+    else:
+        assert largest == 0
 
 
-#: 전용 파싱 스레드를 만든 뒤 fork한 자식이 자기 스레드로 파싱하는지 보는 별도 프로세스 스크립트다. 부모의 스레드는
-#: 자식에 없으므로 그 스레드에 작업을 넘기면 자식이 영원히 기다린다(30초 안에 끝나지 않으면 죽이고 "hung"을 쓴다).
+def test_cli_thread_relays_exit_codes_and_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """명령 스레드의 종료 코드와 `SystemExit`·다른 예외는 부른 스레드에서 같다. 스레드를 만들 수 없으면(데몬 스레드를
+    막은 하위 인터프리터 등) 부른 스레드에서 돈다."""
+    codes = iter([0, 2, 64])
+    monkeypatch.setattr(cli_main, "_main", lambda *_arguments: next(codes))
+    assert [cli_main.main([]) for _ in range(3)] == [0, 2, 64]
+
+    def exits(*_arguments: object) -> int:
+        """`SystemExit(64)`를 낸다."""
+        raise SystemExit(64)
+
+    monkeypatch.setattr(cli_main, "_main", exits)
+    with pytest.raises(SystemExit) as raised:
+        cli_main.main([])
+    assert raised.value.code == 64
+    monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=_RefusedThread, stack_size=threading.stack_size))
+    monkeypatch.setattr(cli_main, "_main", lambda *_arguments: syntax.current_parse_stack_bytes() + 5)
+    assert cli_main.main([]) == 5
+
+
+#: 명령 스레드가 일하는 동안 주 프로세스가 SIGINT(Ctrl+C)를 받으면 KeyboardInterrupt로 끝나는지 보는 별도 프로세스
+#: 스크립트다. 명령 본문은 시작을 알리고 끝없이 기다린다.
+_INTERRUPTED_CLI = r"""
+import sys
+import time
+
+from pythograph.cli import main as cli_main
+
+
+def endless(*_arguments):
+    sys.stderr.write("started\n")
+    sys.stderr.flush()
+    while True:
+        time.sleep(0.05)
+
+
+cli_main._main = endless
+raise SystemExit(cli_main.main(["graph"]))
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX 신호로 Ctrl+C를 흉내 낸다(Windows는 콘솔 이벤트다)")
+def test_cli_thread_ends_on_ctrl_c() -> None:
+    """명령이 전용 스레드에서 도는 동안 SIGINT를 받으면 전처럼 KeyboardInterrupt로 바로 끝난다(신호로 끝난 종료 상태).
+    명령 스레드는 데몬이라 주 스레드가 끝나면 프로세스를 붙잡지 않는다."""
+    process = subprocess.Popen(
+        [sys.executable, "-c", _INTERRUPTED_CLI],
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        cwd=REPOSITORY,
+    )
+    assert process.stderr is not None
+    assert process.stderr.readline() == "started\n"
+    process.send_signal(signal.SIGINT)
+    try:
+        process.wait(timeout=30)
+    finally:
+        process.kill()
+    assert process.returncode == -signal.SIGINT
+    assert "KeyboardInterrupt" in process.stderr.read()
+
+
+#: 재귀 한도를 4만으로 올린 프로세스에서 20만 고리 속성 사슬을 주석과 모듈로 읽는 별도 프로세스 스크립트다(인자:
+#: 프로젝트).
+_RAISED_RECURSION_LIMIT = r"""
+import sys
+from pathlib import Path
+
+from pythograph.source.project import Project
+from pythograph.source.syntax import parse_annotation
+
+sys.setrecursionlimit(40_000)
+chain = "x" + ".a" * 200_000
+root = Path(sys.argv[1])
+(root / "chain.py").write_bytes(("X = " + chain + "\n").encode())
+module = Project.open(root).module("chain.py")
+print(parse_annotation(chain) is None, getattr(module, "reason", type(module).__name__))
+"""
+
+
+def test_raised_recursion_limits_still_count_deep_chains(tmp_path: Path) -> None:
+    """재귀 한도를 올린 호출자에서도 깊은 사슬은 이유와 함께 센다. 3.11의 `ast2obj`는 재귀 한도의 3배 단계까지
+    내려가므로 전용 스택을 그 한도에 맞춰 키운다(한 단계 256 B, 실측 약 100 B). 고정 8 MiB 스택이던 때는 한도 약 2만
+    9천부터 3.11이 신호로 죽었다. 다른 버전은 사슬 상한(3.10)이나 고정 C 재귀 한도(3.12 이상)로 같은 이유가 된다."""
+    result = subprocess.run(
+        [sys.executable, "-c", _RAISED_RECURSION_LIMIT, str(tmp_path)],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=REPOSITORY,
+        timeout=120,
+    )
+    assert result.returncode == 0, (result.returncode, result.stderr[-2000:])
+    assert result.stdout == "True source nesting too deep to parse\n"
+
+
+def test_ast2obj_stack_follows_the_recursion_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.11의 전용 스택은 `ast2obj` 몫(재귀 한도 × 3 단계와 소스 길이 중 작은 쪽 × 256 B, 1 MiB 배수)보다 작지 않고,
+    상한(`MAX_PARSE_STACK_BYTES`)을 넘으면 파싱하지 않고 스레드 이유로 센다(이전 판이 부른 스레드에서 파싱하던 소스라도
+    그 크기의 스레드를 만들 수 없으면 그렇다)."""
+    monkeypatch.setattr(syntax, "_AST2OBJ_SCALES_WITH_RECURSION_LIMIT", True)
+    monkeypatch.setattr(syntax, "_PARSER_OVERFLOWS_ON_CHAINS", False)
+    monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
+    monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
+    long_plain = "x = 1  #" + "#" * 200_000 + "\n"
+    limit = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(40_000)
+        expected = -(-120_000 * syntax.AST2OBJ_STACK_BYTES_PER_LEVEL // syntax.PARSE_STACK_ALIGNMENT_BYTES)
+        assert syntax.guarded_stack_bytes(long_plain, 0) == expected * syntax.PARSE_STACK_ALIGNMENT_BYTES
+        assert syntax.guarded_stack_bytes("x = 1  #" + "#" * 300, 0) == syntax.MIN_PARSE_STACK_BYTES
+        sys.setrecursionlimit(1_000_000)
+        huge = "x = 1  #" + "#" * 1_100_000 + "\n"
+        assert syntax.guarded_stack_bytes(huge, 0) > syntax.MAX_PARSE_STACK_BYTES
+        with pytest.raises(syntax.ParseStackUnavailableError):
+            syntax.parse_guarded(huge, "huge.py", "exec", 0, MAX_AST_DEPTH, sys.maxsize)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert syntax.guarded_stack_bytes(long_plain, 0) == syntax.MIN_PARSE_STACK_BYTES
+    monkeypatch.setattr(syntax, "_AST2OBJ_SCALES_WITH_RECURSION_LIMIT", False)
+    assert syntax.largest_parse_stack_bytes() == syntax.MIN_PARSE_STACK_BYTES
+
+
+#: 다른 스레드가 스택 크기 잠금을 잡은 채 fork한 자식이 전용 스레드를 만드는지 보는 별도 프로세스 스크립트다. 자식은
+#: 잠금을 새로 만들어야 하고, 아니면 영원히 기다린다(30초 안에 끝나지 않으면 죽이고 "hung"을 쓴다).
 _FORKED_PARSE = r"""
 import os
 import time
-import warnings
 
 from pythograph.source import syntax
 
-warnings.simplefilter("ignore", DeprecationWarning)
-assert syntax._run_on_large_stack(lambda: 1, syntax.MIN_PARSE_STACK_BYTES) == 1
+syntax._stack_size_guard.lock.acquire()
 child = os.fork()
 if child == 0:
     os._exit(0 if syntax._run_on_large_stack(lambda: 7, syntax.MIN_PARSE_STACK_BYTES) == 7 else 1)
+syntax._stack_size_guard.lock.release()
 deadline = time.monotonic() + 30
 while time.monotonic() < deadline:
     pid, status = os.waitpid(child, os.WNOHANG)
@@ -1381,8 +1548,9 @@ else:
 
 
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="fork가 없는 플랫폼이다")
-def test_forked_children_parse_on_their_own_thread() -> None:
-    """fork한 자식은 부모의 전용 파싱 스레드를 쓰지 않고 자기 스레드를 만든다(멈추지 않는다)."""
+def test_forked_children_reset_the_stack_size_lock() -> None:
+    """부모의 다른 스레드가 스택 크기 잠금을 잡은 순간 fork한 자식도 전용 스레드를 만든다(`os.register_at_fork`가 자식의
+    잠금을 새로 만든다. 그 훅을 빼면 자식이 멈춘다)."""
     result = subprocess.run(
         [sys.executable, "-c", _FORKED_PARSE],
         capture_output=True,
@@ -1427,7 +1595,6 @@ def test_parse_stack_sizes_are_whole_mebibytes() -> None:
         assert wanted <= stack < wanted + mebibyte
 
 
-@pytest.mark.usefixtures("fresh_parse_workers")
 def test_long_chains_parse_where_stacks_must_be_whole_pages(
     make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -35,7 +35,7 @@ from pythograph.routes.client.extract import ClientOptions, extract_client_calls
 from pythograph.routes.client.wrappers import WrapperDecl, WrapperDeclarationError, load_wrappers
 from pythograph.routes.command import FrameworkChoiceError, RouteOptions, extract_routes
 from pythograph.source.project import Project
-from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH
+from pythograph.source.syntax import MAX_EXTRACTION_AST_DEPTH, run_on_parse_stack
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 성공 종료 코드다.
@@ -161,6 +161,24 @@ def main(
     stdin: TextIO | None = None,
 ) -> int:
     """명령을 실행하고 종료 코드를 돌려준다.
+
+    명령은 3.13까지 어떤 허용 소스라도 그 자리에서 파싱할 만큼 스택이 큰 스레드 하나에서 돈다(`run_on_parse_stack`).
+    파일마다 파싱 스레드를 오가지 않으며, 종료 코드·`SystemExit`·Ctrl+C(KeyboardInterrupt)는 부른 스레드에서 같다.
+
+    Args:
+        argv: 인자(없으면 `sys.argv[1:]`).
+        stdout: 표준 출력(테스트 주입용).
+        stderr: 표준 오류(테스트 주입용).
+        stdin: 표준 입력(`--roots-from -`, 테스트 주입용).
+
+    Returns:
+        종료 코드.
+    """
+    return run_on_parse_stack(lambda: _main(argv, stdout, stderr, stdin))
+
+
+def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | None, stdin: TextIO | None) -> int:
+    """`main`의 본문이다(전용 스택 스레드에서 돈다).
 
     Args:
         argv: 인자(없으면 `sys.argv[1:]`).

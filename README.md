@@ -465,14 +465,22 @@ annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) ar
 that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
 annotation. Up to Python 3.13 the parser limits nesting by count only, so a source within those limits can still
 overflow a small C stack (the Windows main thread has 2 MB): long chains on 3.10, nested f-strings on 3.10 and 3.11
-(each replacement field gets a parser of its own), and deeply nested brackets or unary operators on any of them. So
-up to 3.13 every source longer than 256 characters, and on 3.10 and 3.11 every source that may contain an f-string, is
-parsed on a dedicated thread with a larger stack (8 MiB, more for long chains on 3.10 and for possible f-strings on 3.10
-and 3.11), and a tree over the limits is discarded on that thread, with the same results. Python 3.14's parser checks its stack itself. If the thread cannot be started, the file
-is reported with the reason "could not start a parser thread with a large enough stack" (an annotation becomes
-unknown). The thread is started once per stack size and reused, and it stays alive (idle) until the process exits;
-only the very long chains on 3.10 get a thread per file. The stack size setting is process-wide, so a program that
-embeds pythograph and starts threads while that thread is being started may see one of them get the larger stack.
+(each replacement field gets a parser of its own, so their brackets and unary operators stack up), long chains on 3.11
+when the caller raised the recursion limit, and deeply nested unary operators on 3.12 and 3.13. The CLI therefore runs
+each command on one thread whose stack covers every accepted source (65 MiB on 3.10, 24 MiB on 3.11, 8 MiB on 3.12
+and 3.13; Python 3.14's parser checks its stack itself, so 3.14 stays on the main thread); exit codes and Ctrl+C
+behave as before. When pythograph is used as a library from another thread, every source longer than 128 characters
+up to 3.13, every long chain on 3.10, and every source that may contain an f-string on 3.10 and 3.11 is parsed on a
+non-daemon thread with a larger stack that is joined at once, and a tree over the limits is discarded on that thread;
+the results are the same. If that thread cannot be started (threadless builds, isolated subinterpreters on 3.10 and
+3.11), sources that 0.3.1 parsed on the calling thread are still parsed there, and the rest (long chains on 3.10,
+f-string sources over 4,000 characters on 3.10 and 3.11, and sources that would need more than 256 MiB of stack on
+3.11 with a huge recursion limit) are reported with the reason "could not start a parser thread with a large enough
+stack" (an annotation becomes unknown). The stack size setting is process-wide; pythograph's own calls are
+serialized, but a thread the host program starts at the same moment may get the larger stack. Under a tight
+`RLIMIT_AS`, note that the CLI thread reserves its stack and, with glibc, a malloc arena. The stack guarantee covers
+parsing only: on 3.10 the analysis itself recurses through about 870 Python frames at depth 128 (about 560 KiB on
+Linux, about 800 KiB with a worst-case string annotation), so give a library thread at least 1 MiB.
 
 Graph snapshots expose `statistics.sourceAnalysis`: separate file denominators, parse outcomes and reasons for graph
 symbols, tests excluded from symbols but read as supplemental context, and all parse attempts. `unparsed-files:` and
