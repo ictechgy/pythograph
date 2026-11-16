@@ -10,17 +10,45 @@ RecursionError를 잡아 계속하지 않는 것은 그때까지 채운 메모(�
 
 from __future__ import annotations
 
+import _thread
 import ast
 import io
 import os
 import re
 import sys
 import threading
+import threading as _stdlib_threading
 import time
 import tokenize
+import warnings
 from collections.abc import Callable
-from threading import Event, current_thread, main_thread
-from typing import Generic, Literal, TypeVar, cast
+from threading import current_thread, main_thread
+from typing import Generic, Literal, Protocol, TypeVar, cast
+
+from pythograph.source.cancel import (
+    NO_OUTCOME,
+    WAIT_SLICE_SECONDS,
+    CancelToken,
+    Completion,
+    bind_token,
+    raise_if_cancelled,
+    start_interruption,
+    take_outcome,
+)
+
+
+class _RLock(Protocol):
+    """스택 크기 잠금이 쓰는 `RLock`의 메서드다(`_is_owned`는 `threading.Condition`도 쓰는 C 구현의 메서드다)."""
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        """잠금을 얻는다."""
+
+    def release(self) -> None:
+        """잠금을 푼다."""
+
+    def _is_owned(self) -> bool:
+        """지금 스레드가 쥐고 있는지다."""
+
 
 #: 전용 스레드에서 돌린 작업의 결과 타입이다.
 _Result = TypeVar("_Result")
@@ -113,22 +141,27 @@ _PARSER_DEPTH_LEVELS = 6_000
 #: 센다(3.10의 사슬 상한과 같다).
 MAX_PARSE_STACK_BYTES = 255 * 1024 * 1024
 
-#: 명령 스레드를 기다리는 주 스레드가 깨어나는 간격(초)이다. Windows에서는 시간 제한 없는 `Thread.join`이 Ctrl+C를 받지
-#: 못해(잠금 대기가 경보를 받지 않는다), 그 간격마다 돌아와 KeyboardInterrupt를 받는다(Windows CI에는 이를 확인하는
-#: 테스트가 없다).
-_JOIN_POLL_SECONDS = 0.1
+#: 전용 스레드를 기다리는 스레드가 깨어나는 간격(초)이다(`source.cancel.WAIT_SLICE_SECONDS`). Windows의 잠금 대기는
+#: Ctrl+C를 받지 못해 그 간격마다 돌아와 받는다(Windows CI에는 이를 확인하는 테스트가 없다).
+_JOIN_POLL_SECONDS = WAIT_SLICE_SECONDS
 
-#: 주 스레드가 Ctrl+C 같은 예외를 받은 뒤 명령 스레드가 멈추기를 기다리는 시간(초)이다. 명령 스레드에는
-#: KeyboardInterrupt를 넣지만(`PyThreadState_SetAsyncExc`), 파이썬 바이트코드를 실행할 때만 받으므로 C 호출 하나가 끝날
-#: 때까지 늦는다. 가장 긴 C 호출 하나는 4 MiB 소스의 `ast.parse`로, 실측(Linux, 3.10.20·3.11.18·uv 3.11.15·3.12.3·
-#: 3.13.18) 최대 12.1초였다(짧은 문장 100만 개. 3.13의 들여쓴 `json.dumps`도 C 호출이지만 108 MiB에 1.4초). 그 약
-#: 1.7배다. 두 번째 Ctrl+C나 시간이 다 되면 주 스레드는 기다리지 않고 예외를 다시 낸다(명령 스레드는 데몬이고 표준
-#: 입출력을 쓰지 않으므로 버려도 된다).
+#: 주 스레드가 Ctrl+C 같은 예외를 받은 뒤 명령 스레드가 멈추기를 기다리는 시간(초)이다. 명령 스레드는 취소 표시를 정해
+#: 둔 자리(`source.cancel.raise_if_cancelled`)에서만 보므로 C 호출 하나가 끝날 때까지 늦는다. 가장 긴 C 호출 하나는
+#: 4 MiB 소스의 `ast.parse`로, 실측(Linux, 3.10.20·3.11.18·uv 3.11.15·3.12.3·3.13.18) 최대 12.1초였다(짧은 문장 100만
+#: 개. 3.13의 들여쓴 `json.dumps`도 C 호출이지만 108 MiB에 1.4초). 그 약 1.7배다. 두 번째 Ctrl+C나 시간이 다 되면 주
+#: 스레드는 기다리지 않고 예외를 다시 낸다(명령 스레드는 데몬이고 표준 입출력을 쓰지 않으므로 버려도 된다).
 COMMAND_STOP_GRACE_SECONDS = 20.0
 
-#: 스레드 시작이 시작 도중에 난 다른 예외(Ctrl+C 등)를 처리하던 중 실패했을 때, 스레드가 실제로 시작해 작업에 들어오는지
-#: 기다리는 시간(초)이다. 시작한 스레드는 밀리초 안에 들어온다. 부른 쪽이 시작 전부터 처리하던 예외는 해당하지 않는다.
-_START_CONFIRM_SECONDS = 1.0
+#: 분석 대상 소스를 파싱할 때 파서에 주는 파일 이름이다. 3.12부터 컴파일러는 잘못된 이스케이프(`"\\Q"`) 같은 소스에
+#: SyntaxWarning을 내고(3.10·3.11은 DeprecationWarning), 기본 처리기는 그 줄을 표준 오류에 쓴다. 분석 대상의 비밀 값이
+#: 출력에 섞이고(4차 리뷰 CLI-3), 계산 스레드가 표준 오류에 쓰게 된다. 컴파일 경고의 모듈 이름은 파서에 준 파일 이름
+#: (`.py`를 뗀 것)이므로(3.10–3.14 확인) 이 고정 이름만 고르는 무시 필터 하나를 import할 때 건다
+#: (`warnings.catch_warnings`는 3.14 전에는 프로세스 전체 상태를 바꿔 스레드에 안전하지 않다). 그 필터는 맨 앞에 들어가
+#: 시작할 때의 `-W error::SyntaxWarning`보다 앞서므로 결과가 바뀌지 않는다. 호스트가 그 뒤에 넣은 필터는 이 필터보다
+#: 앞서고, `warnings.resetwarnings()`는 이 필터를 지워 경고를 다시 보이게 한다.
+PARSE_FILENAME = "<pythograph-source>"
+
+warnings.filterwarnings("ignore", module=re.escape(PARSE_FILENAME) + r"\Z")
 
 #: 전용 스택 스레드를 만들지 못해 파싱하지 않은 모듈의 읽지 못한 소스 이유다(파서의 깊이 한도와 구분한다).
 PARSE_STACK_UNAVAILABLE_REASON = "could not start a parser thread with a large enough stack"
@@ -302,7 +335,8 @@ def parse_guarded(
 
     Args:
         text: 소스.
-        filename: 파서에 줄 파일 이름.
+        filename: 소스의 파일 이름(부르는 쪽 기록용). 파서에는 언제나 `PARSE_FILENAME`을 준다(컴파일 경고를 그 이름으로
+            걸러 낸다).
         mode: `exec`(모듈)나 `eval`(식).
         bound: 사슬 추정치(`chain_bound`, `MAX_CHAIN_TOKENS` 이하로 확인한 값).
         depth_limit: 허용하는 트리 깊이(`tree_overflow`).
@@ -321,10 +355,11 @@ def parse_guarded(
 
     def parse_and_measure() -> tuple[ast.AST | None, Literal["depth", "nodes"] | None]:
         """파싱하고 상한을 잰다. 넘는 트리는 이 스레드에서 해제되도록 돌려주지 않는다."""
-        tree = ast.parse(text, filename=filename, mode=mode)
+        tree = ast.parse(text, filename=PARSE_FILENAME, mode=mode)
         overflow = tree_overflow(tree, depth_limit, node_limit)
         return (None, overflow) if overflow is not None else (tree, None)
 
+    raise_if_cancelled()
     stack = guarded_stack_bytes(text, bound)
     if stack <= current_parse_stack_bytes():
         return parse_and_measure()
@@ -425,12 +460,13 @@ def run_on_parse_stack(work: Callable[[], _Result]) -> _Result:
     스레드에서 돌리면 그런 이동이 없다. `work`는 표준 입출력에 쓰지 않아야 한다(결과는 부른 스레드가 쓴다). 그래야
     Ctrl+C가 출력 쓰기를 부른 스레드에서 끊고, 명령 스레드를 버려도 출력 버퍼 잠금을 쥔 채 남지 않는다.
 
-    주 스레드는 `_JOIN_POLL_SECONDS`마다 깨어나 기다린다. 기다리는 동안 예외(Ctrl+C의 KeyboardInterrupt, 신호 처리기가
-    낸 예외)를 받으면 명령 스레드에 KeyboardInterrupt를 넣어 `with`·`finally`(임시 디렉터리 지우기, git 자식 정리)를
+    부른 스레드는 `_JOIN_POLL_SECONDS`씩 나눠 기다린다(`_ParseThread.run`). 기다리는 동안 예외(Ctrl+C의
+    KeyboardInterrupt, 신호 처리기가 낸 예외)를 받으면 명령 스레드의 취소 표시를 세워, 명령 스레드가 다음 확인 자리
+    (`source.cancel.raise_if_cancelled`)에서 KeyboardInterrupt로 `with`·`finally`(임시 디렉터리 지우기, git 자식 정리)를
     풀게 하고 `COMMAND_STOP_GRACE_SECONDS`까지 기다린 뒤 그 예외를 다시 낸다. 기다리는 중 두 번째 예외는 바로 나간다.
     `work`의 결과와 예외는 부른 스레드에서 그대로 돌려주거나 다시 낸다. `work`는 두 번 돌지 않는다. 스택이 필요
     없거나(3.14 이상) 이미 그만한 전용 스택이거나 스레드를 만들 수 없으면(데몬 스레드를 막은 하위 인터프리터, 스레드
-    없는 빌드) 부른 스레드에서 돌린다(파싱마다 `parse_guarded`가 다시 판단한다).
+    없는 빌드) 부른 스레드에서 돌린다(파싱마다 `parse_guarded`가 다시 판단한다). 그때는 신호가 `work`에 바로 닿는다.
 
     Args:
         work: 돌릴 작업.
@@ -441,27 +477,29 @@ def run_on_parse_stack(work: Callable[[], _Result]) -> _Result:
     stack = largest_parse_stack_bytes()
     if stack <= current_parse_stack_bytes():
         return work()
+    thread: _ParseThread[_Result] | None = None
     try:
         thread = _ParseThread(work, stack, daemon=True)
-        thread.start()
+        return thread.run()
     except ParseStackUnavailableError:
-        unavailable = True
-    else:
-        unavailable = False
-    if unavailable:
-        # `except` 블록 밖에서 돌린다. 안에서 돌리면 명령 전체가 그 예외를 처리하는 중이 되어, 뒤에 실패한 스레드
-        # 시작마다 그 예외가 앞 예외(`__context__`)로 붙는다.
-        return work()
-    return thread.wait()
+        if thread is not None and not thread.refused:
+            raise  # 스레드에서 돈 작업이 낸 예외다.
+    # `except` 블록 밖에서 돌린다. 안에서 돌리면 명령 전체가 그 예외를 처리하는 중이 되어, 뒤에 실패한 스레드 시작마다
+    # 그 예외가 앞 예외(`__context__`)로 붙는다(4차 리뷰 B1).
+    return work()
 
 
 def _run_on_large_stack(work: Callable[[], _Result], stack: int) -> _Result:
     """주어진 크기의 스택을 가진 스레드를 만들어 `work`를 돌리고, 바로 합류해 결과나 예외를 부른 스레드로 넘긴다.
 
-    스레드는 데몬이 아니다(데몬 스레드를 막은 3.12·3.13 격리 하위 인터프리터에서도 만들 수 있고, 바로 합류하므로 종료를
-    막지 않는다). 남아 있는 스레드가 없어 하위 인터프리터를 끝낼 수 있고 fork 경고도 없다. 작업 스레드에서 난 예외는
+    바로 합류하므로 남아 있는 스레드가 없어 하위 인터프리터를 끝낼 수 있고 fork 경고도 없다. 스레드는 인터프리터가
+    허락하면 데몬이고, 데몬 스레드를 막은 3.12 이상 격리 하위 인터프리터에서만 데몬이 아니다
+    (`_thread.daemon_threads_allowed`). 데몬이어야 하는 이유: 부른 스레드가 `Thread.start` 안(표준 라이브러리가 새
+    스레드의 시작을 기다리는 `Event`)에서 신호 처리기의 예외를 받으면 그 `Event`의 잠금이 부른 스레드에 남아, 새
+    스레드가 시작을 알리다 영원히 멈춘다. 그 스레드는 작업을 차지하지 못해 작업은 돌지 않지만, 데몬이 아니면 인터프리터
+    종료가 그 스레드를 끝없이 기다렸다(4차 리뷰 반영 중 스트레스 실험에서 찾음). 작업 스레드에서 난 예외는
     `BaseException`까지 담아 부른 스레드에서 그대로 다시 낸다. 기다리는 중 부른 스레드가 예외를 받으면 그 스레드를
-    멈추게 하고 다시 낸다(`_ParseThread.wait`).
+    멈추게 하고 다시 낸다(`_ParseThread.run`).
 
     Args:
         work: 돌릴 작업.
@@ -471,15 +509,30 @@ def _run_on_large_stack(work: Callable[[], _Result], stack: int) -> _Result:
         작업의 결과.
 
     Raises:
-        ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때(스레드가 시작하지 않은 것이 확실할 때만).
+        ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때(스레드가 작업을 맡지 않은 것이 확실할 때만).
     """
-    thread = _ParseThread(work, stack, daemon=False)
-    thread.start()
-    return thread.wait()
+    return _ParseThread(work, stack, daemon=_daemon_threads_allowed()).run()
+
+
+def _daemon_threads_allowed() -> bool:
+    """지금 인터프리터가 데몬 스레드를 허락하는지 본다(3.11까지는 그런 설정이 없어 늘 True).
+
+    Returns:
+        데몬 스레드를 만들 수 있으면 True.
+    """
+    allowed = getattr(_thread, "daemon_threads_allowed", None)
+    return True if allowed is None else bool(allowed())
 
 
 class _ParseThread(Generic[_Result]):
-    """전용 스택 스레드 하나와 그 결과·취소 상태다."""
+    """전용 스택 스레드 하나와 그 결과·취소 상태다.
+
+    부른 스레드는 신호를 받을 수 있으므로 `threading.Event`·`Condition`으로 기다리지 않는다(`source.cancel.Completion`).
+    작업 스레드에는 비동기 예외를 넣지 않고 취소 표시(`CancelToken`)만 세운다. 작업을 누가 맡는지는 `_claims`의 첫
+    항목이 정한다: 작업 스레드는 시작하자마자 `"worker"`를, 부른 쪽은 시작을 포기하거나 멈출 때 `"caller"`를 덧붙인다.
+    `list.append`는 한 번의 C 호출이라 신호 처리기의 예외가 그 사이에 끼지 못하고, 늦게 시작한 스레드는 첫 항목을 보고
+    작업하지 않는다.
+    """
 
     def __init__(self, work: Callable[[], _Result], stack: int, *, daemon: bool) -> None:
         """스레드를 만든다(아직 시작하지 않는다).
@@ -492,135 +545,217 @@ class _ParseThread(Generic[_Result]):
         Raises:
             ParseStackUnavailableError: 스레드를 만들 수 없을 때(데몬 스레드를 막은 하위 인터프리터 등).
         """
+        #: 작업 스레드에서 돌릴 작업이다.
         self._work = work
+        #: 스레드 스택 크기(바이트)다.
         self._stack = stack
-        self._outcome: list[_Result | BaseException] = []
-        #: 스레드가 작업 함수에 들어왔는지다(시작이 중간에 끊겼을 때 스레드가 실제로 시작했는지 가린다).
-        self._entered = Event()
-        #: 부른 쪽이 그만두었는지다. 늦게 시작한 스레드는 작업을 돌리지 않는다.
-        self._cancelled = Event()
-        #: 작업 함수가 끝났는지다. 끝나기를 이것으로 기다린다: 3.12까지는 Ctrl+C가 끊은 `Thread.join`이 살아 있는
-        #: 스레드를 끝난 것으로 표시해(bpo-45274 처리) 그 뒤 `is_alive`·`join`을 믿을 수 없다.
-        self._done = Event()
+        #: 작업의 결과나 예외를 담는 자리 하나다(미리 만들어 두어 담을 때 메모리를 잡지 않는다). 부른 쪽은 꺼내며
+        #: 비운다: 담긴 예외의 traceback이 `f_back`으로 `_run` 프레임을 거쳐 이 객체를 다시 가리켜, 남겨 두면 순환
+        #: 참조가 되어 분석 힙 전체가 순환 GC 전까지 남았다(4차 리뷰 CLI-1).
+        self._outcome: list[object] = [NO_OUTCOME]
+        #: 작업 스레드의 취소 표시다.
+        self._token = CancelToken()
+        #: 작업을 맡은 쪽이 첫 항목이다(`"worker"`나 `"caller"`).
+        self._claims: list[str] = []
+        #: 작업 스레드가 결과나 예외를 담고 알린다.
+        self._finished = Completion()
+        #: 부른 쪽이 유예가 지나 기다리기를 그만뒀는지다. 그 뒤에 담긴 결과는 아무도 꺼내지 않으므로 작업 스레드가
+        #: 비운다.
+        self._abandoned = False
+        #: 끝을 알리는 메서드를 미리 묶어 둔다(메모리가 모자라도 `_run`의 `finally`가 새 객체를 만들지 않게 한다).
+        self._signal_finished = self._finished.set
         try:
             self._thread = threading.Thread(target=self._run, name="pythograph-parse", daemon=daemon)
         except (RuntimeError, ValueError) as error:
             raise ParseStackUnavailableError(f"could not create a {stack}-byte parser thread") from error
 
-    def start(self) -> None:
-        """스레드를 시작한다.
+    @property
+    def refused(self) -> bool:
+        """부른 쪽이 작업을 맡았는지(작업 스레드가 작업하지 않는지)다."""
+        return bool(self._claims) and self._claims[0] == "caller"
 
-        `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 잠금(`_stack_size_guard`) 안에서 바꾸고 시작한 직후
-        되돌린다. 그 순간 호스트 프로그램이 만든 스레드는 이 크기를 받을 수 있다. 시작이 RuntimeError·ValueError로
-        끝나도 그 예외가 시작 도중에 난 다른 예외를 처리하다 난 것(시작을 기다리던 중 Ctrl+C가 끊어 "release unlocked
-        lock"이 된 경우 등)이고 스레드가 실제로 작업에 들어왔으면, 시작하지 못한 것으로 보지 않고 스레드를 멈추게 한 뒤
-        그 앞의 예외를 다시 낸다(작업을 부른 스레드에서 한 번 더 돌리지 않는다). 다른 예외(KeyboardInterrupt)도 스레드를
-        멈추게 한 뒤 다시 낸다.
+    def run(self) -> _Result:
+        """스레드를 시작하고 결과를 기다려 돌려주거나 예외를 다시 낸다.
 
-        시작 도중에 났는지는 앞 예외(`__context__`)가 시작 전에 부른 쪽이 처리하던 예외(`sys.exc_info()`)와 다른지로
-        가린다. 부른 쪽이 `except` 블록 안에서 파싱하면 실패한 시작의 앞 예외가 그 예외이고, 그때 기다리면 실패마다
-        `_START_CONFIRM_SECONDS`가 더 걸린다(4차 리뷰 B1: CLI가 명령 전체를 그런 블록 안에서 돌려 파일마다 1초).
+        시작 직전부터 기다림이 끝날 때까지 한 `try`가 감싼다. 어디서 예외가 나든(시작 중의 Ctrl+C, 스택 크기를 되돌리는
+        `finally`, 기다림) 스레드를 멈추게 하고(`stop`) 다시 낸다(4차 리뷰 I-N2: 시작과 기다림 사이에 난 예외는 시작한
+        스레드를 감독 없이 남겼다).
+
+        Returns:
+            작업의 결과.
 
         Raises:
-            ParseStackUnavailableError: 스레드가 시작하지 않은 것이 확실할 때.
+            ParseStackUnavailableError: 스레드가 작업을 맡지 않은 것이 확실할 때(`refused`).
         """
         handled = sys.exc_info()[1]
-        with _stack_size_guard.lock:
+        failure: BaseException | None = None
+        try:
+            failure = self._start()
+            if failure is not None:
+                self._settle_failed_start(failure, handled)
+            return self._wait()
+        except BaseException:
+            self.stop()
+            raise
+        finally:
+            # 나가는 예외의 traceback이 이 프레임을 가리키므로, 예외를 가리키는 지역 변수를 비워 순환을 끊는다.
+            failure = handled = None
+
+    def _start(self) -> BaseException | None:
+        """스레드를 시작한다. 시작이 낸 예외는 돌려준다(잠금을 놓은 뒤 가린다).
+
+        `threading.stack_size`는 프로세스(인터프리터) 전체 설정이라 잠금(`_stack_size_guard`) 안에서 바꾸고 시작한 직후
+        되돌린다. 그 순간 호스트 프로그램이 만든 스레드는 이 크기를 받을 수 있다.
+
+        Returns:
+            시작이 낸 예외, 성공하면 None.
+
+        Raises:
+            ParseStackUnavailableError: 스택 크기를 바꿀 수 없을 때.
+        """
+        guard = _stack_size_guard
+        guard.enter()
+        try:
             try:
-                previous = threading.stack_size()
+                guard.previous = threading.stack_size()
             except (RuntimeError, ValueError) as error:
                 raise ParseStackUnavailableError("thread stack sizes cannot be set") from error
+            guard.dirty = True
             try:
                 threading.stack_size(self._stack)
                 self._thread.start()
             except BaseException as error:  # 잠금을 놓은 뒤 가린다(멈추기를 기다리는 동안 잠금을 쥐지 않는다).
-                failure = error
-            else:
-                return
+                return error
             finally:
-                threading.stack_size(previous)
-        if isinstance(failure, (RuntimeError, ValueError)):
-            interrupted = failure.__context__
-            if interrupted is None or interrupted is handled or not self._entered.wait(_START_CONFIRM_SECONDS):
-                self._cancelled.set()
+                threading.stack_size(guard.previous)
+                guard.dirty = False
+        finally:
+            guard.lock.release()
+        return None
+
+    def _settle_failed_start(self, failure: BaseException, handled: BaseException | None) -> None:
+        """시작이 예외로 끝났을 때 누가 작업을 맡는지 정한다. 작업 스레드가 작업을 맡았고 끊긴 시작이 아니면 돌아온다.
+
+        먼저 부른 쪽이 작업을 차지해 본다(늦게 시작한 스레드는 작업하지 않는다). 시작이 낸 예외의 앞 예외
+        (`__context__`)가 시작 도중에 난 예외면(`start_interruption`: 시작 전에 처리하던 예외와 다르다, 4차 리뷰 B1)
+        끊긴 시작이라 그 앞 예외(Ctrl+C, 신호 처리기의 예외)를 다시 낸다. 시작을 기다리던 중 끊기면 표준 라이브러리
+        안에서 "release unlocked lock" 같은 RuntimeError가 되고, `Exception`인 신호 예외가 `Thread.start` 자신의 정리
+        (`del _limbo[self]`)와 새 스레드가 겨루면 KeyError가 되기도 한다. 어느 쪽이든 작업은 한 번도 더 돌지 않고
+        Ctrl+C는 사라지지 않는다(작업 스레드가 이미 차지했으면 `run`이 멈추게 한다). 3b7343e까지는 1초 안에 스레드가
+        들어오지 않으면 스레드 이유로 보고 작업을 부른 스레드에서 돌려 Ctrl+C를 잃었다(4차 리뷰 R1). 끊긴 시작이 아닌
+        RuntimeError·ValueError는 부른 쪽이 차지했으면 `ParseStackUnavailableError`, 작업 스레드가 이미 차지했으면 그
+        결과를 기다린다. 다른 예외(시작 중의 KeyboardInterrupt)는 그대로 다시 낸다.
+
+        Args:
+            failure: 시작이 낸 예외.
+            handled: 시작 전에 부른 쪽이 처리하던 예외.
+
+        Raises:
+            ParseStackUnavailableError: 스레드가 작업을 맡지 않은 것이 확실할 때.
+        """
+        interrupted = start_interruption(failure, handled)
+        try:
+            self._claims.append("caller")
+            if interrupted is not None:
+                raise interrupted
+            if not isinstance(failure, (RuntimeError, ValueError)):
+                raise failure
+            if self.refused:
                 raise ParseStackUnavailableError(f"could not start a {self._stack}-byte parser thread") from failure
-            failure = interrupted
-        self.stop()
-        raise failure
+        finally:
+            del failure, handled, interrupted  # 나가는 예외의 traceback이 이 프레임을 가리키므로 순환을 끊는다.
 
-    def wait(self) -> _Result:
-        """스레드가 끝나기를 기다려 결과를 돌려주거나 예외를 다시 낸다.
+    def _wait(self) -> _Result:
+        """작업 스레드가 끝나기를 나눠 기다려 결과를 돌려주거나 예외를 다시 낸다.
 
-        기다리는 동안 부른 스레드가 예외를 받으면 스레드를 멈추게 하고(`stop`) 그 예외를 다시 낸다.
+        기다리는 스레드가 그 자체로 취소할 수 있는 작업 스레드면(전용 스택 안의 파싱이 더 큰 스택을 부른 경우) 조각마다
+        자기 취소 표시도 본다. 조각마다 스레드가 살아 있는지도 본다: 끝을 알리지 못하고 죽은 스레드(메모리가 모자라
+        `finally`마저 실패한 경우)를 영원히 기다리지 않고 내부 오류로 끝낸다(4차 리뷰 R-B1. 합류가 끊긴 적이 없으므로
+        `is_alive`를 믿을 수 있다). 끝난 뒤에는 스레드가 완전히 나갈 때까지 합류한다(하위 인터프리터 종료·fork는 남은
+        스레드를 싫어한다). 합류 중 예외는 그대로 나가고 다시 기다리지 않는다. 결과는 꺼내며 비우고, 다시 낸 예외를
+        가리키는 지역 변수도 비워 순환 참조를 남기지 않는다.
 
         Returns:
             작업의 결과.
+
+        Raises:
+            AssertionError: 작업 스레드가 결과도 예외도 남기지 못하고 끝났을 때(CLI에서는 종료 코드 2).
         """
-        try:
-            while not self._done.wait(_JOIN_POLL_SECONDS):
-                pass
-            self._thread.join()
-        except BaseException:
-            self.stop()
-            raise
-        if not self._outcome:  # 작업 함수는 결과나 예외를 언제나 담는다(담기마저 실패한 경우만 남는다).
-            raise AssertionError("the parser thread ended without recording a result or an exception")
-        result = self._outcome[0]
-        if isinstance(result, BaseException):
-            raise result
-        return result
+        while not self._finished.wait(_JOIN_POLL_SECONDS):
+            raise_if_cancelled()
+            if not self._thread.is_alive() and not self._finished.done:
+                break
+        while self._thread.is_alive():
+            self._thread.join(_JOIN_POLL_SECONDS)
+        return cast(_Result, take_outcome(self._outcome))
 
     def stop(self) -> None:
         """스레드를 멈추게 하고 `COMMAND_STOP_GRACE_SECONDS`까지 끝나기를 기다린다.
 
-        아직 작업에 들어오지 않았으면 들어오지 않게 하고, 작업 중이면 KeyboardInterrupt를 넣어 `with`·`finally`를 풀게
-        한다. 기다리는 중 받은 예외는 그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다).
+        취소 표시를 먼저 세우고 그다음 작업을 차지해 본다(4차 리뷰 R-N1의 순서). 부른 쪽이 차지했으면(시작하지 않았거나
+        아직 작업을 차지하지 않은 스레드) 스레드는 작업하지 않으므로 기다리지 않는다. 이미 끝났거나 끝을 알리지 못하고
+        죽었어도 기다리지 않는다. 작업 중이면 다음 확인 자리에서 KeyboardInterrupt로 풀리기를 기다린다. 기다리는 중 받은
+        예외는 그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다). 작업 스레드가 남긴 결과·예외는 버린다(그 traceback이
+        분석 힙을 붙잡지 않게 한다).
+
+        기다림은 C 호출 하나를 끊지 못한다: GIL을 쥔 채 도는 C 호출(큰 소스의 `ast.parse`)이 끝날 때까지는 주 스레드도
+        신호 처리기를 돌리지 못해 이 함수에 들어오지도 않는다. 20초 유예는 GIL을 놓고 막힌 호출에만 걸린다.
         """
-        self._cancelled.set()
-        if self._entered.is_set() and not self._outcome:
-            _raise_in_thread(self._thread.ident, KeyboardInterrupt)
-        elif not self._entered.is_set() and self._thread.ident is None:
-            return  # 아직(또는 끝내) 시작하지 않았다. 시작해도 취소 표시를 보고 작업하지 않는다.
-        deadline = time.monotonic() + COMMAND_STOP_GRACE_SECONDS
-        while not self._done.wait(min(_JOIN_POLL_SECONDS, max(0.0, deadline - time.monotonic()))):
-            if time.monotonic() >= deadline:
+        self._token.cancelled = True
+        self._claims.append("caller")
+        try:
+            if self.refused or self._finished.done:
                 return
+            deadline = time.monotonic() + COMMAND_STOP_GRACE_SECONDS
+            while not self._finished.wait(min(_JOIN_POLL_SECONDS, max(0.0, deadline - time.monotonic()))):
+                if time.monotonic() >= deadline or not self._thread.is_alive():
+                    return
+        finally:
+            # 결과를 버린다. 아직 끝나지 않았으면 그만둔다고 먼저 표시하고 끝났는지 본다: 작업 스레드는 끝을 알린 뒤 이
+            # 표시를 보므로 둘 중 늦게 보는 쪽이 비운다.
+            self._abandoned = True
+            if self._finished.done:
+                self._outcome[0] = NO_OUTCOME
 
     def _run(self) -> None:
-        """스레드에 스택 크기를 표시하고 작업의 결과나 예외를 담는다(넣은 KeyboardInterrupt가 어디서 닿아도 담는다)."""
+        """작업을 차지했으면 스레드에 스택 크기와 취소 표시를 두고 작업의 결과나 예외를 담는다.
+
+        담긴 예외의 traceback 프레임은 `f_back`으로 이 프레임에 닿고, 이 프레임의 `self`는 결과 자리를 가리킨다. 그래서
+        부른 쪽이 꺼내며 비우고(`take_outcome`), 부른 쪽이 그만둔 뒤 담긴 결과는 여기서 비워 순환 참조를 남기지 않는다.
+        끝을 알리는 일은 미리 묶어 둔 메서드로 하고 새 객체를 만들지 않는다.
+        """
+        self._claims.append("worker")
         try:
-            self._entered.set()
-            if self._cancelled.is_set():
+            if self._claims[0] != "worker":
                 return
+            bind_token(self._token)
             _parse_stack.bytes = self._stack
-            self._outcome.append(self._work())
-        except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(`wait`).
-            self._outcome.append(error)
+            self._outcome[0] = self._work()
+        except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(`_wait`).
+            self._outcome[0] = error
         finally:
-            self._done.set()
+            _forget_finished_thread()
+            self._signal_finished()
+            if self._abandoned:
+                self._outcome[0] = NO_OUTCOME
 
 
-def _raise_in_thread(ident: int | None, exception: type[BaseException]) -> None:
-    """다른 파이썬 스레드에 비동기 예외를 넣는다(`PyThreadState_SetAsyncExc`, 문서화된 C API).
+def _forget_finished_thread() -> None:
+    """끝나 가는 지금 스레드를 `threading`의 끝난 스레드 모음(`_dangling`, 약한 참조 집합)에서 뺀다(작업 스레드에서
+    부른다).
 
-    그 스레드는 다음에 바이트코드를 실행할 때 예외를 받는다. ctypes가 없는 빌드에서는 아무것도 하지 않는다(부른 쪽은
-    기다리다 시간이 되면 스레드를 버린다).
-
-    Args:
-        ident: 스레드 id(`Thread.ident`).
-        exception: 넣을 예외 클래스.
+    그 집합의 약한 참조 콜백은 스레드 객체를 마지막으로 놓는 스레드, 곧 부른 스레드에서 파이썬 코드로 돈다. 그 사이에
+    닿은 Ctrl+C는 CPython이 약한 참조 콜백의 예외를 버리므로("Exception ignored in") 사라지고 분석이 계속됐다(4차 리뷰
+    I-S4, 9234b72부터). 작업 스레드에서 미리 빼면 콜백이 남지 않는다. 그 집합은 fork한 자식에서 누가 합류할지 모르는
+    끝난 스레드의 잠금을 다시 만들 때만 쓰는데, 이 스레드 객체에는 부른 스레드만 `_wait`에서 합류하고 fork한 자식에는
+    합류하는 중인 부른 스레드가 없다. 비공개 속성이라 없거나 실패하면 그대로 둔다.
     """
-    if ident is None:
-        return
-    try:
-        import ctypes  # noqa: PLC0415 — 중단할 때만 필요하고, ctypes가 없는 빌드에서도 모듈을 읽을 수 있어야 한다
-    except ImportError:
-        return
-    set_async_exc = getattr(getattr(ctypes, "pythonapi", None), "PyThreadState_SetAsyncExc", None)
-    if set_async_exc is None:
-        return
-    if set_async_exc(ctypes.c_ulong(ident), ctypes.py_object(exception)) > 1:  # 문서대로, 여럿이면 되돌린다.
-        set_async_exc(ctypes.c_ulong(ident), None)
+    dangling = getattr(_stdlib_threading, "_dangling", None)
+    if dangling is not None:
+        try:
+            dangling.discard(_stdlib_threading.current_thread())
+        except Exception:  # 콜백이 남을 뿐이다(메모리 부족 등에서도 끝을 알리는 일을 막지 않는다).
+            return
 
 
 def _parses_safely_inline(text: str, bound: int) -> bool:
@@ -687,15 +822,38 @@ def _aligned_stack_bytes(wanted: int) -> int:
 
 
 class _StackSizeGuard:
-    """`threading.stack_size`를 바꾸고 스레드를 시작하고 되돌리는 동안 잡는 잠금이다."""
+    """`threading.stack_size`를 바꾸고 스레드를 시작하고 되돌리는 동안 잡는 잠금과, 바꾼 채 끊겼는지의 표시다.
+
+    잠금은 주인을 아는 `RLock`이다. 주 스레드가 잠금을 얻는 C 호출이 끝난 직후 신호 처리기의 예외를 받으면(3.14의
+    `with`는 `__enter__`를 보통 호출로 불러 그 끝에서 신호 처리기가 돈다) 잠금을 쥔 채 빠져나간다. 같은 스레드의 다음
+    시작이 그것을 알아보고 풀며(4차 리뷰 반영 중 3.14 스트레스에서 찾음), 바꾼 채 남은 스택 크기 설정도 되돌린다.
+    """
 
     def __init__(self) -> None:
         """잠금을 만든다."""
-        self.lock = threading.Lock()
+        self.lock = _new_guard_lock()
+        #: 바꾸기 전의 프로세스 스택 크기 설정이다.
+        self.previous = 0
+        #: 스택 크기를 바꾸고 아직 되돌리지 않았는지다.
+        self.dirty = False
 
     def reset(self) -> None:
         """fork한 자식에서 잠금을 새로 만든다(부모의 다른 스레드가 잡은 채 복사됐을 수 있다)."""
-        self.lock = threading.Lock()
+        self.lock = _new_guard_lock()
+
+    def enter(self) -> None:
+        """잠금을 얻는다. 이 스레드가 앞선 시작에서 쥔 채 끊겼으면 먼저 푼다. 바꾼 채 남은 설정은 되돌린다."""
+        while self.lock._is_owned():
+            self.lock.release()
+        self.lock.acquire()
+        if self.dirty:
+            threading.stack_size(self.previous)
+            self.dirty = False
+
+
+def _new_guard_lock() -> _RLock:
+    """스택 크기 잠금으로 쓸 `RLock`을 만든다(주인을 알아야 끊긴 획득을 풀 수 있다)."""
+    return cast(_RLock, _stdlib_threading.RLock())
 
 
 #: 전용 스택 스레드가 자기 스택 크기를 표시하는 스레드별 저장소다(`current_parse_stack_bytes`).

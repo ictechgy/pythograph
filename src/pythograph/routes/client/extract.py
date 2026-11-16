@@ -56,6 +56,7 @@ from pythograph.routes.client.wrappers import (
 )
 from pythograph.routes.django.urlconf import node_location
 from pythograph.routes.versions import declared_minimum
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.project import (
     Project,
     ReadFailure,
@@ -113,6 +114,7 @@ def extract_client_calls(project: Project, options: ClientOptions) -> ClientExtr
     tracker = ClientTracker(resolver, builder, rewritten, declared_minimum(project, "aiohttp"))
     scanner = _Scanner(resolver, builder, tracker, options.wrappers)
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
+        raise_if_cancelled()  # 정의마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
         scanner.scan(definition)
     scanner.report(index)
     _project_gaps(project, scanner.extraction)

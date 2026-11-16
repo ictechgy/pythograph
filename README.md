@@ -454,45 +454,65 @@ script), such as `from app.models import load` in `backend/app/api.py` without a
 
 Modules whose syntax tree nests deeper than 128 levels for `graph`, `reach`, and `impact`, or 256 levels for `routes`
 and `schema` (whose analysis recurses less), for example very long operator, attribute, call, or subscript chains, or
-long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit
-and abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in
-graph output, `route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too
-deep to parse". Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely
-long chains instead of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary
-operators, `.`, `(`, `[`) is reported the same way without being parsed, even when the line is a flat list. Chains
-inside f-string replacement fields count toward their line (every chain character of the f-string is counted). String
-annotations (forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one
-that cannot be parsed (including one with a NUL character) or that nests too deeply is treated as an unknown
-annotation. Up to Python 3.13 the parser limits nesting by count only, so a source within those limits can still
-overflow a small C stack (the Windows main thread has 2 MB): long chains on 3.10, nested f-strings on 3.10 and 3.11
-(each replacement field gets a parser of its own, so their brackets and unary operators stack up), long chains on 3.11
-when the caller raised the recursion limit, and deeply nested unary operators on 3.12 and 3.13. The CLI therefore
-computes each command on one thread whose stack covers every accepted source (65 MiB on 3.10, 24 MiB on 3.11, 8 MiB on
-3.12 and 3.13; on Windows that stack is committed), and writes the output and errors on the main thread. Python 3.14's
-parser checks its stack itself, so 3.14 uses no thread; there, on a very small caller stack (256 KiB or less), a
-source with a syntax error can be reported as nested too deeply instead (the parsed/unparsed split is the same, as in
-0.3.1). Exit codes are as before. Ctrl+C during the computation stops that thread, so its cleanup runs (for example
-change-impact's temporary copies), and then exits with KeyboardInterrupt; stopping waits for one running C call to
-finish, at most 20 seconds, and a second Ctrl+C exits at once. Ctrl+C while writing interrupts the write as before.
-When pythograph is used as a library from another thread, every source longer than 128 characters up to 3.13, every
-long chain on 3.10, and every source that may contain an f-string on 3.10 and 3.11 is parsed on a non-daemon thread
-with a larger stack that is joined at once, and a tree over the limits is discarded on that thread; up to 3.13 the
-results are the same. If that thread cannot be started (threadless builds, isolated subinterpreters on 3.10 and 3.11,
-resource exhaustion such as a tight `ulimit -v`), a source is still parsed on the calling thread as in 0.3.1, without
-waiting, unless it has a logical line with more than 2,000 chain tokens (3.10), a replacement field whose expression
-holds another f-string literal, including a field inside a format spec (3.10 and 3.11; also a source the tokenizer
-cannot split, and the rest of an f-string from a field the parser rejects), a logical line whose `ast2obj` estimate
-exceeds 8 MiB (3.11 at a recursion limit of 10,923 or more: from 2,769 chain tokens on that line when the source may
-contain an f-string, 26,769 otherwise), or more than 128 characters while the caller is not the main thread; those are
-reported with the reason "could not start a parser thread with a large enough stack" (an annotation becomes unknown).
-Logical lines end at `\n`, `\r\n` and a lone `\r`, as in the parser. These rules assume an 8 MiB main thread: on the
-Windows main thread (2,000,000 B) or under a lowered `ulimit -s`, a source within them can still crash the process, as
-in 0.3.1 (for example a 25,000-term chain on 3.11 with a recursion limit of 10,000). On 3.11, a source whose estimated
-stack, including the 16 MiB f-string allowance, exceeds 255 MiB (a logical line with about a million chain tokens under
-a huge recursion limit; grouping and display brackets count, so a flat literal with a million parentheses on one line
-is included) is reported as nested too deeply without parsing, like 3.10's chain limit. The stack
-size setting is process-wide; pythograph serializes its own stack-size changes, but a thread the host program starts
-at the same moment may get the larger stack. Under a tight `RLIMIT_AS`, the CLI thread's stack and, with glibc, its
+long `elif` ladders, are not analyzed, so that one generated or crafted file cannot exhaust Python's recursion limit and
+abort the whole command. They are reported like files that fail to parse — `unparsed-files:` in graph output,
+`route-coverage:` for routes, `unreadable-sources:` for schema — with the reason "source nesting too deep to parse".
+Public packages rarely nest beyond 100 levels. Python 3.10's parser crashes the process on extremely long chains instead
+of raising an error, so on 3.10 a file with a logical line of more than 50,000 chain tokens (binary operators, `.`, `(`,
+`[`) is reported the same way without being parsed, even when the line is a flat list. Chains inside f-string
+replacement fields count toward their line (every chain character of the f-string is counted). String annotations
+(forward references such as `"Mapped[str]"` or `"Client | None"`) are parsed under the same limits; one that cannot be
+parsed (including one with a NUL character) or that nests too deeply is treated as an unknown annotation. Up to Python
+3.13 the parser limits nesting by count only, so a source within those limits can still overflow a small C stack (the
+Windows main thread has 2 MB): long chains on 3.10, nested f-strings on 3.10 and 3.11 (each replacement field gets a
+parser of its own, so their brackets and unary operators stack up), long chains on 3.11 when the caller raised the
+recursion limit, and deeply nested unary operators on 3.12 and 3.13. The CLI therefore computes each command on one
+thread whose stack covers every accepted source (65 MiB on 3.10, 24 MiB on 3.11, 8 MiB on 3.12 and 3.13; on Windows that
+stack is committed), and writes the output and errors on the main thread. Python 3.14's parser checks its stack itself,
+so 3.14 uses no thread; there, on a very small caller stack (256 KiB or less), a source with a syntax error can be
+reported as nested too deeply instead (the parsed/unparsed split is the same, as in 0.3.1). Exit codes are as before.
+Ctrl+C during the computation asks that thread to stop. The thread checks the request before it parses each file, lists
+each directory, analyses each definition or module and writes each node, and in every 0.1-second slice while it waits
+for git or reads `--roots-from`; it then unwinds, so its cleanup runs (for example change-impact's temporary copies),
+and the command exits with KeyboardInterrupt. Nothing interrupts a C call that holds the GIL: parsing one large file
+(about 12 seconds for 4 MiB on the measured host, longer on slower machines) or a cyclic garbage collection of a large
+heap (up to about 12 seconds on the standard-library corpus with 3.13) delays even the handling of Ctrl+C until it
+returns, as in 0.3.1. After that the main thread waits at most 20 seconds for the next check, which matters only for a
+blocking call that releases the GIL; a second Ctrl+C stops waiting at once. On a large project the interpreter's final
+garbage collection then still has to walk what the analysis left behind: 8 to 10 seconds late in the standard-library
+corpus with 3.13 (17 to 21 seconds with 0.3.1). A second Ctrl+C, or SIGTERM (pythograph
+installs no handler), can leave change-impact's `pythograph-change-*` copies in the temporary directory, as in 0.3.1.
+Ctrl+C while writing interrupts the write as before. If the computation thread dies without reporting (for example a
+MemoryError while it finishes under a tight `ulimit -v`), the main thread notices and exits 2. Compile warnings about
+analysed sources are not emitted (Python 3.12's SyntaxWarning for an invalid escape sequence printed the offending
+source line, secrets included): the parser always gets the file name `<pythograph-source>`, and one filter installed
+when pythograph is imported ignores warnings attributed to that name only. A warnings filter the host adds later takes
+precedence, and `warnings.resetwarnings()` removes it. When pythograph is used as a library from another thread, every
+source longer than 128 characters up to 3.13, every long chain on 3.10, and every source that may contain an f-string on
+3.10 and 3.11 is parsed on a thread with a larger stack that is joined at once, and a tree over the limits is discarded
+on that thread; up to 3.13 the results are the same. That thread is a daemon thread unless the interpreter forbids
+daemon threads (isolated subinterpreters on 3.12 and later): a Ctrl+C that lands inside the standard library's
+`Thread.start` can leave the new thread stuck before it takes the work, and as a daemon it cannot block interpreter
+exit. A finished parse thread also removes itself from the standard library's set of dangling threads, so that no
+weakref callback runs on the caller when it releases the thread object: Python discards exceptions raised in such
+callbacks, and a Ctrl+C that arrived during one was lost while the analysis went on (2 of 150 runs of a
+`parse_annotation` loop on 3.12 before this change, 0 of 150 now on 3.10 and 3.12, as with 0.3.1). If that thread cannot
+be started (threadless builds, isolated subinterpreters on 3.10 and 3.11, resource exhaustion such as a tight
+`ulimit -v`), a source is still parsed on the calling thread as in 0.3.1, without waiting, unless it has a logical line with
+more than 2,000 chain tokens (3.10), a replacement field whose expression holds another f-string literal, including a
+field inside a format spec (3.10 and 3.11; also a source the tokenizer cannot split, and the rest of an f-string from a
+field the parser rejects), a logical line whose `ast2obj` estimate exceeds 8 MiB (3.11 at a recursion limit of 10,923 or
+more: from 2,769 chain tokens on that line when the source may contain an f-string, 26,769 otherwise), or more than 128
+characters while the caller is not the main thread; those are reported with the reason "could not start a parser thread
+with a large enough stack" (an annotation becomes unknown). Logical lines end at `\n`, `\r\n` and a lone `\r`, as in the
+parser. These rules assume an 8 MiB main thread: on the Windows main thread (2,000,000 B) or under a lowered
+`ulimit -s`, a source within them can still crash the process, as in 0.3.1 (for example a 25,000-term chain on 3.11 with a
+recursion limit of 10,000). On 3.11, a source whose estimated stack, including the 16 MiB f-string allowance, exceeds
+255 MiB (a logical line with about a million chain tokens under a huge recursion limit; grouping and display brackets
+count, so a flat literal with a million parentheses on one line is included) is reported as nested too deeply without
+parsing, like 3.10's chain limit. The stack size setting is process-wide; pythograph serializes its own stack-size
+changes, but a thread the host program starts at the same moment may get the larger stack. Under a tight `RLIMIT_AS`,
+the CLI thread's stack and, with glibc, its
 malloc arena make the command run out of memory (exit 2) earlier than 0.3.1. The stack guarantee covers parsing only:
 on 3.10 the analysis itself recurses through about 870 Python frames at depth 128 (about 560 KiB on Linux; about
 800 KiB with the worst string annotation under the earlier 256-character threshold, less now), so give a library

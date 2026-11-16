@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from pythograph.persistence.model import RelationName
 from pythograph.persistence.names import FSA_NAMING, MAX_FSA2_AUTONAME_LENGTH
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.evaluate import Evaluator
 from pythograph.source.project import SourceModule
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, Symbol, SymbolTable, ValueSymbol
@@ -203,6 +204,7 @@ class SqlAlchemyCatalog:
         self._cut_misses: dict[tuple[str, int], int] = {}
         self._depth_cuts = 0
         for module in modules:
+            raise_if_cancelled()  # 모듈마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
             self._collect_module(module)
         for key in list(self._classes):
             self._resolve(key, 0)

@@ -22,6 +22,7 @@ from pythograph.persistence.sqlalchemy.catalog import SqlAlchemyCatalog
 from pythograph.persistence.sqlalchemy.queries import SqlAlchemyQueries
 from pythograph.persistence.sqltext import SqlText
 from pythograph.routes.versions import declared_majors, normalize_name
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.evaluate import Evaluator
 from pythograph.source.project import (
     Project,
@@ -84,6 +85,7 @@ def extract_persistence(project: Project, options: SchemaOptions) -> Persistence
     django = DjangoCatalog(symbols, settings, modules)
     sqlalchemy = SqlAlchemyCatalog(symbols, modules, _fsa_majors(majors))
     for module in modules:
+        raise_if_cancelled()  # 모듈마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
         _scan_module(symbols, module, django, sqlalchemy, extraction)
     _catalog_gaps(django, sqlalchemy, settings.backends_known, extraction)
     _version_gaps(majors, django, sqlalchemy, extraction)

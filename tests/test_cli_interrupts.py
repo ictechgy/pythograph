@@ -17,6 +17,7 @@ import pytest
 from pythograph.cli import main as cli_main
 from pythograph.cli.common import InputError, UsageError
 from pythograph.source import syntax
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.syntax import MAX_CHAIN_TOKENS
 from tests.conftest import REPOSITORY
 from tests.test_source import _record_start_confirmations, _record_thread_starts, _RefusedThread, _stacks
@@ -38,12 +39,17 @@ def _child_environment(**extra: str) -> dict[str, str]:
     return environment
 
 
+#: `_interrupt_after_start`가 마지막으로 SIGINT를 보낸 시각(`time.monotonic`)이다.
+_LAST_INTERRUPT = [0.0]
+
+
 def _interrupt_after_start(process: subprocess.Popen[str], *, settle: float = 0.0) -> str:
     """자식이 표준 오류에 "started"를 쓰면(필요하면 조금 더 기다린 뒤) 프로세스 그룹에 SIGINT를 보내고 끝나기를
     기다린다(터미널의 Ctrl+C처럼). 남은 표준 오류를 돌려준다."""
     assert process.stderr is not None
     assert process.stderr.readline() == "started\n"
     time.sleep(settle)
+    _LAST_INTERRUPT[0] = time.monotonic()
     os.killpg(process.pid, signal.SIGINT)
     try:
         process.wait(timeout=60)
@@ -67,6 +73,7 @@ def test_cli_commands_run_on_one_large_stack_thread(tmp_path: Path, monkeypatch:
         """쓴 스레드를 기록하는 출력이다."""
 
         def write(self, text: str) -> int:
+            """쓴 스레드 이름을 기록하고 쓴다."""
             writers.append(threading.current_thread().name)
             return super().write(text)
 
@@ -89,8 +96,9 @@ def test_cli_commands_run_on_one_large_stack_thread(tmp_path: Path, monkeypatch:
 
 
 def test_cli_maps_relayed_errors_to_exit_codes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """계산 스레드에서 난 사용법 오류·입력 오류·MemoryError·다른 예외는 부른 스레드에서 전처럼 64·2·2·2가 된다.
-    스레드를 만들 수 없으면(데몬 스레드를 막은 하위 인터프리터 등) 계산은 부른 스레드에서 돈다."""
+    """계산 스레드에서 난 사용법 오류·입력 오류·MemoryError·다른 예외는 부른 스레드에서 전처럼 64·2·2·2가 되고,
+    SystemExit는 그대로 나간다(9234b72의 SystemExit 전달 테스트를 되살렸다). 스레드를 만들 수 없으면(데몬 스레드를 막은
+    하위 인터프리터 등) 계산은 부른 스레드에서 돈다."""
     monkeypatch.setattr(syntax, "largest_parse_stack_bytes", lambda: syntax.MIN_PARSE_STACK_BYTES)
     threads: list[str] = []
 
@@ -98,6 +106,7 @@ def test_cli_maps_relayed_errors_to_exit_codes(monkeypatch: pytest.MonkeyPatch) 
         """계산 스레드를 기록하고 `error`를 낸다."""
 
         def run(_arguments: list[str], _stdin: object = None) -> str:
+            """계산 스레드 이름을 기록하고 정한 예외를 낸다."""
             threads.append(threading.current_thread().name)
             raise error
 
@@ -114,6 +123,11 @@ def test_cli_maps_relayed_errors_to_exit_codes(monkeypatch: pytest.MonkeyPatch) 
         assert cli_main.main(["graph"], io.StringIO(), err) == code
         assert err.getvalue().startswith("pythograph: ")
     assert threads == ["pythograph-parse"] * 4
+    monkeypatch.setattr(cli_main, "run", raising(SystemExit(64)))
+    with pytest.raises(SystemExit) as stopped:
+        cli_main.main(["graph"], io.StringIO(), io.StringIO())
+    assert stopped.value.code == 64
+    assert threads == ["pythograph-parse"] * 5
     monkeypatch.setattr(syntax, "threading", SimpleNamespace(Thread=_RefusedThread, stack_size=threading.stack_size))
     monkeypatch.setattr(cli_main, "run", lambda _arguments, _stdin=None: threading.current_thread().name)
     out = io.StringIO()
@@ -126,9 +140,11 @@ def test_errors_while_reporting_errors_still_exit_2(monkeypatch: pytest.MonkeyPa
     고정 문구를 쓴다. 전에는 두 번째 MemoryError가 명령 스레드에서 주 스레드로 넘어와 파이썬이 1로 끝났다."""
 
     def failing(_arguments: list[str], _stdin: object = None) -> str:
+        """계산이 메모리 부족으로 끝난 것처럼 한다."""
         raise MemoryError
 
     def failing_report(_err: object, _message: str) -> None:
+        """오류를 알리는 중에도 메모리가 모자란 것처럼 한다."""
         raise MemoryError
 
     monkeypatch.setattr(cli_main, "run", failing)
@@ -139,10 +155,15 @@ def test_errors_while_reporting_errors_still_exit_2(monkeypatch: pytest.MonkeyPa
 
 
 def test_closed_standard_streams_keep_the_exit_code_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    """표준 출력·오류·입력을 닫고 실행해도(`sys.stdout` 등이 None) 예약된 1이나 내부 오류가 되지 않는다: 출력을 못 쓰면
-    2, 사용법 오류는 알릴 곳이 없어도 64, 닫힌 표준 입력의 `--roots-from -`은 입력 사용법 오류 64다."""
+    """표준 출력·오류를 닫고 실행해도(`sys.stdout` 등이 None) 예약된 1이나 내부 오류가 되지 않는다: 출력을 못 쓰면
+    2(표준 오류가 열려 있으면 원인 문구), 사용법 오류는 알릴 곳이 없어도 64다(닫힌 표준 입력은 다음 테스트)."""
     monkeypatch.setattr(cli_main, "run", lambda _arguments, _stdin=None: "{}\n")
     monkeypatch.setattr(sys, "stdout", None)
+    err = io.StringIO()
+    assert cli_main.main(["graph"], stderr=err) == 2
+    assert err.getvalue() == (
+        "pythograph: could not write the output (standard output is closed); check the output destination\n"
+    )
     monkeypatch.setattr(sys, "stderr", None)
     assert cli_main.main(["graph"]) == 2
     monkeypatch.setattr(cli_main, "run", _usage_error)
@@ -177,10 +198,12 @@ def test_interrupt_during_start_never_runs_the_command_twice(
     unwound: list[str] = []
 
     def counted(_arguments: list[str], _stdin: object = None) -> str:
+        """실행한 스레드를 기록하고, 취소 확인 자리를 지나며 4초까지 돈다."""
         calls.append(threading.current_thread().name)
         try:
             for _ in range(400):
                 time.sleep(0.01)
+                raise_if_cancelled()
         finally:
             unwound.append(threading.current_thread().name)
         return "{}\n"
@@ -189,6 +212,7 @@ def test_interrupt_during_start_never_runs_the_command_twice(
         """시작한 뒤 시작 대기가 Ctrl+C로 끊긴 것처럼 끝난다."""
 
         def start(self) -> None:
+            """실제로 시작한 뒤 시작 대기가 끊긴 것처럼 실패를 보고한다."""
             super().start()
             time.sleep(0.05)
             try:
@@ -279,7 +303,8 @@ def test_ctrl_c_while_output_is_blocked_on_a_pipe_exits_by_sigint() -> None:
     assert "KeyboardInterrupt" in stderr
 
 
-#: 계산 중인 CLI다. 계산은 시작을 알리고 끝없이 기다리다 멈추면 `finally`에서 표시 파일을 쓴다(인자: 표시 파일).
+#: 계산 중인 CLI다. 계산은 시작을 알리고 끝없이 돌며 취소 확인 자리(`raise_if_cancelled`, 실제 계산의 파일·디렉터리·git
+#: 대기마다 있는 자리)를 지나고, 멈추면 `finally`에서 표시 파일을 쓴다(인자: 표시 파일).
 _INTERRUPTED_COMPUTE = r"""
 import signal
 import sys
@@ -288,6 +313,7 @@ from pathlib import Path
 
 signal.signal(signal.SIGINT, signal.default_int_handler)
 from pythograph.cli import main as cli_main
+from pythograph.source.cancel import raise_if_cancelled
 
 marker = Path(sys.argv[1])
 
@@ -298,6 +324,7 @@ def endless(_arguments, _stdin=None):
         sys.stderr.flush()
         while True:
             time.sleep(0.05)
+            raise_if_cancelled()
     finally:
         marker.write_text("unwound", encoding="utf-8")
 
@@ -309,7 +336,7 @@ raise SystemExit(cli_main.main(["graph"]))
 
 @POSIX_SIGNALS
 def test_ctrl_c_during_compute_unwinds_the_command_thread(tmp_path: Path) -> None:
-    """계산 중 Ctrl+C를 받으면 계산 스레드에 KeyboardInterrupt를 넣어 `finally`를 실행시킨 뒤 부른 스레드에서
+    """계산 중 Ctrl+C를 받으면 계산 스레드의 취소 표시를 세워 다음 확인 자리에서 `finally`를 실행시킨 뒤 부른 스레드에서
     KeyboardInterrupt로 끝난다. 전에는 계산 스레드를 버려 `with`·`finally`가 돌지 않았다."""
     marker = tmp_path / "unwound"
     process = subprocess.Popen(
@@ -326,8 +353,8 @@ def test_ctrl_c_during_compute_unwinds_the_command_thread(tmp_path: Path) -> Non
     assert marker.read_text(encoding="utf-8") == "unwound"
 
 
-#: 비교 사본을 만드는 도중의 change-impact다. 사본 디렉터리에 파일을 하나 쓰고 시작을 알린 뒤 끝없이 기다리고, 멈추면
-#: `finally`에서 표시 파일을 쓴다(인자: 프로젝트, 표시 파일).
+#: 비교 사본을 만드는 도중의 change-impact다. 사본 디렉터리에 파일을 하나 쓰고 시작을 알린 뒤 취소 확인 자리를 지나며
+#: 끝없이 기다리고, 멈추면 `finally`에서 표시 파일을 쓴다(인자: 프로젝트, 표시 파일).
 _INTERRUPTED_CHANGE = r"""
 import signal
 import sys
@@ -337,6 +364,7 @@ from pathlib import Path
 signal.signal(signal.SIGINT, signal.default_int_handler)
 from pythograph.cli import main as cli_main
 from pythograph.graph import change
+from pythograph.source.cancel import raise_if_cancelled
 
 marker = Path(sys.argv[2])
 
@@ -349,6 +377,7 @@ def slow_analyze(_value, destination, *_arguments, **_options):
         sys.stderr.flush()
         while True:
             time.sleep(0.05)
+            raise_if_cancelled()
     finally:
         marker.write_text("unwound", encoding="utf-8")
 
@@ -444,8 +473,8 @@ def test_signal_handler_exception_stops_the_command() -> None:
     assert result.stdout == "2 0 [] True\n"
 
 
-#: 표준 입력(`--roots-from -`)을 기다리는 동안 Ctrl+C를 받는 reach다(인자: 프로젝트).
-_BLOCKED_STDIN = r"""
+#: `--roots-from`(표준 입력 `-`이나 경로)을 기다리는 동안 Ctrl+C를 받는 reach다(인자: 프로젝트, `--roots-from` 값).
+_BLOCKED_ROOTS = r"""
 import signal
 import sys
 
@@ -454,27 +483,41 @@ from pythograph.cli import main as cli_main
 
 sys.stderr.write("started\n")
 sys.stderr.flush()
-raise SystemExit(cli_main.main(["reach", "--project", sys.argv[1], "--roots-from", "-"]))
+raise SystemExit(cli_main.main(["reach", "--project", sys.argv[1], "--roots-from", sys.argv[2]]))
 """
 
 
 @POSIX_SIGNALS
-def test_ctrl_c_while_reading_roots_from_stdin_exits_promptly(tmp_path: Path) -> None:
-    """`--roots-from -`이 아무도 쓰지 않는 표준 입력을 기다리는 동안 Ctrl+C를 받으면 바로 KeyboardInterrupt로 끝난다.
-    읽기는 따로 된 데몬 스레드에서 해서 계산 스레드가 멈추기를 기다리지 않는다(C 읽기 중에는 넣은 예외가 닿지
-    않는다)."""
-    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
-    process = subprocess.Popen(
-        [sys.executable, "-c", _BLOCKED_STDIN, str(tmp_path)],
-        stdin=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        encoding="utf-8",
-        cwd=REPOSITORY,
-        env=_child_environment(),
-        start_new_session=True,
-    )
-    started = time.monotonic()
-    stderr = _interrupt_after_start(process, settle=1.0)
+@pytest.mark.parametrize("source", ["stdin", "fifo"])
+def test_ctrl_c_while_reading_roots_exits_promptly(tmp_path: Path, source: str) -> None:
+    """`--roots-from`이 쓰는 쪽이 열어 둔 채 쓰지 않는 표준 입력이나 FIFO를 기다리는 동안 Ctrl+C를 받으면 바로
+    KeyboardInterrupt로 끝난다. 열기와 읽기는 따로 된 데몬 스레드에서 해서 계산 스레드가 멈추기를 기다리지 않는다(C 읽기
+    중에는 취소 표시를 볼 수 없다). 전에는 경로(FIFO·`/dev/stdin`)를 계산 스레드에서 읽어 20초를 기다렸다."""
+    (tmp_path / "project").mkdir()
+    (tmp_path / "project" / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    argument = "-"
+    writer = None
+    if source == "fifo":
+        argument = str(tmp_path / "roots.fifo")
+        os.mkfifo(argument)
+        keeper = os.open(argument, os.O_RDONLY | os.O_NONBLOCK)
+        writer = os.open(argument, os.O_WRONLY)
+        os.close(keeper)
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-c", _BLOCKED_ROOTS, str(tmp_path / "project"), argument],
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            cwd=REPOSITORY,
+            env=_child_environment(),
+            start_new_session=True,
+        )
+        stderr = _interrupt_after_start(process, settle=1.0)
+        stopped = time.monotonic()
+    finally:
+        if writer is not None:
+            os.close(writer)
     assert process.returncode == -signal.SIGINT, stderr[-2000:]
-    assert time.monotonic() - started < syntax.COMMAND_STOP_GRACE_SECONDS
     assert "Fatal Python error" not in stderr
+    assert stopped - _LAST_INTERRUPT[0] < 5.0

@@ -29,6 +29,7 @@ from pythograph.graph.scope import Resolver
 from pythograph.graph.source_diagnostics import source_statistics
 from pythograph.graph.tasks import is_decorated
 from pythograph.graph.values import ClassValue, FunctionValue
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.project import Project
 from pythograph.source.symbols import SymbolTable
 
@@ -105,8 +106,10 @@ def build_graph(project: Project, include_tests: bool) -> CallGraph:
     builder = GraphBuilder(project, index, resolver, CallResolver(resolver, names), include_tests=include_tests)
     builder.scan = scan
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
+        raise_if_cancelled()  # Ctrl+C로 멈출 수 있는 자리(정의 하나마다, `source.cancel`).
         _add_definition(builder, definition)
     for definition in index.classes():
+        raise_if_cancelled()
         _add_view_handlers(builder, definition)
     _add_bound(builder)
     _materialize_requests(builder)
@@ -248,6 +251,7 @@ def _add_bound(builder: GraphBuilder) -> None:
     flows = FlowAnalyzer(index, resolver, facts)
     dispatcher = BoundDispatcher(builder.index, builder.calls, facts, flows)
     for node_id in sorted(builder.records):
+        raise_if_cancelled()
         for outcome in builder.records[node_id].calls:
             if outcome.site is None:
                 continue
@@ -412,6 +416,7 @@ def scan_modules(index: DefinitionIndex) -> ModuleScan:
     """
     scan = ModuleScan()
     for module in index.modules:
+        raise_if_cancelled()
         for node in ast.walk(module.node):
             _scan_node(scan, module, node)
     return scan
@@ -553,6 +558,7 @@ def _finish_node(record: NodeRecord, extra: Counter[str]) -> GraphNode:
     Returns:
         정점.
     """
+    raise_if_cancelled()  # 정점마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
     reasons: Counter[str] = Counter(extra)
     partial = linked = linked_partial = 0
     for outcome in record.calls:

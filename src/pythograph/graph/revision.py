@@ -43,14 +43,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from pythograph.source.cancel import WAIT_SLICE_SECONDS, Completion, raise_if_cancelled
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: git 명령 시간 제한(초)이다.
 GIT_TIMEOUT_SECONDS = 60
 
-#: git 자식을 기다리는 대기를 나누는 간격(초)이다. 명령 스레드가 Ctrl+C로 멈출 때 넣은 KeyboardInterrupt는 C 대기 중에는
-#: 닿지 않으므로, 이 간격마다 돌아와 받게 한다(`source.syntax.run_on_parse_stack`).
-_WAIT_SLICE_SECONDS = 0.1
+#: git 자식을 기다리는 대기를 나누는 간격(초)이다. 조각마다 명령 스레드의 취소 표시를 보고(`raise_if_cancelled`),
+#: 그만두면 자식을 죽이고 거둔다(`source.syntax.run_on_parse_stack`).
+_WAIT_SLICE_SECONDS = WAIT_SLICE_SECONDS
 
 #: 커밋 id 형식(SHA-1 40자, SHA-256 64자)이다.
 _OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
@@ -524,50 +525,63 @@ def _run_git(
     environment = {key: value for key, value in os.environ.items() if key in ("PATH", "HOME", "SYSTEMROOT")}
     environment.update({"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1", "LC_ALL": "C"})
     command = [executable, *_GIT_CONFIG, *arguments]
-    if output_limit is not None:
-        return _run_git_bounded(command, project, environment, output_limit, input_data)
-    try:
-        return subprocess.run(
-            command,
-            cwd=project,
-            env=environment,
-            capture_output=True,
-            timeout=GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        # git이 없거나 시간이 지났다. revision 없이 계속한다(없다는 것이 신호다).
-        return None
+    if output_limit is None:
+        return _run_git_process(command, project, environment)
+    return _run_git_bounded(command, project, environment, output_limit, input_data)
+
+
+def _run_git_process(
+    command: list[str], project: Path, environment: dict[str, str]
+) -> subprocess.CompletedProcess[bytes] | None:
+    """출력 상한 없이 git 프로세스 하나를 실행한다(revision 조회). 기다림은 change 캡처와 같은 나눠 기다리는 실행기다.
+
+    Args:
+        command: 실행할 인자.
+        project: 작업 디렉터리.
+        environment: 줄인 환경.
+
+    Returns:
+        끝난 프로세스, git을 실행하지 못했거나 시간이 지나면 None.
+    """
+    return _run_git_bounded(command, project, environment, None)
 
 
 def _run_git_bounded(
-    command: list[str], project: Path, environment: dict[str, str], limit: int, input_data: bytes | None = None
+    command: list[str],
+    project: Path,
+    environment: dict[str, str],
+    limit: int | None,
+    input_data: bytes | None = None,
 ) -> subprocess.CompletedProcess[bytes] | None:
-    """작은 청크를 동시에 배수하며 출력 예산·시간을 지킨다. 직접 소유한 자식만 정리한다.
+    """작은 청크를 동시에 배수하며 출력 예산(`limit`, None이면 없음)·시간을 지킨다. 직접 소유한 자식만 정리한다.
 
+    모든 git 호출(revision 조회와 change 캡처)이 이 함수를 지난다. 기다림은 `_WAIT_SLICE_SECONDS`씩 나누고 조각마다 취소
+    표시를 본다(`raise_if_cancelled`). 그만두거나 시간이 지나면 자식을 죽이고 거둔다(4차 리뷰 I-S3: revision 조회의
+    `subprocess.run`은 나누지 않아 Ctrl+C 뒤 20초를 기다리고 git을 남겼다). 표준 입력은 `input_data`가 없으면 비어 있다.
     reader는 프로세스에 신호를 보내거나 wait하지 않는다. 부모만 Popen의 아직 수거하지 않은 자식을 kill/wait하므로
     수거 뒤 재사용된 PID·프로세스 그룹에 신호를 보내지 않는다. stderr도 같은 예산에 포함하고 어느 실패도 성공 출력으로
-    바꾸지 않는다. 기존 revision 조회 호출의 호환 경로와 별도로 change 캡처가 명시적으로 요청한다.
-    `input_data`가 있으면 별도 writer가 표준 입력에 쓰고 닫는다. 출력 배수와 동시에 써야 큰 출력이 파이프를 채워도
-    교착하지 않는다. 쓰기 실패(자식이 먼저 끝남)는 실패다.
+    바꾸지 않는다. `input_data`가 있으면 별도 writer가 표준 입력에 쓰고 닫는다. 출력 배수와 동시에 써야 큰 출력이
+    파이프를 채워도 교착하지 않는다. 쓰기 실패(자식이 먼저 끝남)는 실패다. 기다리는 쪽은 신호를 받는 주 스레드일 수
+    있으므로(3.14, 스레드 없는 대체) `threading.Event`가 아니라 `Completion`으로 기다린다.
     """
-    if limit < 0:
+    if limit is not None and limit < 0:
         return None
     chunks: list[list[bytes]] = [[], []]
     lock = threading.Lock()
     failed = threading.Event()
-    drained = threading.Event()
+    drained = Completion()
     used = 0
     finished = 0
+    read_size = 8192 if limit is None else min(8192, limit + 1)
 
     def drain(stream: BinaryIO, index: int) -> None:
         """파이프 한 개를 읽되 합산 예산을 넘는 청크는 보관하지 않는다."""
         nonlocal used, finished
         try:
             with stream:
-                while data := os.read(stream.fileno(), min(8192, limit + 1)):
+                while data := os.read(stream.fileno(), read_size):
                     with lock:
-                        if failed.is_set() or used + len(data) > limit:
+                        if failed.is_set() or (limit is not None and used + len(data) > limit):
                             failed.set()
                             drained.set()
                             return
@@ -594,41 +608,59 @@ def _run_git_bounded(
     except (OSError, UnicodeError):
         return None
     assert process.stdout is not None and process.stderr is not None
+    writers = _writers(process, input_data, failed, drained)
     readers = [
         *(
             threading.Thread(target=drain, args=(stream, index), daemon=True)
             for index, stream in enumerate((process.stdout, process.stderr))
         ),
-        *_writers(process, input_data, failed, drained),
+        *(writer for writer, _ in writers),
     ]
     deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    started: list[threading.Thread] = []
     try:
         for reader in readers:
             reader.start()
+            started.append(reader)
         # 출력이 끝난 뒤에도 쓰기 실패가 늦게 기록될 수 있으므로 writer가 끝난 것을 확인하고 판정한다.
-        if not _wait_event(drained, deadline) or not _done(readers[2:], deadline) or failed.is_set():
+        if not _wait_event(drained, deadline) or not _done(writers, deadline) or failed.is_set():
             return None
-        code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        code = _wait_process(process, deadline)
+        if code is None:
+            return None
         return subprocess.CompletedProcess(command, code, b"".join(chunks[0]), b"".join(chunks[1]))
     except (OSError, subprocess.SubprocessError):
         return None
     finally:
-        # poll은 Popen이 소유한 자식만 수거한다. 살아 있거나 아직 수거 전인 같은 자식에만 kill한다.
-        if process.poll() is None:
-            process.kill()
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            failed.set()
-        for reader in readers:
-            if reader.ident is not None:
-                reader.join(timeout=1)
+        _reap(process, started, failed)
+
+
+def _reap(process: subprocess.Popen[bytes], readers: list[threading.Thread], failed: threading.Event) -> None:
+    """자식을 (살아 있으면) 죽이고 거둔 뒤 읽기·쓰기 스레드를 잠깐 기다린다.
+
+    poll은 Popen이 소유한 자식만 수거한다. 살아 있거나 아직 수거 전인 같은 자식에만 kill한다. 시작이 돌아온 스레드만
+    합류한다(시작 도중 예외로 끝난 스레드는 시작을 알리지 못했을 수 있어 `join`이 RuntimeError를 낸다). 여기서 받은
+    예외(두 번째 Ctrl+C)는 그대로 나간다.
+
+    Args:
+        process: 자식.
+        readers: 시작이 돌아온 읽기·쓰기 스레드.
+        failed: 실패 표시(거두지 못하면 세운다).
+    """
+    if process.poll() is None:
+        process.kill()
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        failed.set()
+    for reader in readers:
+        reader.join(timeout=1)
 
 
 def _writers(
-    process: subprocess.Popen[bytes], data: bytes | None, failed: threading.Event, drained: threading.Event
-) -> list[threading.Thread]:
-    """표준 입력 writer 스레드 목록을 만든다(시작은 호출자가 한다). 입력이 없으면 비어 있다.
+    process: subprocess.Popen[bytes], data: bytes | None, failed: threading.Event, drained: Completion
+) -> list[tuple[threading.Thread, Completion]]:
+    """표준 입력 writer 스레드와 그 완료 표시 목록을 만든다(시작은 호출자가 한다). 입력이 없으면 비어 있다.
 
     Args:
         process: 표준 입력을 파이프로 연 자식.
@@ -637,15 +669,17 @@ def _writers(
         drained: 대기를 끝낼 표시.
 
     Returns:
-        스레드 0개 또는 1개.
+        (스레드, 완료 표시) 0개 또는 1개.
     """
     if data is None:
         return []
     assert process.stdin is not None
-    return [threading.Thread(target=_feed, args=(process.stdin, data, failed, drained), daemon=True)]
+    finished = Completion()
+    writer = threading.Thread(target=_feed, args=(process.stdin, data, failed, drained, finished), daemon=True)
+    return [(writer, finished)]
 
 
-def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: threading.Event) -> None:
+def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: Completion, finished: Completion) -> None:
     """표준 입력에 모두 쓰고 닫는다. 실패하면(자식이 먼저 끝남) 결과를 쓰지 않도록 표시한다.
 
     Args:
@@ -653,6 +687,7 @@ def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: threa
         data: 쓸 바이트.
         failed: 실패 표시.
         drained: 대기를 끝낼 표시.
+        finished: 끝났다고 알릴 표시.
     """
     try:
         with stream:
@@ -660,26 +695,25 @@ def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: threa
     except (OSError, ValueError):
         failed.set()
         drained.set()
+    finally:
+        finished.set()
 
 
-def _done(writers: list[threading.Thread], deadline: float) -> bool:
+def _done(writers: list[tuple[threading.Thread, Completion]], deadline: float) -> bool:
     """writer가 모두 기한 안에 끝났는지 본다(없으면 True).
 
     Args:
-        writers: 표준 입력 writer.
+        writers: 표준 입력 writer와 그 완료 표시.
         deadline: `time.monotonic` 기한.
 
     Returns:
         끝났으면 True.
     """
-    for writer in writers:
-        while writer.is_alive() and time.monotonic() < deadline:
-            writer.join(min(_WAIT_SLICE_SECONDS, max(0.0, deadline - time.monotonic())))
-    return not any(writer.is_alive() for writer in writers)
+    return all(_wait_event(finished, deadline) for _, finished in writers)
 
 
-def _wait_event(event: threading.Event, deadline: float) -> bool:
-    """기한까지 표시를 기다리되 `_WAIT_SLICE_SECONDS`씩 나눠 기다린다.
+def _wait_event(event: Completion, deadline: float) -> bool:
+    """기한까지 표시를 기다리되 `_WAIT_SLICE_SECONDS`씩 나눠 기다리고, 조각마다 취소 표시를 본다.
 
     Args:
         event: 기다릴 표시.
@@ -687,8 +721,34 @@ def _wait_event(event: threading.Event, deadline: float) -> bool:
 
     Returns:
         기한 안에 표시되면 True.
+
+    Raises:
+        KeyboardInterrupt: 명령을 그만두라고 했다(`raise_if_cancelled`).
     """
     while not event.wait(min(_WAIT_SLICE_SECONDS, max(0.0, deadline - time.monotonic()))):
+        raise_if_cancelled()
         if time.monotonic() >= deadline:
             return False
     return True
+
+
+def _wait_process(process: subprocess.Popen[bytes], deadline: float) -> int | None:
+    """출력을 다 읽은 자식이 끝나기를 기한까지 나눠 기다리고, 조각마다 취소 표시를 본다.
+
+    Args:
+        process: 자식.
+        deadline: `time.monotonic` 기한.
+
+    Returns:
+        종료 코드, 기한이 지나면 None.
+
+    Raises:
+        KeyboardInterrupt: 명령을 그만두라고 했다(`raise_if_cancelled`).
+    """
+    while True:
+        try:
+            return process.wait(timeout=min(_WAIT_SLICE_SECONDS, max(0.001, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
+            raise_if_cancelled()
+            if time.monotonic() >= deadline:
+                return None

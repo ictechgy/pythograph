@@ -19,6 +19,7 @@ from datetime import datetime
 from pythograph.exchange.document import DocumentLimitError, check_encodable, format_timestamp
 from pythograph.graph.model import CallGraph, GraphNode, NodeLocation
 from pythograph.graph.traversal import ReachedSymbol, TraversalResult
+from pythograph.source.cancel import raise_if_cancelled
 
 #: 계약이 허용하는 `unresolvedCalls` 최댓값이다.
 MAX_UNRESOLVED_CALLS = 1_000_000
@@ -157,6 +158,7 @@ def _node_json(node: GraphNode) -> dict[str, object]:
     Returns:
         사전.
     """
+    raise_if_cancelled()  # 정점마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`).
     result: dict[str, object] = {"id": node.id, "kind": node.kind, "location": location_json(node.location)}
     if any(node.unresolved.values()):
         result["unresolvedCalls"] = dict(sorted(node.unresolved.items()))

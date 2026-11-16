@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import contextlib
 import sys
-import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TextIO, cast
+from typing import TextIO
 
 from pythograph import __version__
 from pythograph.cli.change_command import CHANGE_USAGE, run_change
@@ -205,10 +204,8 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
     out = stdout or _exchange_stdout(sys.stdout)
     err = stderr or sys.stderr
     source = stdin or sys.stdin
-    # 명령은 표준 입력에서 `read`와 `reconfigure`만 쓴다(`graph.roots`).
-    reader = None if source is None else cast(TextIO, _InterruptibleInput(source))
     try:
-        text = run_on_parse_stack(lambda: run(arguments, reader))
+        text = run_on_parse_stack(lambda: run(arguments, source))
     except RootNotFoundExit as partial:
         _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
         return _write(out, err, partial.text, EXIT_USAGE)
@@ -222,63 +219,6 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
         _report(err, f"internal error ({type(error).__name__}); please report it with the command line")
         return EXIT_INPUT
     return _write(out, err, text, EXIT_OK)
-
-
-class _InterruptibleInput:
-    """명령 스레드가 표준 입력(`--roots-from -`)을 읽는 동안에도 Ctrl+C로 멈출 수 있게 하는 표준 입력 대역이다.
-
-    읽기는 따로 된 데몬 스레드에서 하고 명령 스레드는 짧게 나눠 기다린다. 멈추라고 넣은 KeyboardInterrupt
-    (`run_on_parse_stack`)는 C 읽기 중에는 닿지 않기 때문이다. 멈추면 읽던 데몬 스레드는 버려진다(표준 입력만 쥐고
-    있어 종료 처리가 기다리지 않는다). 스레드를 만들 수 없으면 그 자리에서 읽는다. `reconfigure`는 원래 스트림에
-    넘긴다.
-    """
-
-    def __init__(self, stream: TextIO) -> None:
-        """감쌀 스트림을 받는다.
-
-        Args:
-            stream: 원래 표준 입력.
-        """
-        self._stream = stream
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            self.reconfigure = reconfigure
-
-    def read(self, size: int = -1) -> str:
-        """원래 스트림에서 읽는다.
-
-        Args:
-            size: 읽을 최대 문자 수(음수면 끝까지).
-
-        Returns:
-            읽은 텍스트.
-        """
-        outcome: list[str | BaseException] = []
-        done = threading.Event()
-
-        def target() -> None:
-            """읽고 결과나 예외를 담는다."""
-            try:
-                outcome.append(self._stream.read(size))
-            except BaseException as error:  # 읽는 쪽에서 같은 예외로 다시 낸다.
-                outcome.append(error)
-            finally:
-                done.set()
-
-        try:
-            threading.Thread(target=target, name="pythograph-stdin", daemon=True).start()
-        except RuntimeError:
-            return self._stream.read(size)
-        while not done.wait(_INPUT_WAIT_SECONDS):
-            pass
-        result = outcome[0]
-        if isinstance(result, BaseException):
-            raise result
-        return result
-
-
-#: `_InterruptibleInput`이 읽기를 기다리는 간격(초)이다.
-_INPUT_WAIT_SECONDS = 0.05
 
 
 def _exchange_stdout(stream: TextIO) -> TextIO:

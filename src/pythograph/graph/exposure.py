@@ -36,6 +36,7 @@ from pythograph.graph.values import (
     UnknownValue,
     Value,
 )
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.project import Project, is_test_path
 from pythograph.source.symbols import absolute_module
 
@@ -362,6 +363,7 @@ def collect_program(project: Project, index: DefinitionIndex, resolver: Resolver
         )
     names = _definition_names(index, whole)
     for definition in sorted(index.definitions.values(), key=lambda item: item.id):
+        raise_if_cancelled()
         if whole or not is_test_path(definition.path):
             _ProgramVisitor(facts, resolver, definition, names).run()
     return facts

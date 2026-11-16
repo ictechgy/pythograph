@@ -24,6 +24,7 @@ from itertools import islice
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO, cast
 
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.syntax import (
     MAX_AST_DEPTH,
     MAX_CHAIN_TOKENS,
@@ -556,7 +557,9 @@ class Project:
 
     @contextmanager
     def scan_directory(self, relative: str) -> Iterator[Iterator[os.DirEntry[str]]]:
-        """검증한 디렉터리만 열거하고 항목을 분류할 때까지 핸들을 유지한다."""
+        """검증한 디렉터리만 열거하고 항목을 분류할 때까지 핸들을 유지한다. 열기 전에 취소 표시를 본다
+        (`raise_if_cancelled`, 디렉터리 하나마다 Ctrl+C로 멈출 수 있는 자리)."""
+        raise_if_cancelled()
         with self._open_directory(relative) as directory, os.scandir(directory) as entries:
             yield entries
 

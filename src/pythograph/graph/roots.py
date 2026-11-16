@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import TextIO
 
+from pythograph.source.cancel import call_interruptibly
 from pythograph.source.inputs import open_input_file
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
@@ -58,7 +59,9 @@ def _read(argument: str, stdin: TextIO | None) -> str:
     """`--roots-from` 입력을 읽는다.
 
     파일은 일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 연다(마지막 링크는 따라간다). 장치는 끝이 없고 디렉터리는
-    읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다.
+    읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다. 열기와 읽기는 모두 데몬 스레드에서 하고
+    부른 스레드는 나눠 기다린다(`call_interruptibly`): 쓰는 쪽이 열어 둔 채 쓰지 않는 파이프·FIFO·`/dev/stdin`의 C
+    읽기는 취소 표시를 볼 수 없어, 명령 스레드에서 읽으면 Ctrl+C 뒤 20초를 기다렸다(4차 리뷰 I-S2).
 
     Args:
         argument: 파일 경로 또는 `-`.
@@ -71,13 +74,7 @@ def _read(argument: str, stdin: TextIO | None) -> str:
         RootsError: 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
     """
     try:
-        if argument == "-":
-            if stdin is None:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
-                raise OSError("standard input is closed")
-            text = _read_stdin(stdin)
-        else:
-            with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
-                text = handle.read(MAX_ROOTS_INPUT + 1)
+        text = call_interruptibly(lambda: _read_source(argument, stdin), "pythograph-roots")
     except (OSError, UnicodeError, ValueError) as error:
         raise RootsError(
             "--roots-from could not be read as UTF-8 text; pass a readable regular file or pipe, or - for stdin."
@@ -85,6 +82,28 @@ def _read(argument: str, stdin: TextIO | None) -> str:
     if len(text) > MAX_ROOTS_INPUT:
         raise RootsError("--roots-from is larger than 16 MiB; split the roots into several runs.")
     return text
+
+
+def _read_source(argument: str, stdin: TextIO | None) -> str:
+    """`--roots-from` 입력을 열고 상한 + 1까지 읽는다(`_read`가 데몬 스레드에서 부른다).
+
+    Args:
+        argument: 파일 경로 또는 `-`.
+        stdin: 표준 입력.
+
+    Returns:
+        텍스트.
+
+    Raises:
+        OSError: 열지 못하거나 일반 파일·파이프가 아니거나 표준 입력이 닫혔을 때.
+        UnicodeError: UTF-8이 아닐 때.
+    """
+    if argument == "-":
+        if stdin is None:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
+            raise OSError("standard input is closed")
+        return _read_stdin(stdin)
+    with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
+        return handle.read(MAX_ROOTS_INPUT + 1)
 
 
 def _read_stdin(stdin: TextIO) -> str:

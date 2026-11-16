@@ -912,28 +912,28 @@ class _RefusedThread:
         raise RuntimeError("can't start new thread")
 
 
-def _record_start_confirmations(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
-    """전용 스레드가 시작했는지 확인하려는 대기(`_START_CONFIRM_SECONDS`)를 기다리지 않고 기록하게 한다.
+def _record_start_confirmations(monkeypatch: pytest.MonkeyPatch) -> list[BaseException]:
+    """시작 실패를 "시작 도중에 끊긴 시작"으로 가린 경우(`syntax.start_interruption`이 예외를 돌려준 경우)를 기록하게
+    한다.
 
-    시작이 실패했을 때 그 대기는 시작이 끊겼을 수 있는 경우에만 해야 한다. 기록된 대기는 실패마다 1초씩 더 걸렸을
-    시간이다(기다리지 않으므로 테스트는 느려지지 않는다).
+    부른 쪽이 `except` 블록 안에서 파싱해도 스레드를 만들 수 없는 실패는 끊긴 시작이 아니다. 3d333ff는 그 앞 예외를
+    끊긴 시작의 표시로 보고 실패마다 1초를 기다렸다.
 
     Returns:
-        기록한 대기 시간 목록.
+        끊긴 시작으로 가린 예외 목록.
     """
-    confirmations: list[float | None] = []
+    interruptions: list[BaseException] = []
+    original = syntax.start_interruption
 
-    class RecordingEvent(threading.Event):
-        """시작 확인 대기를 기록하고 바로 돌아오는 이벤트다."""
+    def record(failure: BaseException, handled: BaseException | None) -> BaseException | None:
+        """가린 결과를 기록하고 그대로 돌려준다."""
+        interrupted = original(failure, handled)
+        if interrupted is not None:
+            interruptions.append(interrupted)
+        return interrupted
 
-        def wait(self, timeout: float | None = None) -> bool:
-            if timeout == syntax._START_CONFIRM_SECONDS:
-                confirmations.append(timeout)
-                return self.is_set()
-            return super().wait(timeout)
-
-    monkeypatch.setattr(syntax, "Event", RecordingEvent)
-    return confirmations
+    monkeypatch.setattr(syntax, "start_interruption", record)
+    return interruptions
 
 
 def test_refused_threads_fail_fast_inside_an_except_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -951,7 +951,7 @@ def test_refused_threads_fail_fast_inside_an_except_block(tmp_path: Path, monkey
         raise KeyError("unrelated")
     except KeyError:
         with pytest.raises(syntax.ParseStackUnavailableError):
-            syntax._ParseThread(lambda: 1, syntax.MIN_PARSE_STACK_BYTES, daemon=False).start()
+            syntax._ParseThread(lambda: 1, syntax.MIN_PARSE_STACK_BYTES, daemon=False).run()
         project = Project.open(tmp_path)
         assert all(isinstance(project.module(f"long{index}.py"), SourceModule) for index in range(3))
         assert syntax.run_on_parse_stack(lambda: threading.current_thread().name) == threading.current_thread().name
@@ -1401,13 +1401,12 @@ def test_parser_thread_relays_base_exceptions(monkeypatch: pytest.MonkeyPatch) -
     assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 2
 
 
-def test_library_parses_join_a_non_daemon_thread_and_nest_inline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """CLI 밖(라이브러리)에서는 긴 소스마다 데몬이 아닌 스레드를 만들고 바로 합류한다. 남는 스레드가 없어 하위
-    인터프리터를 끝낼 수 있고(남은 스레드가 있으면 `Py_EndInterpreter`가 프로세스를 끝냈다), 데몬 스레드를 막은 격리
-    하위 인터프리터에서도 스레드를 만들 수 있으며, fork할 때 여러 스레드 경고가 없다. 전용 스레드 안에서 다시 부른
-    파싱은 그 스택이 충분하면 그 자리에서 한다."""
+def test_library_parses_join_their_thread_and_nest_inline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI 밖(라이브러리)에서는 긴 소스마다 스레드를 만들고 바로 합류한다. 남는 스레드가 없어 하위 인터프리터를 끝낼 수
+    있고(남은 스레드가 있으면 `Py_EndInterpreter`가 프로세스를 끝냈다), fork할 때 여러 스레드 경고가 없다. 스레드는
+    인터프리터가 허락하면 데몬이고 데몬 스레드를 막은 격리 하위 인터프리터에서만 데몬이 아니다: `Thread.start` 안에서
+    신호 처리기의 예외를 받아 멈춰 선 스레드가 인터프리터 종료를 막지 않게 한다. 전용 스레드 안에서 다시 부른 파싱은 그
+    스택이 충분하면 그 자리에서 한다."""
     monkeypatch.setattr(syntax, "_PARSER_CHECKS_C_STACK", False)
     monkeypatch.setattr(syntax, "_FSTRING_PARSERS_STACK", False)
     started = _record_thread_starts(monkeypatch)
@@ -1415,7 +1414,14 @@ def test_library_parses_join_a_non_daemon_thread_and_nest_inline(
     (tmp_path / "long.py").write_bytes(long_plain.encode())
     assert isinstance(Project.open(tmp_path).module("long.py"), SourceModule)
     assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES]
-    assert [(thread.daemon, thread.is_alive()) for thread in started] == [(False, False)]
+    assert [(thread.daemon, thread.is_alive()) for thread in started] == [(True, False)]
+    # 끝난 스레드는 `threading`의 약한 참조 집합에서 빠져, 그 객체를 놓는 부른 스레드에서 콜백(Ctrl+C를 버리는 자리)이
+    # 돌지 않는다.
+    assert not any(thread in getattr(threading, "_dangling", ()) for thread in started)
+    monkeypatch.setattr(syntax._thread, "daemon_threads_allowed", lambda: False, raising=False)
+    assert isinstance(Project.open(tmp_path).module("long.py"), SourceModule)
+    assert [(thread.daemon, thread.is_alive()) for thread in started] == [(True, False), (False, False)]
+    monkeypatch.setattr(syntax._thread, "daemon_threads_allowed", lambda: True, raising=False)
     assert syntax.current_parse_stack_bytes() == 0
 
     def nested() -> tuple[int, ast.AST | None]:
@@ -1426,7 +1432,7 @@ def test_library_parses_join_a_non_daemon_thread_and_nest_inline(
     stack, tree = syntax._run_on_large_stack(nested, syntax.MIN_PARSE_STACK_BYTES)
     assert stack == syntax.MIN_PARSE_STACK_BYTES
     assert isinstance(tree, ast.Module)
-    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 2
+    assert _stacks(started) == [syntax.MIN_PARSE_STACK_BYTES] * 3
 
 
 #: 재귀 한도를 4만으로 올린 프로세스에서 20만 고리 속성 사슬을 주석과 모듈로 읽는 별도 프로세스 스크립트다(인자:
@@ -1815,6 +1821,37 @@ def test_stack_size_changes_are_serialized(monkeypatch: pytest.MonkeyPatch) -> N
     assert threading.stack_size() == before
 
 
+def test_a_start_heals_the_stack_size_lock_its_thread_left_held() -> None:
+    """신호 처리기의 예외가 잠금을 얻은 직후나 스택 크기를 되돌리기 전에 떨어져 잠금과 바꾼 설정이 남아도(3.14의
+    `with`는 `__enter__`를 보통 호출로 불러 그 끝에서 신호 처리기가 돈다), 같은 스레드의 다음 시작이 잠금을 풀고 설정을
+    되돌린다. 풀기를 빼면 잠금이 그 스레드에 남아 다른 스레드의 파싱이 영원히 기다리고, 되돌리기를 빼면 바뀐 설정이
+    프로세스에 남는다. `3b7343e`(되부르지 못하는 잠금)에서는 다음 시작이 자기가 쥔 잠금에서 멈췄다."""
+    guard = syntax._stack_size_guard
+    before = threading.stack_size()
+    seen: dict[str, object] = {}
+
+    def interrupted_then_started_again() -> None:
+        """끊긴 시작이 남긴 상태(잠금을 쥐고 설정을 바꾼 채)를 만든 뒤 같은 스레드에서 다시 시작한다."""
+        guard.lock.acquire()
+        guard.previous, guard.dirty = before, True
+        threading.stack_size(syntax.MIN_PARSE_STACK_BYTES)
+        try:
+            seen["result"] = syntax._run_on_large_stack(lambda: 7, syntax.MIN_PARSE_STACK_BYTES)
+            seen["stack"] = threading.stack_size()
+        finally:
+            seen["held"] = guard.lock._is_owned()
+            while guard.lock._is_owned():
+                guard.lock.release()
+            guard.dirty = False
+            threading.stack_size(before)
+
+    helper = threading.Thread(target=interrupted_then_started_again, daemon=True)
+    helper.start()
+    helper.join(30)
+    assert not helper.is_alive()
+    assert seen == {"result": 7, "stack": before, "held": False}
+
+
 #: 다른 스레드가 스택 크기 잠금을 잡은 채 fork한 자식이 전용 스레드를 만드는지 보는 별도 프로세스 스크립트다. 자식은
 #: 잠금을 새로 만들어야 하고, 아니면 영원히 기다린다(30초 안에 끝나지 않으면 죽이고 "hung"을 쓴다).
 _FORKED_PARSE = r"""
@@ -1823,11 +1860,26 @@ import time
 
 from pythograph.source import syntax
 
-syntax._stack_size_guard.lock.acquire()
+import threading
+
+held, release = threading.Event(), threading.Event()
+
+
+def hold():
+    syntax._stack_size_guard.lock.acquire()
+    held.set()
+    release.wait()
+    syntax._stack_size_guard.lock.release()
+
+
+holder = threading.Thread(target=hold)
+holder.start()
+held.wait()
 child = os.fork()
 if child == 0:
     os._exit(0 if syntax._run_on_large_stack(lambda: 7, syntax.MIN_PARSE_STACK_BYTES) == 7 else 1)
-syntax._stack_size_guard.lock.release()
+release.set()
+holder.join()
 deadline = time.monotonic() + 30
 while time.monotonic() < deadline:
     pid, status = os.waitpid(child, os.WNOHANG)
@@ -1996,3 +2048,77 @@ def test_unencodable_file_names_are_skipped(
     monkeypatch.setattr(project_module, "_is_encodable", lambda text: not text.startswith("odd"))
     project = Project.open(root)
     assert project.python_files() == ["ok.py"] and project.unencodable_names == 1
+
+
+#: 잘못된 이스케이프(3.12부터 SyntaxWarning, 3.10·3.11은 DeprecationWarning)와 비밀처럼 보이는 값이 든 소스다.
+_WARNING_SOURCE = 'DB_PASSWORD = "hunter2\\Q-prod-secret"\nCHECK = 1 is 1\n'
+
+
+#: 기본 경고 설정의 새 프로세스에서 라이브러리로 파싱하며 경고를 모은다(pytest는 테스트마다 자기 경고 필터를 맨 앞에
+#: 넣어 호스트가 나중에 넣은 필터처럼 이 필터를 가린다). 인자 없이 경고 수를, `--reset`이면 필터를 지운 뒤의 수를 쓴다.
+_LIBRARY_WARNINGS = r"""
+import sys
+import warnings
+from pythograph.source import syntax
+
+source = 'DB_PASSWORD = "hunter2\\Q-prod-secret"\nCHECK = 1 is 1\n'
+with warnings.catch_warnings(record=True) as caught:
+    if "--reset" in sys.argv:
+        warnings.resetwarnings()
+        warnings.simplefilter("always")
+    tree, overflow = syntax.parse_guarded(source, "settings.py", "exec", 0, 128, sys.maxsize)
+print(type(tree).__name__, overflow, len(caught))
+"""
+
+
+def _source_root() -> str:
+    """지금 import한 pythograph의 소스 루트다(자식 프로세스가 같은 코드를 쓰게 한다)."""
+    import pythograph
+
+    return str(Path(pythograph.__file__).resolve().parents[1])
+
+
+def test_compile_warnings_about_analysed_sources_are_not_emitted() -> None:
+    """분석 대상 소스의 컴파일 경고(잘못된 이스케이프 등)는 내지 않는다: pythograph는 소스를 실행하지 않고, 기본
+    처리기는 그 줄(비밀 값 포함)을 표준 오류에 썼다(4차 리뷰 CLI-3). 파서에는 고정 파일 이름(`PARSE_FILENAME`)을 주고 그
+    모듈 이름만 고르는 무시 필터 하나를 건다(3.14 전 `catch_warnings`는 스레드에 안전하지 않다). 필터를 지우면 같은
+    파싱이 경고를 내므로 이 테스트가 헛되지 않다."""
+    environment = {**os.environ, "PYTHONPATH": _source_root()}
+    environment.pop("PYTHONWARNINGS", None)
+    outputs = [
+        subprocess.run(
+            [sys.executable, "-c", _LIBRARY_WARNINGS, *extra],
+            capture_output=True,
+            encoding="utf-8",
+            check=True,
+            env=environment,
+        ).stdout.split()
+        for extra in ([], ["--reset"])
+    ]
+    assert outputs[0] == ["Module", "None", "0"]
+    assert outputs[1][:2] == ["Module", "None"]
+    assert int(outputs[1][2]) >= 1
+
+
+def test_compile_warnings_neither_print_nor_change_results(tmp_path: Path) -> None:
+    """`graph`는 분석 대상의 컴파일 경고를 표준 오류에 쓰지 않고(3.12 이상에서 비밀 값이 든 줄을 썼다), 경고를 오류로
+    바꾸는 `-W error::SyntaxWarning`(3.10·3.11은 DeprecationWarning)에서도 결과가 같다(전에는 그 옵션이 경고를
+    SyntaxError로 바꿔 파일을 읽지 못한 것으로 셌다). 프로젝트 안에서 실행해 linecache가 원본 줄을 찾을 수 있는
+    조건이다."""
+    (tmp_path / "settings.py").write_text(_WARNING_SOURCE, encoding="utf-8")
+    command = [sys.executable, "-m", "pythograph", "graph", "--project", ".", "--generated-at", "2026-01-01T00:00:00Z"]
+    environment = {**os.environ, "PYTHONPATH": _source_root()}
+    environment.pop("PYTHONWARNINGS", None)
+    plain = subprocess.run(command, capture_output=True, encoding="utf-8", check=False, cwd=tmp_path, env=environment)
+    strict = subprocess.run(
+        [command[0], "-W", "error::SyntaxWarning", "-W", "error::DeprecationWarning", *command[1:]],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=tmp_path,
+        env=environment,
+    )
+    assert plain.returncode == strict.returncode == 0, (plain.stderr, strict.stderr)
+    assert plain.stderr == strict.stderr == ""
+    assert plain.stdout == strict.stdout
+    assert '"unparsedFiles":0' in plain.stdout.replace(" ", "")
