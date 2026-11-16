@@ -606,9 +606,15 @@ def _communicate_in_slices(process: subprocess.Popen[bytes], deadline: float) ->
 def _close_pipes(process: subprocess.Popen[bytes]) -> None:
     """자식의 표준 출력·오류 파이프를 닫는다(`communicate`가 끝나지 못하고 빠져나간 경우에도 남기지 않는다).
 
+    Windows에서는 닫지 않는다: 그곳의 `communicate`는 표준 라이브러리 읽기 스레드로 읽고, 그 스레드가 버퍼 잠금을 쥐고
+    읽는 동안 닫기는 EOF까지 막힌다(죽인 자식의 손자가 파이프를 쥐고 있으면 Ctrl+C 뒤에도 끝나지 않는다, 6차 리뷰 N3,
+    Windows에서는 확인하지 못했다). 읽기 스레드가 끝나면 파일 객체가 정리되며 닫힌다.
+
     Args:
         process: 자식.
     """
+    if os.name == "nt":
+        return
     for stream in (process.stdout, process.stderr):
         if stream is not None:
             stream.close()
@@ -677,17 +683,18 @@ def _run_git_bounded(
     except (OSError, UnicodeError):
         return None
     assert process.stdout is not None and process.stderr is not None
-    writers = _writers(process, input_data, failed, drained)
-    readers = [
-        *(
-            threading.Thread(target=drain, args=(stream, index), daemon=True)
-            for index, stream in enumerate((process.stdout, process.stderr))
-        ),
-        *(writer for writer, _ in writers),
-    ]
-    deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
     started: list[threading.Thread] = []
     try:
+        # 스레드를 만들다 실패해도(데몬 스레드를 막은 하위 인터프리터) 아래 `finally`가 자식을 거둔다(6차 리뷰 N4).
+        writers = _writers(process, input_data, failed, drained)
+        readers = [
+            *(
+                threading.Thread(target=drain, args=(stream, index), daemon=True)
+                for index, stream in enumerate((process.stdout, process.stderr))
+            ),
+            *(writer for writer, _ in writers),
+        ]
+        deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
         for reader in readers:
             reader.start()
             started.append(reader)

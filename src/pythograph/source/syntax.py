@@ -153,6 +153,10 @@ _JOIN_POLL_SECONDS = WAIT_SLICE_SECONDS
 #: 스레드는 기다리지 않고 예외를 다시 낸다(명령 스레드는 데몬이고 표준 입출력을 쓰지 않으므로 버려도 된다).
 COMMAND_STOP_GRACE_SECONDS = 20.0
 
+#: `Thread.is_alive`를 신호를 받는 스레드에서 믿어도 되는지다. 3.13부터는 스레드 핸들의 상태만 읽는다. 3.12까지는
+#: 그 안에 신호 예외가 떨어지면 bpo-45274 처리가 아직 도는 스레드의 잠금을 풀고 끝난 것으로 표시한다(5차 리뷰 C-F1).
+_IS_ALIVE_SIGNAL_SAFE = sys.version_info >= (3, 13)
+
 #: 분석 대상 소스를 파싱할 때 파서에 주는 파일 이름이다. 3.12부터 컴파일러는 잘못된 이스케이프(`"\\Q"`) 같은 소스에
 #: SyntaxWarning을 내고(3.10·3.11은 DeprecationWarning), 기본 처리기는 그 줄을 표준 오류에 쓴다. 분석 대상의 비밀 값이
 #: 출력에 섞이고(4차 리뷰 CLI-3), 계산 스레드가 표준 오류에 쓰게 된다. 컴파일 경고의 모듈 이름은 파서에 준 파일 이름
@@ -553,6 +557,9 @@ class _ParseThread(Generic[_Result]):
         #: 부른 쪽이 유예가 지나 기다리기를 그만뒀는지다. 그 뒤에 담긴 결과는 아무도 꺼내지 않으므로 작업 스레드가
         #: 비운다.
         self._abandoned = False
+        #: `_wait`가 끊기지 않고 작업 스레드와 합류를 마쳤는지다. 그러면 스레드는 이미 끝났으므로 `stop`이 기다리지
+        #: 않는다(끝을 알리지 못하고 죽은 스레드의 예외를 20초 늦게 전하지 않는다, 6차 리뷰 F1).
+        self._joined = False
         #: 끝을 알리는 메서드를 미리 묶어 둔다(메모리가 모자라도 `_run`의 `finally`가 새 객체를 만들지 않게 한다).
         self._signal_finished = self._finished.set
         try:
@@ -678,20 +685,22 @@ class _ParseThread(Generic[_Result]):
                 break
         while self._thread.is_alive():
             self._thread.join(_JOIN_POLL_SECONDS)
+        self._joined = True
         return cast(_Result, take_outcome(self._outcome))
 
     def stop(self) -> None:
         """스레드를 멈추게 하고 `COMMAND_STOP_GRACE_SECONDS`까지 끝나기를 기다린다.
 
         취소 표시를 먼저 세우고 그다음 작업을 차지해 본다(4차 리뷰 R-N1의 순서). 부른 쪽이 차지했으면(시작하지 않았거나
-        아직 작업을 차지하지 않은 스레드) 스레드는 작업하지 않으므로 기다리지 않는다. 이미 끝났거나 끝을 알리지 못하고
-        죽었어도 기다리지 않는다. 작업 중이면 다음 확인 자리에서 KeyboardInterrupt로 풀리기를 기다린다. 살아 있는지는
-        `is_alive`로 보지 않고 끝 알림과 유예로만 판단한다: 3.12까지 `is_alive` 안에 신호 예외가 떨어지면 표준
-        라이브러리의 bpo-45274 처리가 아직 도는 작업 스레드의 잠금을 풀고 끝난 것으로 표시해, 이전 판은 첫 Ctrl+C에도
-        정리를 기다리지 않고 나갈 수 있었다(5차 리뷰 F1, 약 5만 번에 한 번). 끝을 알리지 못하고 죽은 스레드는 유예까지
-        기다린다. 기다리는 중 받은
-        예외는 그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다). 작업 스레드가 남긴 결과·예외는 버린다(그 traceback이
-        분석 힙을 붙잡지 않게 한다).
+        아직 작업을 차지하지 않은 스레드) 스레드는 작업하지 않으므로 기다리지 않는다. 끝을 알렸거나, `_wait`가 끊기지
+        않고 합류를 마쳤으면(끝을 알리지 못하고 죽은 스레드의 예외를 전하는 경우) 기다리지 않는다. 작업 중이면 다음 확인
+        자리에서 KeyboardInterrupt로 풀리기를 기다린다. 기다리는 동안 살아 있는지는 끝 알림과 유예로 판단하고,
+        `is_alive`는 그것을 믿을 수 있는 3.13부터만 함께 본다(`_IS_ALIVE_SIGNAL_SAFE`): 3.12까지
+        `is_alive` 안에 신호 예외가 떨어지면 표준 라이브러리의 bpo-45274 처리가 아직 도는 작업 스레드의 잠금을 풀고 끝난
+        것으로 표시해, 이전 판은 첫 Ctrl+C에도 정리를 기다리지 않고 나갈 수 있었다(5차 리뷰 C-F1, 약 5만 번에 한 번).
+        그래서 3.12까지는 기다림이 끊긴 뒤 끝을 알리지 못하고 죽은 스레드를 유예까지 기다린다. 기다리는 중 받은 예외는
+        그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다). 작업 스레드가 남긴 결과·예외는 버린다(그 traceback이 분석 힙을
+        붙잡지 않게 한다).
 
         기다림은 C 호출 하나를 끊지 못한다: GIL을 쥔 채 도는 C 호출(큰 소스의 `ast.parse`)이 끝날 때까지는 주 스레드도
         신호 처리기를 돌리지 못해 이 함수에 들어오지도 않는다. 20초 유예는 GIL을 놓고 막힌 호출에만 걸린다.
@@ -699,11 +708,11 @@ class _ParseThread(Generic[_Result]):
         self._token.cancelled = True
         self._claims.append("caller")
         try:
-            if self.refused or self._finished.done:
+            if self.refused or self._finished.done or self._joined:
                 return
             deadline = time.monotonic() + COMMAND_STOP_GRACE_SECONDS
             while not self._finished.wait(min(_JOIN_POLL_SECONDS, max(0.0, deadline - time.monotonic()))):
-                if time.monotonic() >= deadline:
+                if time.monotonic() >= deadline or (_IS_ALIVE_SIGNAL_SAFE and not self._thread.is_alive()):
                     return
         finally:
             # 결과를 버린다. 아직 끝나지 않았으면 그만둔다고 먼저 표시하고 끝났는지 본다: 작업 스레드는 끝을 알린 뒤 이

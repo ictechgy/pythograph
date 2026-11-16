@@ -375,6 +375,27 @@ def test_git_waits_stop_on_cancel_and_reap_the_child(
     assert elapsed < 1.0
     assert len(children) == 1
     assert children[0].poll() is not None
+    if not options:  # revision 조회는 `communicate`가 끝나지 못한 파이프도 닫는다(6차 리뷰 N2).
+        assert children[0].stdout.closed and children[0].stderr.closed
+
+
+@POSIX_ONLY
+def test_a_refused_drain_thread_still_reaps_the_git_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slow_git: tuple[str, list[subprocess.Popen[bytes]]]
+) -> None:
+    """change 캡처의 배수 스레드를 만들 수 없어도(데몬 스레드를 막은 하위 인터프리터) 그 실패는 전처럼 나가되 git 자식은
+    죽여 거둔다. 전에는 스레드를 감독하는 `try` 앞에서 만들어 자식과 파이프가 남았다(6차 리뷰 N4)."""
+    program, children = slow_git
+
+    def refuse(*_arguments: object, **_options: object) -> threading.Thread:
+        """스레드 만들기를 언제나 거부한다."""
+        raise RuntimeError("daemon threads are disabled in this (sub)interpreter")
+
+    monkeypatch.setattr(revision.threading, "Thread", refuse)
+    with pytest.raises(RuntimeError, match="daemon threads are disabled"):
+        revision._run_git(program, tmp_path, "status", output_limit=4096)
+    assert len(children) == 1
+    assert children[0].poll() is not None
 
 
 @POSIX_ONLY
@@ -472,6 +493,7 @@ def test_stopping_waits_for_cleanup_even_if_the_thread_looks_finished(monkeypatc
             cleaned.append(time.monotonic())
 
     monkeypatch.setattr(threading.Thread, "is_alive", looks_finished_after_interrupt)
+    monkeypatch.setattr(syntax, "_IS_ALIVE_SIGNAL_SAFE", False)  # 3.12까지처럼 `is_alive`를 믿지 않는다.
     previous = signal.signal(signal.SIGALRM, interrupt)
     try:
         with contextlib.suppress(_Boom):
@@ -554,6 +576,54 @@ def test_interruptible_calls_run_inline_where_daemon_threads_are_refused(
     roots = tmp_path / "roots.json"
     roots.write_text('["a#b"]', encoding="utf-8")
     assert collect_roots([], str(roots), None) == ("a#b",)
+
+
+class _SlowStartThread:
+    """`start`는 바로 돌아오지만 대상은 0.3초 뒤에 실제 스레드에서 돈다(시작이 늦은 읽기 스레드)."""
+
+    #: 대상을 늦게 돌리는 실제 스레드 클래스다(대역으로 바꾸기 전의 `threading.Thread`).
+    real_thread_class = threading.Thread
+
+    def __init__(self, *, target: Callable[[], None], name: str, daemon: bool) -> None:
+        """대상만 받는다."""
+        del name, daemon
+        self._target = target
+        self.real: threading.Thread | None = None
+
+    def start(self) -> None:
+        """대상을 늦게 돌리는 실제 스레드를 시작한다."""
+        self.real = self.real_thread_class(target=self._late, daemon=True)
+        self.real.start()
+
+    def _late(self) -> None:
+        """0.3초 뒤 대상을 돌린다."""
+        time.sleep(0.3)
+        self._target()
+
+    def is_alive(self) -> bool:
+        """실제 스레드가 끝나기 전까지 살아 있다."""
+        return self.real is not None and self.real.is_alive()
+
+
+def test_an_abandoned_read_never_starts_after_the_caller_left(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`call_interruptibly`가 취소로 그만둘 때 작업을 차지하므로, 시작이 늦은 읽기 스레드는 부른 쪽이 나간 뒤에 함수를
+    부르지 않는다(5차 리뷰 C-N3: 전에는 그만둔 호출의 약 10%에서 나중에 읽었다)."""
+    calls: list[str] = []
+    created: list[_SlowStartThread] = []
+
+    def build(*, target: Callable[[], None], name: str, daemon: bool) -> _SlowStartThread:
+        """늦게 시작하는 대역을 만들고 기록한다."""
+        thread = _SlowStartThread(target=target, name=name, daemon=daemon)
+        created.append(thread)
+        return thread
+
+    monkeypatch.setattr(cancel.threading, "Thread", build)
+    with _cancelled_here(), pytest.raises(KeyboardInterrupt):
+        cancel.call_interruptibly(lambda: calls.append("read"), "pythograph-test")
+    monkeypatch.undo()
+    assert len(created) == 1 and created[0].real is not None
+    created[0].real.join(5)
+    assert calls == []
 
 
 @POSIX_ONLY
@@ -873,6 +943,28 @@ def test_a_worker_that_dies_without_signalling_is_an_internal_error(monkeypatch:
     results: list[object] = []
     assert _bounded(lambda: results.append(syntax._run_on_large_stack(lambda: 7, syntax.MIN_PARSE_STACK_BYTES))) is None
     assert results == [7]
+
+
+def test_a_worker_that_dies_without_signalling_relays_its_error_promptly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """작업이 예외로 끝났는데 작업 스레드가 끝을 알리지 못하고 죽어도(메모리가 모자란 `finally`) 그 예외는 바로
+    전해진다: 합류를 마친 스레드는 멈출 때 기다리지 않는다. Ctrl+C가 없어도 20초 유예를 기다리던 회귀가 있었다(6차 리뷰
+    F1)."""
+
+    def failing_set(self: Completion) -> None:
+        """끝을 알리다 메모리가 모자란 것처럼 한다."""
+        raise MemoryError
+
+    def work() -> None:
+        """예외로 끝난다."""
+        raise ValueError("work failed")
+
+    monkeypatch.setattr(Completion, "set", failing_set)
+    monkeypatch.setattr(threading, "excepthook", lambda _args: None)
+    monkeypatch.setattr(syntax, "_IS_ALIVE_SIGNAL_SAFE", False)  # 3.12까지처럼 `is_alive`가 아닌 합류 표시로 판단한다.
+    started = time.monotonic()
+    with pytest.raises(ValueError, match="work failed"):
+        syntax._run_on_large_stack(work, syntax.MIN_PARSE_STACK_BYTES)
+    assert time.monotonic() - started < _PROMPT_SECONDS
 
 
 def test_interruptible_reads_classify_failed_starts_like_parser_threads(monkeypatch: pytest.MonkeyPatch) -> None:
