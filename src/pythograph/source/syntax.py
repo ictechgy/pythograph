@@ -10,7 +10,6 @@ RecursionError를 잡아 계속하지 않는 것은 그때까지 채운 메모(�
 
 from __future__ import annotations
 
-import _thread
 import ast
 import io
 import os
@@ -31,6 +30,8 @@ from pythograph.source.cancel import (
     CancelToken,
     Completion,
     bind_token,
+    daemon_threads_allowed,
+    forget_finished_thread,
     raise_if_cancelled,
     start_interruption,
     take_outcome,
@@ -511,17 +512,7 @@ def _run_on_large_stack(work: Callable[[], _Result], stack: int) -> _Result:
     Raises:
         ParseStackUnavailableError: 그 크기의 스레드를 만들 수 없을 때(스레드가 작업을 맡지 않은 것이 확실할 때만).
     """
-    return _ParseThread(work, stack, daemon=_daemon_threads_allowed()).run()
-
-
-def _daemon_threads_allowed() -> bool:
-    """지금 인터프리터가 데몬 스레드를 허락하는지 본다(3.11까지는 그런 설정이 없어 늘 True).
-
-    Returns:
-        데몬 스레드를 만들 수 있으면 True.
-    """
-    allowed = getattr(_thread, "daemon_threads_allowed", None)
-    return True if allowed is None else bool(allowed())
+    return _ParseThread(work, stack, daemon=daemon_threads_allowed()).run()
 
 
 class _ParseThread(Generic[_Result]):
@@ -694,7 +685,11 @@ class _ParseThread(Generic[_Result]):
 
         취소 표시를 먼저 세우고 그다음 작업을 차지해 본다(4차 리뷰 R-N1의 순서). 부른 쪽이 차지했으면(시작하지 않았거나
         아직 작업을 차지하지 않은 스레드) 스레드는 작업하지 않으므로 기다리지 않는다. 이미 끝났거나 끝을 알리지 못하고
-        죽었어도 기다리지 않는다. 작업 중이면 다음 확인 자리에서 KeyboardInterrupt로 풀리기를 기다린다. 기다리는 중 받은
+        죽었어도 기다리지 않는다. 작업 중이면 다음 확인 자리에서 KeyboardInterrupt로 풀리기를 기다린다. 살아 있는지는
+        `is_alive`로 보지 않고 끝 알림과 유예로만 판단한다: 3.12까지 `is_alive` 안에 신호 예외가 떨어지면 표준
+        라이브러리의 bpo-45274 처리가 아직 도는 작업 스레드의 잠금을 풀고 끝난 것으로 표시해, 이전 판은 첫 Ctrl+C에도
+        정리를 기다리지 않고 나갈 수 있었다(5차 리뷰 F1, 약 5만 번에 한 번). 끝을 알리지 못하고 죽은 스레드는 유예까지
+        기다린다. 기다리는 중 받은
         예외는 그대로 나간다(두 번째 Ctrl+C는 기다리지 않는다). 작업 스레드가 남긴 결과·예외는 버린다(그 traceback이
         분석 힙을 붙잡지 않게 한다).
 
@@ -708,7 +703,7 @@ class _ParseThread(Generic[_Result]):
                 return
             deadline = time.monotonic() + COMMAND_STOP_GRACE_SECONDS
             while not self._finished.wait(min(_JOIN_POLL_SECONDS, max(0.0, deadline - time.monotonic()))):
-                if time.monotonic() >= deadline or not self._thread.is_alive():
+                if time.monotonic() >= deadline:
                     return
         finally:
             # 결과를 버린다. 아직 끝나지 않았으면 그만둔다고 먼저 표시하고 끝났는지 본다: 작업 스레드는 끝을 알린 뒤 이
@@ -734,28 +729,10 @@ class _ParseThread(Generic[_Result]):
         except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다(`_wait`).
             self._outcome[0] = error
         finally:
-            _forget_finished_thread()
+            forget_finished_thread()
             self._signal_finished()
             if self._abandoned:
                 self._outcome[0] = NO_OUTCOME
-
-
-def _forget_finished_thread() -> None:
-    """끝나 가는 지금 스레드를 `threading`의 끝난 스레드 모음(`_dangling`, 약한 참조 집합)에서 뺀다(작업 스레드에서
-    부른다).
-
-    그 집합의 약한 참조 콜백은 스레드 객체를 마지막으로 놓는 스레드, 곧 부른 스레드에서 파이썬 코드로 돈다. 그 사이에
-    닿은 Ctrl+C는 CPython이 약한 참조 콜백의 예외를 버리므로("Exception ignored in") 사라지고 분석이 계속됐다(4차 리뷰
-    I-S4, 9234b72부터). 작업 스레드에서 미리 빼면 콜백이 남지 않는다. 그 집합은 fork한 자식에서 누가 합류할지 모르는
-    끝난 스레드의 잠금을 다시 만들 때만 쓰는데, 이 스레드 객체에는 부른 스레드만 `_wait`에서 합류하고 fork한 자식에는
-    합류하는 중인 부른 스레드가 없다. 비공개 속성이라 없거나 실패하면 그대로 둔다.
-    """
-    dangling = getattr(_stdlib_threading, "_dangling", None)
-    if dangling is not None:
-        try:
-            dangling.discard(_stdlib_threading.current_thread())
-        except Exception:  # 콜백이 남을 뿐이다(메모리 부족 등에서도 끝을 알리는 일을 막지 않는다).
-            return
 
 
 def _parses_safely_inline(text: str, bound: int) -> bool:

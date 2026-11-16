@@ -472,9 +472,12 @@ stack is committed), and writes the output and errors on the main thread. Python
 so 3.14 uses no thread; there, on a very small caller stack (256 KiB or less), a source with a syntax error can be
 reported as nested too deeply instead (the parsed/unparsed split is the same, as in 0.3.1). Exit codes are as before.
 Ctrl+C during the computation asks that thread to stop. The thread checks the request before it parses each file, lists
-each directory, analyses each definition or module and writes each node, and in every 0.1-second slice while it waits
+each directory, analyses each definition or module, writes each node and captures or copies each file for
+change-impact, and in every 0.1-second slice while it waits
 for git or reads `--roots-from`; it then unwinds, so its cleanup runs (for example change-impact's temporary copies),
-and the command exits with KeyboardInterrupt. Nothing interrupts a C call that holds the GIL: parsing one large file
+and the command exits with KeyboardInterrupt. In an interpreter that forbids daemon threads (isolated subinterpreters on
+3.12 and later), `--roots-from` is read in place as in 0.3.1, so a read that blocks there does not see Ctrl+C. Nothing
+interrupts a C call that holds the GIL: parsing one large file
 (about 12 seconds for 4 MiB on the measured host, longer on slower machines) or a cyclic garbage collection of a large
 heap (up to about 12 seconds on the standard-library corpus with 3.13) delays even the handling of Ctrl+C until it
 returns, as in 0.3.1. After that the main thread waits at most 20 seconds for the next check, which matters only for a
@@ -487,7 +490,9 @@ MemoryError while it finishes under a tight `ulimit -v`), the main thread notice
 analysed sources are not emitted (Python 3.12's SyntaxWarning for an invalid escape sequence printed the offending
 source line, secrets included): the parser always gets the file name `<pythograph-source>`, and one filter installed
 when pythograph is imported ignores warnings attributed to that name only. A warnings filter the host adds later takes
-precedence, and `warnings.resetwarnings()` removes it. When pythograph is used as a library from another thread, every
+precedence, and `warnings.resetwarnings()` removes it. If pythograph is first imported inside `warnings.catch_warnings()`
+(pytest runs collection and each test inside one), the filter ends with that block; such a warning is then printed
+under `<pythograph-source>` without the source line. When pythograph is used as a library from another thread, every
 source longer than 128 characters up to 3.13, every long chain on 3.10, and every source that may contain an f-string on
 3.10 and 3.11 is parsed on a thread with a larger stack that is joined at once, and a tree over the limits is discarded
 on that thread; up to 3.13 the results are the same. That thread is a daemon thread unless the interpreter forbids

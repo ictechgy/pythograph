@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import signal
 import subprocess
@@ -255,6 +256,7 @@ def test_refused_threads_do_not_wait_once_per_file(tmp_path: Path, monkeypatch: 
         """시작 시도를 세고 언제나 실패한다."""
 
         def start(self) -> None:
+            """시작을 시도한 스레드를 기록하고 실패한다."""
             attempts.append(threading.current_thread().name)
             super().start()
 
@@ -266,6 +268,31 @@ def test_refused_threads_do_not_wait_once_per_file(tmp_path: Path, monkeypatch: 
     assert len(attempts) == 1 + 6  # 명령 스레드 하나와 파일마다 하나다.
     assert set(attempts) == {threading.current_thread().name}
     assert confirmations == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Windows의 `subprocess.communicate`는 0.3.1부터 읽기 스레드를 쓴다")
+def test_refused_threads_still_record_the_git_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """스레드를 하나도 만들 수 없어도 git 작업 트리의 graph는 0.3.1처럼 revision을 담아 0으로 끝나고, 출력은 스레드가
+    있을 때와 바이트까지 같다. 위 테스트는 `--revision`을 주어 git을 부르지 않는다. 전에는 revision 조회가 읽기 스레드
+    둘을 시작하다 RuntimeError로 내부 오류(2)가 됐다(5차 리뷰 F1)."""
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
+    for git_arguments in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "fixture"]):
+        subprocess.run(["git", *identity, *git_arguments], cwd=tmp_path, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True)
+    arguments = ["graph", "--project", str(tmp_path), "--generated-at", _GENERATED_AT]
+    threaded = io.StringIO()
+    assert cli_main.main(arguments, threaded) == 0
+    assert json.loads(threaded.getvalue())["revision"] == head.stdout.strip()
+
+    def refuse(_thread: threading.Thread) -> None:
+        """스레드 시작을 언제나 거부한다."""
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    refused = io.StringIO()
+    assert cli_main.main(arguments, refused) == 0
+    assert refused.getvalue() == threaded.getvalue()
 
 
 #: 계산이 끝난 뒤 아무도 읽지 않는 파이프에 큰 출력을 쓰다 막힌 CLI다. 출력 쓰기가 명령 스레드에서 일어나던 때는

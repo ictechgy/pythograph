@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import _thread
 import contextlib
 import gc
 import io
@@ -20,16 +21,18 @@ from types import SimpleNamespace
 import pytest
 
 from pythograph.cli import main as cli_main
-from pythograph.graph import revision
+from pythograph.graph import change, revision
 from pythograph.graph.roots import collect_roots
-from pythograph.source import syntax
+from pythograph.source import cancel, syntax
 from pythograph.source.cancel import CancelToken, Completion, bind_token, raise_if_cancelled
+from pythograph.source.project import Project
 from tests.conftest import REPOSITORY
 
 #: POSIX 전용 도구(실행 권한 셸 스크립트, FIFO, SIGALRM 타이머)를 쓰는 테스트의 건너뛰기 표시다.
 POSIX_ONLY = pytest.mark.skipif(os.name != "posix" or not hasattr(signal, "setitimer"), reason="POSIX 전용 도구를 쓴다")
 
-#: 취소를 요청한 뒤 돌아와야 하는 시간(초)이다. 조각은 0.1초라 부하가 있어도 넉넉하다.
+#: 막힌 호출이 취소를 보지 못해도 테스트가 멈추지 않도록 기다리는 상한(초)이다. 취소 뒤 빨리 돌아오는지는 각 테스트가
+#: 1초 미만(대기 조각 0.1초의 10배)으로 따로 확인한다.
 _PROMPT_SECONDS = 5.0
 
 
@@ -244,13 +247,17 @@ def test_a_thread_that_starts_after_the_caller_gave_up_never_runs_the_work(monke
     gate = threading.Event()
 
     class RefusedButLate(_LateThread):
+        """시작이 실패했다고 보고하고, 대상은 `gate`가 열린 뒤에야 시작한다."""
+
         def hold(self) -> None:
+            """`gate`가 열릴 때까지(최대 5초) 대상의 시작을 늦춘다."""
             gate.wait(5)
 
     _install(monkeypatch, RefusedButLate)
     calls: list[str] = []
 
     def work() -> str:
+        """실행한 스레드를 기록한다."""
         calls.append(threading.current_thread().name)
         return "done"
 
@@ -287,6 +294,8 @@ def test_interrupted_starts_raise_the_interruption_and_never_run_the_work(monkey
     이유로 가리면(`start_interruption`을 빼면) 이 테스트가 실패한다."""
 
     class InterruptedNeverStarts(_InterruptedLateStart):
+        """시작 대기가 Ctrl+C로 끊긴 것처럼 실패하고 대상은 끝내 시작하지 않는다."""
+
         def start(self) -> None:
             """시작하지 않고 실패만 보고한다."""
             self.fail()
@@ -323,7 +332,10 @@ def slow_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[
     original = subprocess.Popen
 
     class RecordingPopen(original):  # type: ignore[valid-type, misc]
+        """실행한 자식을 `children`에 기록하는 `subprocess.Popen`이다."""
+
         def __init__(self, *arguments: object, **options: object) -> None:
+            """자식을 실행하고 기록한다."""
             super().__init__(*arguments, **options)
             children.append(self)
 
@@ -381,6 +393,167 @@ def test_git_timeouts_return_nothing_and_reap_the_child(
     assert time.monotonic() - started < _PROMPT_SECONDS
     assert len(children) == 1
     assert children[0].poll() is not None
+
+
+@contextlib.contextmanager
+def _cancelled_here() -> Iterator[None]:
+    """지금 스레드에 이미 세운 취소 표시를 두고, 끝나면 치운다."""
+    token = CancelToken()
+    token.cancelled = True
+    bind_token(token)
+    try:
+        yield
+    finally:
+        bind_token(None)
+
+
+def test_parsing_a_file_is_a_cancellation_checkpoint() -> None:
+    """파일 하나를 파싱하기 전(`parse_guarded`)에 취소 표시를 본다. 파싱 단계가 긴 프로젝트에서 Ctrl+C가 닿는 자리다:
+    빼면 표준 라이브러리 코퍼스에서 3초에 보낸 Ctrl+C가 0.18초 대신 30.9초 뒤에 끝났는데, 작은 파일만 쓰는 다른
+    테스트는 뒤 단계의 확인 자리가 대신 멈춰 모두 통과했다(5차 리뷰 T1)."""
+    with _cancelled_here(), pytest.raises(KeyboardInterrupt):
+        syntax.parse_guarded("x = 1\n", "m.py", "exec", 1, 100, 1000)
+
+
+def test_listing_a_directory_is_a_cancellation_checkpoint(tmp_path: Path) -> None:
+    """디렉터리 하나를 열거하기 전(`Project.scan_directory`)에도 취소 표시를 본다(5차 리뷰 T1)."""
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    project = Project.open(tmp_path)
+    with _cancelled_here(), pytest.raises(KeyboardInterrupt), project.scan_directory(""):
+        pass
+
+
+def test_change_capture_and_its_copy_are_cancellation_checkpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """change-impact가 파일을 하나씩 캡처하거나 비교 사본에 쓰기 전에도 취소 표시를 본다. 큰 저장소에서 이 둘은 확인
+    자리 없이 13초 넘게 돌아, Ctrl+C가 12–17초 뒤에야 닿았다(`3d333ff`는 비동기 예외로 0.06초, 5차 리뷰 F4)."""
+    (tmp_path / ".git").mkdir()  # 저장소 루트 확인만 지나게 한다(git 읽기는 아래 대역이 한다).
+    captured: list[str] = []
+    monkeypatch.setattr(change, "_read_git", lambda _root, *_arguments, **_options: b"a.py\0")
+    monkeypatch.setattr(change, "_capture_row", lambda _root, _commit, _metadata, path, _state: captured.append(path))
+    with _cancelled_here(), pytest.raises(KeyboardInterrupt):
+        change.capture(tmp_path)
+    assert captured == []
+    copy = tmp_path / "copy"
+    snapshot = change.Capture({"a.py": b"x = 1\n"}, "digest", None, ())
+    with _cancelled_here(), pytest.raises(KeyboardInterrupt):
+        change._materialize_capture(snapshot, copy)
+    assert not (copy / "a.py").exists()
+
+
+@POSIX_ONLY
+def test_stopping_waits_for_cleanup_even_if_the_thread_looks_finished(monkeypatch: pytest.MonkeyPatch) -> None:
+    """멈출 때는 작업 스레드의 끝 알림을 기다린다(`is_alive`를 믿지 않는다). 3.12까지 `is_alive` 안에 떨어진 신호 예외는
+    표준 라이브러리의 bpo-45274 처리로 아직 도는 스레드를 끝난 것으로 표시하는데, 이전 판은 그때 첫 Ctrl+C에도 정리
+    (change-impact 사본 지우기)를 기다리지 않고 나갔다(5차 리뷰 F1). 여기서는 신호 예외 뒤 `is_alive`가 거짓이 되게
+    한다."""
+    interrupted: list[bool] = []
+    cleaned: list[float] = []
+    real_is_alive = threading.Thread.is_alive
+
+    def looks_finished_after_interrupt(thread: threading.Thread) -> bool:
+        """신호 예외 뒤에는 끝난 것처럼 보인다."""
+        return False if interrupted else real_is_alive(thread)
+
+    def interrupt(_signum: int, _frame: object) -> None:
+        """표시를 세우고 `_Boom`을 낸다."""
+        interrupted.append(True)
+        raise _Boom
+
+    def work() -> None:
+        """취소될 때까지 돌고, 풀릴 때 0.3초 걸려 정리한다."""
+        try:
+            while True:
+                time.sleep(0.01)
+                raise_if_cancelled()
+        finally:
+            time.sleep(0.3)
+            cleaned.append(time.monotonic())
+
+    monkeypatch.setattr(threading.Thread, "is_alive", looks_finished_after_interrupt)
+    previous = signal.signal(signal.SIGALRM, interrupt)
+    try:
+        with contextlib.suppress(_Boom):
+            signal.setitimer(signal.ITIMER_REAL, 0.3)
+            syntax._run_on_large_stack(work, syntax.MIN_PARSE_STACK_BYTES)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    returned = time.monotonic()
+    assert interrupted == [True]
+    assert cleaned and cleaned[0] <= returned
+
+
+@POSIX_ONLY
+def test_reader_threads_leave_no_weakref_callback_for_the_caller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slow_git: tuple[str, list[subprocess.Popen[bytes]]]
+) -> None:
+    """입력 읽기 스레드와 git 배수·쓰기 스레드도 끝날 때 `threading._dangling`에서 스스로 빠진다. 남으면 그 약한 참조
+    콜백이 스레드 객체를 놓는 부른 스레드(3.14는 주 스레드)에서 돌고, 그 사이 닿은 Ctrl+C는 "Exception ignored"로
+    사라진다(5차 리뷰 F3, 파싱 스레드는 4차 리뷰 I-S4에서 고쳤다)."""
+    started: list[threading.Thread] = []
+    original = threading.Thread
+
+    class RecordingThread(original):  # type: ignore[valid-type, misc]
+        """시작한 스레드를 기록한다."""
+
+        def start(self) -> None:
+            """기록하고 시작한다."""
+            started.append(self)
+            super().start()
+
+    monkeypatch.setattr(threading, "Thread", RecordingThread)
+    assert cancel.call_interruptibly(lambda: 1, "pythograph-test") == 1
+    program, _children = slow_git
+    Path(program).write_text("#!/bin/sh\ncat >/dev/null\necho done\n", encoding="utf-8")
+    result = revision._run_git(program, tmp_path, "cat-file", output_limit=4096, input_data=b"x\n")
+    assert result is not None and result.stdout == b"done\n"
+    assert len(started) == 1 + 3  # 입력 읽기 하나, git 표준 출력·오류 배수 둘과 표준 입력 쓰기 하나다.
+    for thread in started:
+        thread.join(5)
+    dangling = getattr(threading, "_dangling", ())
+    assert not any(thread in dangling for thread in started)
+
+
+@POSIX_ONLY
+def test_revision_lookup_starts_no_threads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """revision 조회(출력 상한 없는 git 호출)는 0.3.1의 `subprocess.run`처럼 POSIX에서 스레드를 만들지 않는다. 스레드를
+    만들 수 없거나(`ulimit -v`, 프로세스 수 한도) 주소 공간이 빠듯해도(스레드마다 glibc 아레나) 전처럼 조회한다. 전에는
+    읽기 스레드 둘을 시작하다 RuntimeError가 나 graph가 내부 오류(2)로 끝났다(5차 리뷰 F1)."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+
+    def refuse(_thread: threading.Thread) -> None:
+        """스레드 시작을 언제나 거부한다."""
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    result = revision._run_git("git", tmp_path, "rev-parse", "--is-inside-work-tree")
+    assert result is not None
+    assert (result.returncode, result.stdout) == (0, b"true\n")
+
+
+def test_interruptible_calls_run_inline_where_daemon_threads_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """데몬 스레드를 막은 인터프리터(3.12 이상의 격리 하위 인터프리터)에서 `--roots-from` 읽기는 0.3.1처럼 그 자리에서
+    읽는다. 전에는 데몬 스레드를 만들다 RuntimeError가 나 roots를 읽지 못하고 내부 오류(2)로 끝났다(5차 리뷰 F2)."""
+    original = threading.Thread
+
+    class DaemonRefusingThread(original):  # type: ignore[valid-type, misc]
+        """격리 하위 인터프리터처럼 데몬 스레드를 만들려 하면 RuntimeError다."""
+
+        def __init__(self, *arguments: object, daemon: bool | None = None, **options: object) -> None:
+            """데몬이면 거부하고, 아니면 그대로 만든다."""
+            if daemon:
+                raise RuntimeError("daemon threads are disabled in this (sub)interpreter")
+            super().__init__(*arguments, daemon=daemon, **options)
+
+    monkeypatch.setattr(_thread, "daemon_threads_allowed", lambda: False, raising=False)
+    monkeypatch.setattr(cancel.threading, "Thread", DaemonRefusingThread)
+    roots = tmp_path / "roots.json"
+    roots.write_text('["a#b"]', encoding="utf-8")
+    assert collect_roots([], str(roots), None) == ("a#b",)
 
 
 @POSIX_ONLY

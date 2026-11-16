@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import _thread
 import ast
 import io
 import itertools
@@ -125,6 +126,7 @@ def test_evaluator_expands_repeated_references_once(
     resolve_name = symbols.resolve_name
 
     def counting(path: str, name: str, hops: int = 0) -> object:
+        """해석한 이름을 기록하고 원래 해석을 부른다."""
         resolved.append(name)
         return resolve_name(path, name, hops)
 
@@ -465,6 +467,7 @@ def test_module_resolution_is_remembered_per_module_roots(
     checked_stat = project._checked_stat
 
     def counting(relative: str) -> os.stat_result:
+        """확인한 경로를 기록하고 원래 확인을 부른다."""
         checked.append(relative)
         return checked_stat(relative)
 
@@ -500,6 +503,7 @@ def _count_checked_stats(project: Project, monkeypatch: pytest.MonkeyPatch) -> l
     checked_stat = project._checked_stat
 
     def counting(relative: str) -> os.stat_result:
+        """확인한 경로를 기록하고 원래 확인을 부른다."""
         checked.append(relative)
         return checked_stat(relative)
 
@@ -613,6 +617,7 @@ def test_test_import_judgment_checks_module_roots_once(
     is_test = exposure.is_test_path
 
     def counting(relative: str) -> bool:
+        """판정한 경로를 기록하고 원래 판정을 부른다."""
         calls.append(relative)
         return is_test(relative)
 
@@ -888,6 +893,7 @@ def _record_thread_starts(monkeypatch: pytest.MonkeyPatch) -> list[threading.Thr
         stack = 0
 
         def start(self) -> None:
+            """시작할 때의 스택 크기 설정을 기록하고 시작한다."""
             self.stack = threading.stack_size()
             started.append(self)
             super().start()
@@ -1418,10 +1424,10 @@ def test_library_parses_join_their_thread_and_nest_inline(tmp_path: Path, monkey
     # 끝난 스레드는 `threading`의 약한 참조 집합에서 빠져, 그 객체를 놓는 부른 스레드에서 콜백(Ctrl+C를 버리는 자리)이
     # 돌지 않는다.
     assert not any(thread in getattr(threading, "_dangling", ()) for thread in started)
-    monkeypatch.setattr(syntax._thread, "daemon_threads_allowed", lambda: False, raising=False)
+    monkeypatch.setattr(_thread, "daemon_threads_allowed", lambda: False, raising=False)
     assert isinstance(Project.open(tmp_path).module("long.py"), SourceModule)
     assert [(thread.daemon, thread.is_alive()) for thread in started] == [(True, False), (False, False)]
-    monkeypatch.setattr(syntax._thread, "daemon_threads_allowed", lambda: True, raising=False)
+    monkeypatch.setattr(_thread, "daemon_threads_allowed", lambda: True, raising=False)
     assert syntax.current_parse_stack_bytes() == 0
 
     def nested() -> tuple[int, ast.AST | None]:

@@ -16,6 +16,7 @@ CLI 명령의 계산은 큰 스택 스레드에서 돈다(`source.syntax.run_on_
 
 from __future__ import annotations
 
+import _thread
 import sys
 import threading
 from collections.abc import Callable
@@ -110,6 +111,34 @@ class Completion:
         return self.done
 
 
+def daemon_threads_allowed() -> bool:
+    """지금 인터프리터가 데몬 스레드를 허락하는지 본다(3.11까지는 그런 설정이 없어 늘 True).
+
+    Returns:
+        데몬 스레드를 만들 수 있으면 True.
+    """
+    allowed = getattr(_thread, "daemon_threads_allowed", None)
+    return True if allowed is None else bool(allowed())
+
+
+def forget_finished_thread() -> None:
+    """끝나 가는 지금 스레드를 `threading`의 끝난 스레드 모음(`_dangling`, 약한 참조 집합)에서 뺀다(작업 스레드에서
+    부른다).
+
+    그 집합의 약한 참조 콜백은 스레드 객체를 마지막으로 놓는 스레드, 곧 부른 스레드에서 파이썬 코드로 돈다. 그 사이에
+    닿은 Ctrl+C는 CPython이 약한 참조 콜백의 예외를 버리므로("Exception ignored in") 사라지고 분석이 계속됐다(4차 리뷰
+    I-S4는 파싱 스레드, 5차 리뷰 F3은 입력·git 읽기 스레드). 작업 스레드에서 미리 빼면 콜백이 남지 않는다. 그 집합은
+    fork한 자식에서 누가 합류할지 모르는 끝난 스레드의 잠금을 다시 만들 때만 쓰는데, 이 스레드들에는 부른 스레드만
+    합류하고 fork한 자식에는 합류하는 중인 부른 스레드가 없다. 비공개 속성이라 없거나 실패하면 그대로 둔다.
+    """
+    dangling = getattr(threading, "_dangling", None)
+    if dangling is not None:
+        try:
+            dangling.discard(threading.current_thread())
+        except Exception:  # 콜백이 남을 뿐이다(메모리 부족 등에서도 끝을 알리는 일을 막지 않는다).
+            return
+
+
 def call_interruptibly(function: Callable[[], _Result], name: str) -> _Result:
     """막히는 호출(파이프·표준 입력 읽기)을 데몬 스레드에서 돌리고, 부른 스레드는 조각으로 나눠 기다린다.
 
@@ -122,7 +151,8 @@ def call_interruptibly(function: Callable[[], _Result], name: str) -> _Result:
     스레드 시작이 실패하면 `source.syntax._ParseThread`와 같이 가린다: 시작 도중에 난 예외(Ctrl+C가 끊은 시작)면 그
     예외를 다시 내고(`start_interruption`, 부른 쪽이 시작 전부터 처리하던 예외는 해당하지 않는다), 아니면 그 자리에서
     부른다. 시작이 실패했다고 보고됐는데 스레드가 실제로 시작한 경우에도 함수는 한 번만 돈다: 먼저 차지한 쪽(`claims`의
-    첫 항목, `list.append`는 한 번의 C 호출이다)만 부른다.
+    첫 항목, `list.append`는 한 번의 C 호출이다)만 부른다. 데몬 스레드를 허락하지 않는 인터프리터(3.12 이상의 격리 하위
+    인터프리터)에서는 0.3.1처럼 그 자리에서 부른다(그때 막힌 읽기는 Ctrl+C로 끊기지 않는다, 5차 리뷰 F2).
 
     Args:
         function: 돌릴 함수.
@@ -149,10 +179,13 @@ def call_interruptibly(function: Callable[[], _Result], name: str) -> _Result:
         except BaseException as error:  # 부른 스레드에서 같은 예외로 다시 낸다.
             outcome[0] = error
         finally:
+            forget_finished_thread()
             signal_finished()
             if abandoned:
                 outcome[0] = NO_OUTCOME
 
+    if not daemon_threads_allowed():
+        return function()
     handled = sys.exc_info()[1]
     reader = threading.Thread(target=target, name=name, daemon=True)
     interrupted: BaseException | None = None
@@ -176,7 +209,9 @@ def call_interruptibly(function: Callable[[], _Result], name: str) -> _Result:
             if not reader.is_alive() and not finished.done:
                 raise RuntimeError(f"the {name} thread ended without recording a result or an exception")
     except BaseException:
-        # 그만둔다고 먼저 표시하고 끝났는지 본다(데몬 스레드는 끝을 알린 뒤 이 표시를 본다): 늦게 보는 쪽이 비운다.
+        # 아직 시작하지 않은 스레드가 함수를 부르지 않게 차지한다(5차 리뷰 N3). 그만둔다고 먼저 표시하고 끝났는지
+        # 본다(데몬 스레드는 끝을 알린 뒤 이 표시를 본다): 늦게 보는 쪽이 비운다.
+        claims.append("caller")
         abandoned.append(True)
         if finished.done:
             outcome[0] = NO_OUTCOME

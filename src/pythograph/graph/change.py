@@ -22,6 +22,7 @@ from pythograph.graph.build import build_graph
 from pythograph.graph.document import GraphHeader, TraversalInput, build_traversal_document
 from pythograph.graph.revision import _git, _git_executable, _LazyFetchRefusedError, _UnneutralizableDriverError
 from pythograph.graph.traversal import TraversalRequest, traverse
+from pythograph.source.cancel import raise_if_cancelled
 from pythograph.source.project import (
     Project,
     SourceOmission,
@@ -197,6 +198,7 @@ def capture(root: Path, revision: str | None = None) -> Capture:
         raise InputError("capture file-count budget exceeded")
     state = _CaptureState()
     for row in rows:
+        raise_if_cancelled()  # 파일 하나를 캡처할 때마다 Ctrl+C로 멈출 수 있는 자리(`source.cancel`, 5차 리뷰 F4).
         metadata, _, path = row.partition("\t") if commit else ("", "", row)
         _capture_row(root, commit, metadata.split(), path, state)
     if commit is not None:
@@ -551,6 +553,7 @@ def _materialize_capture(value: Capture, destination: Path) -> None:
         directories = {".": root}
         identities = {(root.st_dev, root.st_ino): "."}
         for relative, data in sorted(value.files.items()):
+            raise_if_cancelled()  # 파일 하나를 쓸 때마다 멈출 수 있는 자리(5차 리뷰 F4).
             if not _safe_path(relative):
                 raise InputError("capture contains unsupported path spelling")
             parts = relative.split("/")

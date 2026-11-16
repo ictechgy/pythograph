@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from pythograph.source.cancel import WAIT_SLICE_SECONDS, Completion, raise_if_cancelled
+from pythograph.source.cancel import WAIT_SLICE_SECONDS, Completion, forget_finished_thread, raise_if_cancelled
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: git 명령 시간 제한(초)이다.
@@ -533,7 +533,14 @@ def _run_git(
 def _run_git_process(
     command: list[str], project: Path, environment: dict[str, str]
 ) -> subprocess.CompletedProcess[bytes] | None:
-    """출력 상한 없이 git 프로세스 하나를 실행한다(revision 조회). 기다림은 change 캡처와 같은 나눠 기다리는 실행기다.
+    """출력 상한 없이 git 프로세스 하나를 스레드 없이 실행한다(revision 조회).
+
+    0.3.1의 `subprocess.run`처럼 POSIX에서는 스레드를 만들지 않는다: `Popen.communicate`는 POSIX에서 선택기로 두
+    파이프를 함께 읽고, 시간 제한으로 TimeoutExpired가 나도 다시 부르면 읽은 출력을 잃지 않는다(`subprocess` 문서).
+    그래서 `_WAIT_SLICE_SECONDS`씩 나눠 부르고 조각마다 취소 표시를 본다(`_communicate_in_slices`). 읽기 스레드를 쓰면
+    스레드를 만들 수 없거나 주소 공간이 빠듯할 때(스레드마다 glibc 아레나) revision 조회가 내부 오류가 됐다(5차 리뷰
+    F1). Windows의 `communicate`는 0.3.1과 같이 읽기 스레드를 쓴다. 그만두거나 시간이 지나면 자식을 죽이고 거둔다(4차
+    리뷰 I-S3).
 
     Args:
         command: 실행할 인자.
@@ -542,29 +549,90 @@ def _run_git_process(
 
     Returns:
         끝난 프로세스, git을 실행하지 못했거나 시간이 지나면 None.
+
+    Raises:
+        KeyboardInterrupt: 명령을 그만두라고 했다(`raise_if_cancelled`).
     """
-    return _run_git_bounded(command, project, environment, None)
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=project,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, UnicodeError):
+        return None
+    try:
+        output = _communicate_in_slices(process, time.monotonic() + GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        _reap_child(process)
+        _close_pipes(process)
+    if output is None:
+        return None
+    return subprocess.CompletedProcess(command, process.returncode, *output)
+
+
+def _communicate_in_slices(process: subprocess.Popen[bytes], deadline: float) -> tuple[bytes, bytes] | None:
+    """자식의 출력을 끝까지 읽고 끝나기를 기한까지 나눠 기다리며, 조각마다 취소 표시를 본다.
+
+    Args:
+        process: 표준 출력·오류를 파이프로 연 자식.
+        deadline: `time.monotonic` 기한.
+
+    Returns:
+        (표준 출력, 표준 오류), 기한이 지나면 None.
+
+    Raises:
+        KeyboardInterrupt: 명령을 그만두라고 했다(`raise_if_cancelled`).
+    """
+    while True:
+        try:
+            stdout: bytes
+            stderr: bytes
+            timeout = min(_WAIT_SLICE_SECONDS, max(0.001, deadline - time.monotonic()))
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise_if_cancelled()
+            if time.monotonic() >= deadline:
+                return None
+        else:
+            return stdout, stderr
+
+
+def _close_pipes(process: subprocess.Popen[bytes]) -> None:
+    """자식의 표준 출력·오류 파이프를 닫는다(`communicate`가 끝나지 못하고 빠져나간 경우에도 남기지 않는다).
+
+    Args:
+        process: 자식.
+    """
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
 
 
 def _run_git_bounded(
     command: list[str],
     project: Path,
     environment: dict[str, str],
-    limit: int | None,
+    limit: int,
     input_data: bytes | None = None,
 ) -> subprocess.CompletedProcess[bytes] | None:
-    """작은 청크를 동시에 배수하며 출력 예산(`limit`, None이면 없음)·시간을 지킨다. 직접 소유한 자식만 정리한다.
+    """작은 청크를 동시에 배수하며 출력 예산(`limit`)·시간을 지킨다. 직접 소유한 자식만 정리한다.
 
-    모든 git 호출(revision 조회와 change 캡처)이 이 함수를 지난다. 기다림은 `_WAIT_SLICE_SECONDS`씩 나누고 조각마다 취소
-    표시를 본다(`raise_if_cancelled`). 그만두거나 시간이 지나면 자식을 죽이고 거둔다(4차 리뷰 I-S3: revision 조회의
-    `subprocess.run`은 나누지 않아 Ctrl+C 뒤 20초를 기다리고 git을 남겼다). 표준 입력은 `input_data`가 없으면 비어 있다.
-    reader는 프로세스에 신호를 보내거나 wait하지 않는다. 부모만 Popen의 아직 수거하지 않은 자식을 kill/wait하므로
-    수거 뒤 재사용된 PID·프로세스 그룹에 신호를 보내지 않는다. stderr도 같은 예산에 포함하고 어느 실패도 성공 출력으로
-    바꾸지 않는다. `input_data`가 있으면 별도 writer가 표준 입력에 쓰고 닫는다. 출력 배수와 동시에 써야 큰 출력이
-    파이프를 채워도 교착하지 않는다. 쓰기 실패(자식이 먼저 끝남)는 실패다. 기다리는 쪽은 신호를 받는 주 스레드일 수
-    있으므로(3.14, 스레드 없는 대체) `threading.Event`가 아니라 `Completion`으로 기다린다.
+    change 캡처의 git 호출이 이 함수를 지난다(revision 조회는 스레드 없는 `_run_git_process`). 기다림은
+    `_WAIT_SLICE_SECONDS`씩 나누고 조각마다 취소 표시를 본다(`raise_if_cancelled`). 그만두거나 시간이 지나면 자식을
+    죽이고 거둔다(4차 리뷰 I-S3). 표준 입력은 `input_data`가 없으면 비어 있다. reader는 프로세스에 신호를 보내거나
+    wait하지 않는다. 부모만 Popen의 아직 수거하지 않은 자식을 kill/wait하므로 수거 뒤 재사용된 PID·프로세스 그룹에
+    신호를 보내지 않는다. stderr도 같은 예산에 포함하고 어느 실패도 성공 출력으로 바꾸지 않는다. `input_data`가 있으면
+    별도 writer가 표준 입력에 쓰고 닫는다. 출력 배수와 동시에 써야 큰 출력이 파이프를 채워도 교착하지 않는다. 쓰기
+    실패(자식이 먼저 끝남)는 실패다. 기다리는 쪽은 신호를 받는 주 스레드일 수 있으므로(3.14, 스레드 없는 대체)
+    `threading.Event`가 아니라 `Completion`으로 기다린다.
     """
-    if limit is not None and limit < 0:
+    if limit < 0:
         return None
     chunks: list[list[bytes]] = [[], []]
     lock = threading.Lock()
@@ -572,7 +640,7 @@ def _run_git_bounded(
     drained = Completion()
     used = 0
     finished = 0
-    read_size = 8192 if limit is None else min(8192, limit + 1)
+    read_size = min(8192, limit + 1)
 
     def drain(stream: BinaryIO, index: int) -> None:
         """파이프 한 개를 읽되 합산 예산을 넘는 청크는 보관하지 않는다."""
@@ -581,7 +649,7 @@ def _run_git_bounded(
             with stream:
                 while data := os.read(stream.fileno(), read_size):
                     with lock:
-                        if failed.is_set() or (limit is not None and used + len(data) > limit):
+                        if failed.is_set() or used + len(data) > limit:
                             failed.set()
                             drained.set()
                             return
@@ -591,6 +659,7 @@ def _run_git_bounded(
             failed.set()
             drained.set()
         finally:
+            forget_finished_thread()
             with lock:
                 finished += 1
                 if finished == 2:
@@ -647,14 +716,29 @@ def _reap(process: subprocess.Popen[bytes], readers: list[threading.Thread], fai
         readers: 시작이 돌아온 읽기·쓰기 스레드.
         failed: 실패 표시(거두지 못하면 세운다).
     """
+    if not _reap_child(process):
+        failed.set()
+    for reader in readers:
+        reader.join(timeout=1)
+
+
+def _reap_child(process: subprocess.Popen[bytes]) -> bool:
+    """자식을 (살아 있으면) 죽이고 1초까지 거둔다. poll은 Popen이 소유한 자식만 수거하므로 재사용된 PID에 신호를 보내지
+    않는다.
+
+    Args:
+        process: 자식.
+
+    Returns:
+        거뒀으면 True.
+    """
     if process.poll() is None:
         process.kill()
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
-        failed.set()
-    for reader in readers:
-        reader.join(timeout=1)
+        return False
+    return True
 
 
 def _writers(
@@ -696,6 +780,7 @@ def _feed(stream: BinaryIO, data: bytes, failed: threading.Event, drained: Compl
         failed.set()
         drained.set()
     finally:
+        forget_finished_thread()
         finished.set()
 
 
