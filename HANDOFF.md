@@ -3,8 +3,13 @@
 세션을 이어받을 때 먼저 읽는 진행 상태 문서다. 작업 규칙의 정본은 [AGENTS.md](AGENTS.md)이고, 여기 적힌 상태는
 실제 Git 상태·코드·검증 결과와 대조한 뒤 쓴다. 자기 분석 기록은 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-## 현재 상태 (2026-11-16)
+## 현재 상태 (2026-11-22)
 
+- **3차 개선 브랜치**: `ccr-37904670-hxdjsx`를 `main` `596f379`에서 다시 시작했다(아래 "3차 개선"). 상한 크기 버퍼를 미리 잡던
+  읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던 금지 문자 이름 테스트, Windows mypy를
+  고쳤다. 아직 push·PR 전이다.
+- PR #33은 2026-11-17에 `main`으로 스쿼시 머지됐고(`596f379`) 그 `main` push의 CI가 성공했다(2026-11-16T17:59Z 실행). 아래
+  PR #33 경과는 기록으로 남긴다.
 - 발행본은 **0.3.1**이다. PyPI 게시(2026-11-03), 태그 `v0.3.1`, `pyproject.toml` 버전이 일치한다.
 - isthmus `compatibility.json`의 pythograph 핀은 아직 **0.2.1**이다. isthmus가 게시본을 검증한 뒤 바꾸는 절차다
   (RELEASING 10단계). pythograph 저장소에서 고치지 않는다.
@@ -39,6 +44,23 @@
   5(change-impact의 Ctrl+C가 12–17초 늦음 포함)·사소한 것 6과 함께 `02ff104`가 고치거나 적었고 **`02ff104`의 CI는 9개 모두
   성공**했다. 그 수정분만 다시 본 6차 리뷰가 고쳐야 할 것 1(끝을 알리지 못하고 죽은 작업 스레드의 예외를 Ctrl+C 없이도
   20초 늦게 전함, `02ff104`가 만든 회귀)과 사소한 것 4를 찾았고 이 HANDOFF 커밋이 고치거나 적었다(아래 "6차 리뷰 반영").
+
+## 3차 개선 (2026-11-22, `main` `596f379` 기준)
+
+HANDOFF "남긴 것"의 작은 후속 중 사용자 결정이 필요 없는 네 가지를 고쳤다. 고치기 전 재현, 고친 뒤 같은 확인, 수정을 되돌리면
+실패하는 회귀 테스트를 모두 확인했다.
+
+| 항목 | 재현(고치기 전) | 수정과 확인 |
+|---|---|---|
+| 상한 크기 버퍼 미리 할당(적대적 리뷰 8, 기존 결함) | `Project._read_bytes`가 `read(4 MiB + 1)`, `--wrappers`가 `read(4 MiB + 1)`, `--roots-from`(파일·`-`)이 텍스트 핸들 `read(16 MiB + 1)`로 읽었다. 버퍼 있는 핸들은 요청 크기를 먼저 할당하므로(텍스트 핸들의 `read1`도) 22바이트 파일 읽기의 할당 최고점이 4,202,445 B(`module` 4,202,701 B), `--roots-from` 16,788,923 B, `--wrappers` 4,200,447 B였다. 프로세스 주소 공간을 VmSize + 3 MiB로 묶으면 `Project.module`이 MemoryError. 3.13 CLI는 `ulimit -v 58500`에서 `graph`가 `internal error (MemoryError)` 종료 2(3번 모두), `ulimit -v 70000`에서 `reach --roots-from` 2 | `source/inputs.py`의 `read_bounded`가 일반 파일은 연 핸들 크기 + 1(`regular_file_size`), 크기를 모르는 입력은 64 KiB 조각으로 상한 + 1까지 읽고 짧은 읽기(끝)에서 멈춘다. 크기를 아는 파일은 전처럼 `read`를 한 번 부르고 조각이 하나면 이어 붙이지 않는다. 최고점 10,746 B(`module` 26,557 B), `--roots-from` 77,242 B, `--wrappers` 71,678 B. VmSize + 512 KiB에서도 읽는다. 3.13에서 명령이 성공하는 가장 작은 `ulimit -v`(1 MiB 이분 탐색, 2번 같음): `graph`·`routes --role client --wrappers` 60,781 → 56,816 KiB, `reach --roots-from` 81,171 → 56,816 KiB, 3.14 `graph` 53,984 → 50,018 KiB. 3.10은 이 프로젝트에서 44,354 KiB로 같다(그 아래에서는 수정 전후 모두 인터프리터가 SIGSEGV로 죽는다: 기존 "CLI 명령 스레드의 `RLIMIT_AS` 비용"과 같은 종류). `ulimit -v 58500`의 `graph`는 0(3번 모두). 출력은 fixture 디렉터리 7개 × 명령 5개(graph·schema·client·Django·Flask)의 표준 출력·오류·종료 코드와 `main` 트리의 graph(1,468,299 B)·schema·client 문서가 바이트로 같다. 새 테스트 `test_small_source_reads_reserve_no_budget_sized_buffer[module|read_text]`·`test_roots_from_reads_reserve_no_cap_sized_buffer`·`test_small_wrapper_file_reserves_no_cap_sized_buffer`(할당 최고점 < 1 MiB, `tracemalloc`)는 수정 전 코드에서 실패하고, `test_bounded_reads_request_at_most_what_remains`(16개)는 짧은 읽기 멈춤·음수 상한 고정·크기 힌트·첫 요청 크기를 각각 바꾼 변이에서 6·2·7·16개 실패한다. 기존 `test_reads_request_only_the_byte_budget`(요청 `[9]`)과 `test_oversized_wrapper_file_reads_only_the_byte_budget`(최고점 < 8 MiB)은 그대로 통과한다(파일 크기 힌트 없이 조각으로만 읽은 첫 시도는 뒤 테스트를 8,403,124 B로 넘겨 힌트를 넣었다) |
+| 닫힌 표준 스트림(리뷰 N6) | HANDOFF 행은 낡았다: `main`은 이미 `--version >&-`가 2(원인 문구), `--roots-from - <&-`가 64다(PR #33, CHANGELOG에 있음). 남은 것은 문구였다: `--roots-from - <&-`가 "could not be read as UTF-8 text"라 깨진 입력과 구별되지 않았다 | `_read`가 읽기 전에 닫힌 표준 입력(`None`·`closed`)을 따로 알린다: "--roots-from - reads standard input, but standard input is closed; pipe the roots in or pass a file."(종료 64 그대로). `_read_source`를 `_read_file`로 나눴다. `test_closed_stdin_roots_are_a_usage_error`(문구 전체)와 `test_exchange_stdout_reconfigures_only_streams_that_allow_it`(닫힌 `TextIOWrapper`)가 수정 전 코드에서 실패한다 |
+| 금지 문자 파일 이름 테스트 | 이름 하나라도 못 만들면 테스트 전체를 건너뛰어 Windows에서는 NTFS가 받는 NEL·U+2028 이름도 검사하지 않았다. NTFS 이름 규칙(C0 제어 문자 거부)을 흉내 낸 pytest 플러그인으로 7개 모두 건너뜀 | `CONTROL_CHARACTER_NAMES_ALLOWED`(`os.name != "nt"`)로 C0 이름만 Windows에서 빼고 NEL·DEL·U+2028·U+2029 이름과 NEL이 든 디렉터리 성분(DEL·U+2029·디렉터리 성분은 새로 더함)은 모든 플랫폼에서 만든다. 다른 플랫폼에서 못 만들면 건너뛰지 않고 실패한다. 같은 흉내에서 7개 모두 통과, 제품 금지 문자 정규식에서 C1·U+2028/2029를 빼는 변이는 흉내에서 새 테스트 7개가 실패하고 옛 테스트는 7개 건너뛴다. Windows 실제 실행은 CI만 확인한다 |
+| Windows에서 mypy | `uv run mypy --platform win32`: `inputs.py`의 `os.set_blocking`, `project.py`의 `os.O_DIRECTORY`·`os.O_NOFOLLOW` 오류 3개 | `sys.platform` 분기를 조건 맨 앞에 둔다(`sys.platform != "win32" and stat.S_ISFIFO(mode) and _NONBLOCK`, `sys.platform == "win32" or not _HAS_DIR_FD`). Windows에서는 원래 그 분기에 오지 않으므로 실행 결과는 같다. `getattr`로 읽는 방법은 이름 오타가 조용히 0이 되고 두 플래그를 빼는 변이를 어떤 테스트도 잡지 못해 쓰지 않았다. `--platform win32·linux·darwin` 모두 통과. CI `verify-windows`에 Typecheck 단계를 더했다 |
+
+검증(이 브랜치): 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1712 passed, 4 skipped(기존 1692 + 새 20, 건너뜀은
+기존 대소문자 구별 3개·Windows 전용 1개), 3.13 커버리지 93.95%(하한 90%), ruff·format·mypy(`--platform` win32·linux·darwin)
+통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14 `unparsedFiles` 0·표준 오류 0바이트.
+Windows 실행(금지 문자 이름 테스트, Typecheck 단계)은 CI만 확인한다. GLM 리뷰(`packet-ask`)는 이 환경에 없어 받지 못했다.
 
 ## PR #31에서 처리한 것
 
@@ -75,7 +97,7 @@
 | isthmus 호환 핀 갱신 | isthmus 저장소의 일이고, 게시본 검증 뒤에만 바꾼다. |
 | dead·cycles·rules·MCP | 생산자 전용 범위라 해당하지 않는다. |
 
-## Windows CI 감사 (2026-11-15, 이 브랜치)
+## Windows CI 감사 (2026-11-15, PR #33)
 
 POSIX 전제를 먼저 감사했다. 로컬에서는 Windows 조건을 흉내 내 전체 테스트를 돌렸다: 텍스트 모드 쓰기의 CRLF(pathlib
 `write_text` 대역), 디렉터리 핸들 없는 대체 경로(`_HAS_DIR_FD=False`), Git의 `core.autocrlf=true`(HOME의 설정), 기존
@@ -103,7 +125,8 @@ Windows 건너뛰기 표시. 흉내 내지 못하는 것(NTFS 대소문자 무�
   (FileIdInfo·GetFileInformationByName) 신원 대조를 그 전후로 본다. 테스트·커버리지 게이트·CLI 계약(개발 설치·wheel)·자기 분석.
   Lint·Format·Typecheck는 뺐다. `mypy`는 실행 플랫폼이 기본값이라 Windows에서 `os.O_DIRECTORY`·`os.O_NOFOLLOW`
   (`project.py`, `_HAS_DIR_FD`로 막힘)와 `os.set_blocking`(`inputs.py`, `O_NONBLOCK`으로 막힘)을 없는 속성으로 본다
-  (`uv run mypy --platform win32`로 재현). 흉내 낸 Windows 커버리지는 약 93.7%다(게이트 90%).
+  (`uv run mypy --platform win32`로 재현). 3차 개선에서 플랫폼 분기로 고치고 Typecheck를 더했다. 흉내 낸 Windows 커버리지는
+  약 93.7%다(게이트 90%).
 
 ### 독립 리뷰 반영 (PR #33)
 
@@ -502,14 +525,11 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 |---|---|
 | change-impact의 Git 작업 트리 변환 | `core.autocrlf=true`·`ident`·smudge filter·`working-tree-encoding`에서 `--head` 없이 분석하면 손대지 않은 파일이 `modified`다(과다 선택, 누락은 아니다. seed가 많으면 순회 잘림으로 끝날 수 있다). 바이트 신원 설계를 바꾸거나 변환 조건을 감지해 한계로 세야 해 설계가 필요하다. 지금은 `docs/CHANGE-IMPACT.md`에만 적었다(계수하지 않음). |
 | Windows `project` 정규화 | bridge-facts v1은 POSIX 경로를 가정하고 Windows 정규화는 isthmus와 별도 합의 사항이다. pythograph는 realpath를 슬래시로 쓴 값(`C:/…`)을 낸다(README에 적음). |
-| Windows에서 mypy | 위 세 속성을 `getattr`이나 `sys.platform` 분기로 바꾸면 돌릴 수 있다. 실행 결과에는 영향이 없어 이번에는 뺐다. |
-| 금지 문자 파일 이름 테스트 | NTFS가 제어 문자 이름을 거부해 테스트 전체가 건너뛴다. NEL·U+2028 이름은 NTFS도 받으므로 그 둘만 따로 만드는 형태로 나눌 수 있다. |
 | 릴리스 워크플로의 Windows 검증 | 요청 범위가 CI다. CI 결과가 안정적이면 `release.yml` verify 매트릭스에 같은 잡을 더할지 정한다. |
 | CLI 명령 스레드의 `RLIMIT_AS` 비용 | 명령 스레드 스택(3.10 65 MiB)과 glibc 아레나로 빠듯한 `ulimit -v`에서 0.3.1보다 먼저 MemoryError(2)가 난다(3.13 자기 분석 약 123 MB → 134 MB). 3.10은 프로젝트의 가장 긴 사슬로 스레드 크기를 잡으면 줄일 수 있다(3차 리뷰 F3 제안). 해결하지 않았다. |
 | `PYTHONUNBUFFERED`·`-u`의 잘린 출력 | 버퍼 없는 표준 출력에서 읽는 쪽이 일찍 닫으면 `TextIOWrapper`가 짧은 쓰기를 무시해 잘린 문서와 0이 된다(3차 리뷰 cli F5, CPython 동작, 기존 결함). 바이트로 끝까지 나눠 쓰면 고칠 수 있지만 큰 문서의 메모리가 두 배가 된다. |
 | Windows Ctrl+C 대기 확인 | 주 스레드의 0.1초 대기가 Windows에서 Ctrl+C를 받는지 테스트하지 못했다. `CREATE_NEW_PROCESS_GROUP`과 `CTRL_C_EVENT`로 Windows 잡에 더할 수 있다. |
 | 라이브러리 호출의 스레드 오감 비용 | CLI는 명령 스레드 하나라 없다. 라이브러리로 부르면 128자를 넘는 소스마다 약 0.4–1.2 ms(CPU)가 든다(위 "성능"). 호출자가 큰 스택 스레드를 쓰면 없앨 수 있도록 `run_on_parse_stack`을 공개 API로 문서화할지 정한다. |
-| 4 MiB 미리 할당 읽기 | `Project._read_bytes`가 `read(4 MiB + 1)`로 읽어 빠듯한 `RLIMIT_AS`에서 MemoryError(내부 오류 2)가 날 수 있다(적대적 리뷰 8, 기존 결함). 크기를 먼저 보거나 늘어나는 버퍼로 읽는 작은 후속이다. |
 | 스레드 없는 대체의 Windows 주 스레드(4차 리뷰 N3) | 대체 판정은 주 스레드 8 MiB를 가정한다. Windows `python.exe` 주 스레드(2,000,000 B)나 `ulimit -s`를 줄인 POSIX에서는 규칙 안의 소스(재귀 한도 1만인 3.11의 2만 5천 항 사슬, `ulimit -s 1953`으로 흉내 내 139)가 0.3.1처럼 프로세스를 죽인다. POSIX는 `RLIMIT_STACK`으로 실제 크기를 볼 수 있지만 Windows 예산은 실측 없이 정하지 않는다. 문서에 적었다. |
 | 3.11 한 줄 괄호 리터럴(4차 리뷰 S2 관련) | 재귀 한도 40만에서 한 줄에 괄호 138만 개인 평평한 리터럴(4 MB)은 괄호를 사슬 토큰으로 세어 255 MiB를 넘어 중첩 이유다(0.3.1은 파싱). 호출·첨자 뒤의 괄호만 세면 고칠 수 있지만 3.10 사슬 상한과 셈법이 갈라진다. 문서에 괄호도 센다고 적었다. |
 | 얕은 겹친 f-string(4차 리뷰 N1 관련) | 스레드를 만들 수 없을 때 3.10·3.11은 깊이와 무관하게 겹친 f-string이 있는 소스를 스레드 이유로 센다(표준 라이브러리 `dataclasses.py` 425행 같은 얕은 것도). 겹친 파서의 실제 깊이를 길이로 묶는 규칙은 실측이 필요하다. 토큰으로 나눌 수 없는 소스(대개 문법 오류)도 순수 파이썬 토크나이저와 C 토크나이저가 같은 곳에서 멈춘다고 증명하지 않아 스레드 이유다. |
@@ -523,18 +543,18 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | 3.14의 `threading._active_limbo_lock`(표준 라이브러리) | 3.14에서 주 스레드의 `Thread.start` 도중 신호 처리기의 예외가 나면 이 잠금이 주 스레드에 남아 그 뒤의 모든 새 스레드가 시작하자마자 멈춘다(pythograph 없이 재현, 위 "macOS의 늦은 타이머 신호"). 3.14의 제품 경로는 파싱 스레드를 쓰지 않고 `--roots-from` 읽기의 시작이 끊기면 프로세스가 끝나므로 CLI에는 영향이 없다. 라이브러리 호출자가 같은 프로세스에서 계속 스레드를 만들면 영향을 받는다(pythograph 밖의 문제). 스레드를 강제하는 스트레스 테스트는 macOS 3.14에서 멈출 수 있다(CI 행렬 밖). CPython에 보고할지 정한다. |
 | change 캡처의 읽기 스레드 | change-impact의 git 캡처(출력 상한, 표준 입력)는 0.3.1부터 읽기·쓰기 스레드로 배수한다. 스레드를 만들 수 없으면 그 명령은 0.3.1처럼 내부 오류(2)다. 선택기 하나로 읽고 쓰면 스레드 없이 할 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 된다. |
 | 3.12까지 Ctrl+C 뒤 알림 없이 죽은 작업 스레드 | Ctrl+C로 기다림이 끊긴 뒤 작업 스레드가 끝을 알리지 못하고 죽으면(메모리가 모자란 `finally`) 3.10–3.12는 20초 유예를 다 기다린다(3.13부터 0.40초). 그 버전의 `is_alive`는 신호 예외가 그 안에 떨어지면 아직 도는 스레드를 끝난 것으로 표시해(bpo-45274) 정리 전에 나가게 하므로 믿지 않는다(5차 리뷰 C-F1). `threading._active` 소속으로 대신 볼 수 있지만 비공개 속성이고 시작 직후 잠깐 빠져 있어 하지 않았다. |
-| revision 조회의 큰 출력 | 스레드 없는 `communicate` 조각 읽기는 시간 초과마다 읽은 출력을 다시 이어 붙여, 수십 MB가 넘는 출력이면 부모 CPU가 늘어난다(6차 리뷰 N1, 3.12에서 200 MB 0.55초 → 2.70초). revision 조회의 출력은 작다. 선택기로 직접 읽으면 없앨 수 있다. |
-| 닫힌 표준 스트림(리뷰 N6) | 기존 결함이다. `--version >&-`는 `sys.stdout`이 None이라 `_write`의 AttributeError가 잡히지 않아 트레이스백·종료 1(예약 코드), `--roots-from - <&-`는 내부 오류 2다. 계약 코드(2)와 원인 문구로 바꾸는 작은 후속이다. |
+| revision 조회의 큰 출력 | 스레드 없는 `communicate` 조각 읽기는 시간 초과마다 읽은 출력을 다시 이어 붙여, 수십 MB가 넘는 출력이면 부모 CPU가 늘어난다(6차 리뷰 N1, 3.12에서 200 MB 0.55초 → 2.70초). revision 조회의 출력은 작다. 선택기로 직접 읽으면 없앨 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 되고 취소 테스트를 다시 짜야 해 3차 개선에서도 뺐다. |
 
 ## 다음 할 일
 
-1. 6차 리뷰 반영 커밋의 PR #33 CI를 확인한다(`92225f2`·`02ff104`는 9개 모두 성공). git·신호를 쓰는 새 테스트는 POSIX
-   전용이다(Windows의 `communicate`는 0.3.1과 같이 읽기 스레드를 쓴다).
-   행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다.
-2. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
+1. 3차 개선 브랜치를 push하고 PR을 만든다(코디네이터 몫). Windows CI에서 금지 문자 이름 테스트가 건너뛰지 않고 도는지(`-rs`
+   로그에 "the filesystem rejects control characters" 이유가 없어야 한다)와 새 Typecheck 단계를 확인한다. NTFS가 NEL·DEL·
+   U+2028/2029 이름을 받는다는 것은 Win32 이름 규칙(1–31만 거부)으로 판단했고 Windows에서 실행해 보지는 못했다.
+2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
+3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
-3. isthmus에 게시본 검증과 `compatibility.json` 핀 갱신을 요청한다.
-4. 위 제외·남긴 항목 중 사용자가 고른 것.
+4. isthmus에 게시본 검증과 `compatibility.json` 핀 갱신을 요청한다.
+5. 위 제외·남긴 항목 중 사용자가 고른 것.
 
 ## 주의
 
