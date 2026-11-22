@@ -10,11 +10,12 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+from functools import partial
 from pathlib import Path
 from typing import TextIO
 
 from pythograph.source.cancel import call_interruptibly
-from pythograph.source.inputs import open_input_file
+from pythograph.source.inputs import open_input_file, read_bounded
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 계약의 root 상한이다.
@@ -61,7 +62,8 @@ def _read(argument: str, stdin: TextIO | None) -> str:
     파일은 일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 연다(마지막 링크는 따라간다). 장치는 끝이 없고 디렉터리는
     읽을 내용이 없다. 쓰는 쪽이 없는 FIFO는 기다리지 않고 빈 입력으로 읽는다. 열기와 읽기는 모두 데몬 스레드에서 하고
     부른 스레드는 나눠 기다린다(`call_interruptibly`): 쓰는 쪽이 열어 둔 채 쓰지 않는 파이프·FIFO·`/dev/stdin`의 C
-    읽기는 취소 표시를 볼 수 없어, 명령 스레드에서 읽으면 Ctrl+C 뒤 20초를 기다렸다(4차 리뷰 I-S2).
+    읽기는 취소 표시를 볼 수 없어, 명령 스레드에서 읽으면 Ctrl+C 뒤 20초를 기다렸다(4차 리뷰 I-S2). 닫힌 표준 입력은
+    읽기 전에 따로 알린다. 전에는 읽기 실패와 같은 "UTF-8 text로 읽지 못했다" 문구라 원인을 가렸다.
 
     Args:
         argument: 파일 경로 또는 `-`.
@@ -71,10 +73,18 @@ def _read(argument: str, stdin: TextIO | None) -> str:
         텍스트.
 
     Raises:
-        RootsError: 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
+        RootsError: 표준 입력이 닫혔거나, 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
     """
+    if argument == "-":
+        if stdin is None or _stdin_closed(stdin):  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
+            raise RootsError(
+                "--roots-from - reads standard input, but standard input is closed; pipe the roots in or pass a file."
+            )
+        read = partial(_read_stdin, stdin)
+    else:
+        read = partial(_read_file, argument)
     try:
-        text = call_interruptibly(lambda: _read_source(argument, stdin), "pythograph-roots")
+        text = call_interruptibly(read, "pythograph-roots")
     except (OSError, UnicodeError, ValueError) as error:
         raise RootsError(
             "--roots-from could not be read as UTF-8 text; pass a readable regular file or pipe, or - for stdin."
@@ -84,26 +94,41 @@ def _read(argument: str, stdin: TextIO | None) -> str:
     return text
 
 
-def _read_source(argument: str, stdin: TextIO | None) -> str:
-    """`--roots-from` 입력을 열고 상한 + 1까지 읽는다(`_read`가 데몬 스레드에서 부른다).
+def _stdin_closed(stdin: TextIO) -> bool:
+    """표준 입력이 닫혔는지 본다.
+
+    떼어 낸(`detach`) 텍스트 핸들은 `closed`를 읽기만 해도 ValueError라(라이브러리로 부른 경우) 닫힌 것으로 본다(3차
+    리뷰 2: 전에는 내부 오류 2였다).
 
     Args:
-        argument: 파일 경로 또는 `-`.
         stdin: 표준 입력.
+
+    Returns:
+        읽을 수 없으면 True.
+    """
+    try:
+        return stdin.closed
+    except ValueError:
+        return True
+
+
+def _read_file(argument: str) -> str:
+    """`--roots-from` 파일을 열고 상한 + 1문자까지 읽는다(`_read`가 데몬 스레드에서 부른다).
+
+    상한(16 MiB)만큼 버퍼를 미리 잡지 않도록 조각으로 읽는다(`read_bounded`).
+
+    Args:
+        argument: 파일 경로.
 
     Returns:
         텍스트.
 
     Raises:
-        OSError: 열지 못하거나 일반 파일·파이프가 아니거나 표준 입력이 닫혔을 때.
+        OSError: 열지 못하거나 일반 파일·파이프가 아닐 때.
         UnicodeError: UTF-8이 아닐 때.
     """
-    if argument == "-":
-        if stdin is None:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
-            raise OSError("standard input is closed")
-        return _read_stdin(stdin)
     with open_input_file(Path(argument)) as raw, io.TextIOWrapper(raw, encoding="utf-8") as handle:
-        return handle.read(MAX_ROOTS_INPUT + 1)
+        return read_bounded(handle, MAX_ROOTS_INPUT)
 
 
 def _read_stdin(stdin: TextIO) -> str:
@@ -112,7 +137,7 @@ def _read_stdin(stdin: TextIO) -> str:
     파이썬은 파이프로 받은 표준 입력을 로캘 인코딩(Windows의 ANSI 코드 페이지 등)으로, C·C.UTF-8 로캘과 UTF-8
     모드에서는 surrogateescape로 연다. 그대로 읽으면 한글 id가 깨지거나 UTF-8이 아닌 바이트가 서러게이트로 지나간다.
     프로세스 표준 입력은 이 명령이 실제로 읽을 때만 다시 설정한다(다른 명령은 건드리지 않는다). `reconfigure`가 없는
-    대역(`StringIO`)이나 바꿀 수 없는 스트림은 그대로 읽는다(닫힌 스트림은 읽기에서 실패한다).
+    대역(`StringIO`)이나 바꿀 수 없는 스트림은 그대로 읽는다(닫힌 스트림은 `_read`가 읽기 전에 거부한다).
 
     Args:
         stdin: 표준 입력.
@@ -124,7 +149,7 @@ def _read_stdin(stdin: TextIO) -> str:
     if reconfigure is not None:
         with contextlib.suppress(OSError, ValueError):
             reconfigure(encoding="utf-8", errors="strict")
-    return stdin.read(MAX_ROOTS_INPUT + 1)
+    return read_bounded(stdin, MAX_ROOTS_INPUT)
 
 
 def parse_roots_text(text: str) -> list[str]:

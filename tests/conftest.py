@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 import textwrap
+import tracemalloc
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,13 @@ SYMLINKS = pytest.mark.skipif(SKIP_SYMLINK_TESTS, reason=SYMLINK_SKIP_REASON)
 #: 켜면(`1`) 링크를 만들 수 없을 때 테스트를 시작하지 않는 환경 변수다. Windows CI가 켜서 러너 권한이 바뀌어도 링크
 #: 거부 테스트가 건너뛰기로 조용히 빠지지 않게 한다.
 REQUIRE_SYMLINKS_VARIABLE = "PYTHOGRAPH_REQUIRE_SYMLINKS"
+
+
+#: 파일 이름에 C0 제어 문자(U+0001–U+001F)를 쓸 수 있는지다. NTFS(Win32 이름 규칙)는 그런 이름을 거부하지만 계약 금지
+#: 문자 중 C0 밖의 것(DEL U+007F, NEL 같은 C1 제어 문자, U+2028/2029)은 받는다. 금지 이름 테스트는 Windows에서만 C0
+#: 이름을 빼고 나머지 이름으로 검사한다. 다른 플랫폼에서 C0 이름을 못 만들면 건너뛰지 않고 실패로 드러낸다(이름
+#: 거부는 교환 형식 경계라 조용히 빠지면 안 된다).
+CONTROL_CHARACTER_NAMES_ALLOWED = os.name != "nt"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -155,6 +163,35 @@ def tree_depth(source: str) -> int:
         deepest = max(deepest, depth)
         pending.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
     return deepest
+
+
+#: 작은 입력 하나를 읽을 때 허용하는 할당 최고점이다. 상한 크기로 버퍼를 미리 잡던 읽기(소스·`--wrappers` 4 MiB,
+#: `--roots-from` 16 MiB)와 조각 읽기(수십 KiB)를 가른다.
+SMALL_READ_PEAK_BYTES = 1024 * 1024
+
+
+def allocation_peak(call: Callable[[], object]) -> int:
+    """`call`이 도는 동안 파이썬 할당(모든 스레드)이 시작 시점보다 가장 많이 늘어난 바이트 수를 잰다.
+
+    이미 추적 중이면(`-X tracemalloc`) 그 추적을 끄지 않고 최고점만 다시 잰다.
+
+    Args:
+        call: 잴 호출.
+
+    Returns:
+        시작 시점 대비 최고점 증가량(바이트).
+    """
+    was_tracing = tracemalloc.is_tracing()
+    if not was_tracing:
+        tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        baseline = tracemalloc.get_traced_memory()[0]
+        call()
+        return tracemalloc.get_traced_memory()[1] - baseline
+    finally:
+        if not was_tracing:
+            tracemalloc.stop()
 
 
 def run_cli(arguments: list[str]) -> tuple[int, str, str]:

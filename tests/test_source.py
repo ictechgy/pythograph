@@ -46,7 +46,7 @@ from pythograph.source.syntax import (
     tree_overflow,
 )
 from pythograph.source.text import is_contract_safe
-from tests.conftest import DEEP_SOURCES, REPOSITORY, tree_depth
+from tests.conftest import CONTROL_CHARACTER_NAMES_ALLOWED, DEEP_SOURCES, REPOSITORY, tree_depth
 
 
 def _expr(source: str) -> ast.expr:
@@ -2031,15 +2031,17 @@ def test_names_with_forbidden_characters_are_skipped(make_project: Callable[[dic
     """이름(디렉터리 성분 포함)에 계약 금지 문자가 든 파이썬 파일은 건너뛰고 센다. 소스가 아닌 파일은 세지 않는다.
 
     파일 경로는 모든 사실의 `location.path`와 심볼 id가 되므로, 그런 파일 하나로 isthmus가 문서 전체를 거부했다.
+    NTFS가 받는 이름(NEL·DEL, U+2028/2029)은 모든 플랫폼에서, C0 제어 문자 이름은 Windows 밖에서만 만든다.
     """
     root = make_project({"ok.py": "", "pkg/__init__.py": ""})
-    names = ["pkg/bel\x07.py", "pkg/nel\x85.py", "pkg/ls\u2028.py", "pkg/ev\x1b[31mil.py", "odd\x07dir/mod.py"]
-    try:
-        for name in [*names, "pkg/notes\x07.txt"]:
-            (root / name).parent.mkdir(parents=True, exist_ok=True)
-            (root / name).write_text("", encoding="utf-8")
-    except OSError:
-        pytest.skip("the filesystem rejects control characters in file names")
+    names = ["pkg/nel\x85.py", "pkg/del\x7f.py", "pkg/ls\u2028.py", "pkg/ps\u2029.py", "odd\x85dir/mod.py"]
+    others = ["pkg/notes\x85.txt"]
+    if CONTROL_CHARACTER_NAMES_ALLOWED:
+        names += ["pkg/bel\x07.py", "pkg/ev\x1b[31mil.py", "odd\x07dir/mod.py"]
+        others += ["pkg/notes\x07.txt"]
+    for name in [*names, *others]:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("", encoding="utf-8")
     project = Project.open(root)
     assert project.python_files() == ["ok.py", "pkg/__init__.py"]
     assert (project.forbidden_names, project.unencodable_names) == (len(names), 0)

@@ -177,13 +177,34 @@ def _usage_error(_arguments: list[str], _stdin: object = None) -> str:
 
 
 def test_closed_stdin_roots_are_a_usage_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """표준 입력을 닫고 `--roots-from -`을 주면 내부 오류(AttributeError, 2)가 아니라 roots 입력 오류(64)다."""
+    """표준 입력을 닫고 `--roots-from -`을 주면 내부 오류(AttributeError, 2)가 아니라 roots 입력 오류(64)다.
+
+    문구는 원인(닫힌 표준 입력)을 말한다. 전에는 깨진 입력과 같은 "UTF-8 text로 읽지 못했다" 문구였다.
+    """
     (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
     monkeypatch.setattr(sys, "stdin", None)
     err = io.StringIO()
     code = cli_main.main(["reach", "--project", str(tmp_path), "--roots-from", "-"], io.StringIO(), err)
     assert code == 64
-    assert "--roots-from could not be read" in err.getvalue()
+    assert err.getvalue() == (
+        "pythograph: --roots-from - reads standard input, but standard input is closed; "
+        "pipe the roots in or pass a file.\n"
+    )
+
+
+def test_detached_stdin_roots_are_a_usage_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """라이브러리로 부를 때 떼어 낸(`detach`) 표준 입력도 닫힌 표준 입력과 같은 roots 입력 오류(64)다.
+
+    떼어 낸 텍스트 핸들은 `closed`를 읽기만 해도 ValueError라, 그 확인을 감싸지 않던 판은 내부 오류 2였다(3차 리뷰 2).
+    """
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    detached = io.TextIOWrapper(io.BytesIO(b"[]"), encoding="utf-8")
+    detached.detach()
+    monkeypatch.setattr(sys, "stdin", detached)
+    err = io.StringIO()
+    code = cli_main.main(["reach", "--project", str(tmp_path), "--roots-from", "-"], io.StringIO(), err)
+    assert code == 64
+    assert "standard input is closed" in err.getvalue()
 
 
 @pytest.mark.parametrize("inside_except", [False, True])

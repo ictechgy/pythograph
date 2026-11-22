@@ -74,9 +74,9 @@ jobs:
   # CPython 3.12에서 바뀌었으므로(FileIdInfo·GetFileInformationByName) 그 전후인 3.10과 3.13을 돈다. PYTHONUTF8·
   # PYTHONIOENCODING은 일부러 두지 않는다(기본 코드 페이지에서 UTF-8 출력을 확인해야 한다). PYTHOGRAPH_REQUIRE_SYMLINKS는
   # 러너가 링크를 만들 수 없으면 테스트를 시작하지 않게 해 링크 거부 테스트가 건너뛰기로 조용히 빠지지 않게 한다.
-  # Lint·Format·Typecheck는 플랫폼과 무관한 결과라 위 잡에 맡긴다(mypy는 실행 플랫폼을 기본값으로 써서 Windows에서는
-  # `_HAS_DIR_FD`·`O_NONBLOCK`으로 막은 POSIX 전용 속성 세 곳을 없는 속성으로 본다). 건너뛴 테스트와 이유는 `-rs`로
-  # 로그에 남긴다.
+  # Lint·Format은 플랫폼과 무관한 결과라 위 잡에 맡긴다. Typecheck는 여기서도 돈다: mypy는 실행 플랫폼을 기본값으로 쓰므로
+  # Windows에 없는 POSIX 전용 속성(`os.O_DIRECTORY`·`os.O_NOFOLLOW`·3.12 전 `os.set_blocking`)을 플랫폼 분기 밖에서 쓰면
+  # 여기서 드러난다. 건너뛴 테스트와 이유는 `-rs`로 로그에 남긴다.
   verify-windows:
     strategy:
       fail-fast: false
@@ -110,6 +110,8 @@ jobs:
           fi
       - name: Install
         run: uv sync --locked
+      - name: Typecheck
+        run: uv run mypy
       - name: Tests and coverage gate
         run: uv run pytest --cov --cov-report=term-missing -rs
       - name: CLI contract (development install)

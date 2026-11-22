@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import os
 import stat
+import sys
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO, cast
 
 from pythograph.source.cancel import raise_if_cancelled
+from pythograph.source.inputs import read_bounded, regular_file_size
 from pythograph.source.syntax import (
     MAX_AST_DEPTH,
     MAX_CHAIN_TOKENS,
@@ -539,7 +541,9 @@ class Project:
         expected = self._checked_stat(relative)
         if not stat.S_ISDIR(expected.st_mode):
             raise OSError("not a directory")
-        if not _HAS_DIR_FD:
+        # Windows에서는 `_HAS_DIR_FD`가 늘 거짓이다. 플랫폼을 먼저 보아 타입 검사도 Windows에 없는 두 플래그를 검사하지
+        # 않게 한다(실행 결과는 같다).
+        if sys.platform == "win32" or not _HAS_DIR_FD:
             yield self.root / relative
             return
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -564,9 +568,13 @@ class Project:
             yield entries
 
     def _read_bytes(self, relative: str, limit: int) -> bytes:
-        """검증한 일반 파일 핸들에서만 제한된 바이트를 읽어 검사·열기 사이 링크 교체를 막는다."""
+        """검증한 일반 파일 핸들에서만 제한된 바이트를 읽어 검사·열기 사이 링크 교체를 막는다.
+
+        연 핸들의 크기만큼만 청한다(`read_bounded`). `read(limit + 1)`은 파일마다 상한(4 MiB)만큼 버퍼를 먼저 잡아
+        빠듯한 `RLIMIT_AS`에서 작은 파일 읽기도 MemoryError(내부 오류 2)로 끝났다.
+        """
         with self.open_regular(relative) as source:
-            return source.read(limit + 1)
+            return read_bounded(source, limit, regular_file_size(source))
 
     @contextmanager
     def open_regular(self, relative: str) -> Iterator[BinaryIO]:
