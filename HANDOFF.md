@@ -5,10 +5,12 @@
 
 ## 현재 상태 (2026-11-22)
 
-- **3차 개선 브랜치**: `ccr-37904670-hxdjsx`를 `main` `596f379`에서 다시 시작했다(아래 "3차 개선"). 상한 크기 버퍼를 미리 잡던
-  읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던 금지 문자 이름 테스트, Windows mypy를
-  고쳤다. PR #34로 올렸고, `dd67b99`(Windows에서만 틀리던 테스트 기대값 수정)의 CI는 9개 모두 성공했다. 독립 리뷰의 지적
-  (파이프로 온 큰 입력의 최고점이 상한의 두 배 등)은 그 다음 커밋이 고쳤다(아래 "3차 개선 리뷰 반영").
+- **4차 개선 브랜치**: PR #34(3차 개선)가 `main` `1244635`로 스쿼시 머지된 뒤 `ccr-37904670-hxdjsx`를 그 커밋에서 다시
+  시작했다(아래 "4차 개선"). Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
+  한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. 아직 push하지 않았다(PR은 조정자가 연다).
+- 3차 개선(PR #34): 상한 크기 버퍼를 미리 잡던 읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던
+  금지 문자 이름 테스트, Windows mypy를 고쳤다. `dd67b99`의 CI는 9개 모두 성공했고 독립 리뷰의 지적은 그 다음 커밋이
+  고쳤다(아래 "3차 개선 리뷰 반영").
 - PR #33은 2026-11-17에 `main`으로 스쿼시 머지됐고(`596f379`) 그 `main` push의 CI가 성공했다(2026-11-16T17:59Z 실행). 아래
   PR #33 경과는 기록으로 남긴다.
 - 발행본은 **0.3.1**이다. PyPI 게시(2026-11-03), 태그 `v0.3.1`, `pyproject.toml` 버전이 일치한다.
@@ -45,6 +47,36 @@
   5(change-impact의 Ctrl+C가 12–17초 늦음 포함)·사소한 것 6과 함께 `02ff104`가 고치거나 적었고 **`02ff104`의 CI는 9개 모두
   성공**했다. 그 수정분만 다시 본 6차 리뷰가 고쳐야 할 것 1(끝을 알리지 못하고 죽은 작업 스레드의 예외를 Ctrl+C 없이도
   20초 늦게 전함, `02ff104`가 만든 회귀)과 사소한 것 4를 찾았고 이 HANDOFF 커밋이 고치거나 적었다(아래 "6차 리뷰 반영").
+
+## 4차 개선 (2026-11-22, `main` `1244635` 기준)
+
+사용자 결정이 필요 없는 결함 세 가지를 고쳤다. 실제 Flask 3.1.3·Django 6.1.3·DRF 3.18.3을 설치한 스크래치 가상 환경에서
+합성 앱 약 90개(Flask 75·Django·DRF 16)를 만들어 `url_map`·resolver와 pythograph 사실을 비교하는 오라클로 찾았고(Django·DRF 쪽은 새 결함 없음),
+표준 출력 쪽은 `PYTHONUNBUFFERED=1`이 켜진 이 작업 환경에서 드러났다. 모두 고치기 전 재현, 고친 뒤 같은 확인, 수정을 되돌린
+변이에서 실패하는 회귀 테스트를 확인했다.
+
+| 항목 | 재현(고치기 전) | 수정과 확인 |
+|---|---|---|
+| Flask의 증명하지 못한 뷰 식을 GET으로 냄(0.3.1부터, 거짓 사실) | `hook_view = Hook.as_view("hook")`(post만 정의) 뒤 `app.add_url_rule("/hook", view_func=hook_view)`: Flask `url_map`은 POST만, pythograph는 `GET /hook`에 "emitted as ANY" 한계. `login_required(Put.as_view("put"))`·프로젝트 밖 함수·`methods`를 단 호출 가능 객체·블루프린트의 변수 뷰도 같다(Flask 문서의 `view = UserList.as_view(...)`·`register_api` 모양). `add_url_rule`은 `methods`가 없으면 `view_func.methods`를 먼저 쓴다 | `_methods`가 확정하지 못한 뷰(`view_methods`가 None이고 `uncertain`)를 문서 규칙("아는 method 또는 ANY")대로 `ANY`로 낸다. 그 자리의 `lambda`·`None` 뷰는 속성이 없어 GET이 증명되므로 확정으로 둔다(그 등록의 한계를 더 세지 않는다 — 합성 사례 g01·g02에서 한계 4개 줄었다). 한계 문장을 Django와 같은 "…emitted as ANY or as their known methods"로 바꿨다(`methods`를 준 등록·아는 method를 내는 뷰도 덮는다). `functools.partial` 뷰는 GET이 맞지만 이제 `ANY`다(정밀도만 잃고 거짓은 아니다). 새 테스트 `test_unresolved_view_without_methods_is_any`는 `_methods` 변이·람다 변이·`main` 코드에서 실패한다(람다 변이는 기존 `test_view_classes_and_unknown_methods`도 실패) |
+| 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이 한계 없이 사라짐(0.3.1부터) | `app = create_app()`에 단 `@app.route("/health")`·`@app.post`, `def register(app): app.add_url_rule(...)`, `current_app.add_url_rule`, `app.route(rule)(view)`가 사실 0건·한계 0건. 실제 프로젝트 flaskbb(헬퍼 `register_view`의 `bp_or_app.add_url_rule` 하나로 모든 라우트 등록)는 사실 0건에 버전·링크 한계만 있었다 | `_Registrar._unmodeled`가 `route`·단축 장식자·`add_url_rule`의 수신자를 객체로 찾지 못하면, 그리고 `X.route(rule)(view)` 모양이면 스코프 없는 `route-coverage:`로 센다. Flask가 아닌 외부 이름(`unittest.mock.patch` 장식자, `bottle.route`)은 세지 않고, 사전 `get` 결과 호출(`handlers.get(name)(request)`)은 모양부터 보지 않는다. 사실은 바뀌지 않는다. 새 테스트 `test_registrations_on_unknown_receivers_are_counted`(5개 세고 음성 3개 안 셈)는 장식자·외부 이름 제외·호출 모양·`add_url_rule` 네 변이와 `main` 코드에서 모두 실패한다. 클래스 본문 안 등록(`self.app.add_url_rule`)은 걷개가 클래스에 들어가지 않아 아직 세지 않는다(아래 "남긴 것") |
+| 표준 출력 쓰기의 잘린 문서와 종료 상태 120(0.3.1부터, HANDOFF "`PYTHONUNBUFFERED`·`-u`의 잘린 출력" 행) | `PYTHONUNBUFFERED=1`에서 `ulimit -f 100`의 `graph > file`이 102,400 B로 잘린 채 0, 100,000 B 읽고 닫는 파이프에서 0(버퍼 있으면 BrokenPipeError 2), 부모가 O_NONBLOCK을 켠 파이프가 차면 65,536 B로 0. 버퍼 있는 기본 표준 출력은 그 비블로킹 파이프에서 2를 돌려준 뒤 인터프리터 종료 때 남은 바이트를 다시 비우다 실패해 종료 상태 120("Exception ignored on flushing sys.stdout") | `cli/main.py`의 `_stdout_raw`가 프로세스 표준 출력 래퍼 아래 원시 스트림(버퍼 없으면 그것, `BufferedWriter`면 `.raw`)을 찾고, `_write_all`이 래퍼를 비운 뒤 1 Mi 문자 조각을 증분 인코더로 인코딩해 짧은 쓰기를 남은 바이트로 다시 쓴다(None은 BlockingIOError, 0이나 맞지 않는 수는 OSError). 네 경우 모두 2이고 남는 바이트가 없다. 성공한 출력은 버퍼 유무·`PYTHONIOENCODING=cp1252`와 관계없이 바이트가 같고(flaskbb graph 1,069,990 B = 조각 둘, 비ASCII 경로 프로젝트), 할당 최고점은 20 Mi 문자 문서에서 20,971,893 B → 2,098,118 B다. 주입한 스트림은 전처럼 `write`로 쓴다(호출자의 줄바꿈 변환을 지킨다). 새 테스트 `test_stdout_short_writes_are_written_again`·`test_stdout_that_stops_accepting_exits_2_with_nothing_left`·`test_non_blocking_stdout_pipe_that_fills_exits_2`·`test_output_cut_by_file_size_limit_exits_2` 9개 중 8개가 `main` 코드에서 실패하고, `BufferedWriter`를 그대로 두는 변이는 남은 바이트·120 테스트 2개가 잡는다 |
+
+- **실제 프로젝트 비교**(`main` 대 이 판, 같은 명령·고정 `--generated-at`): microblog·djangoproject.com·Django-Styleguide-Example·
+  bakerydemo·flask(+examples 셋)·flasky·flaskbb에서 server·client routes·schema·graph와 `--include-tests` server routes 50개 문서 중
+  48개가 바이트로 같고, 다른 2개(flaskbb server routes, 테스트 포함 판)는 사실이 같고 새 `route-coverage:` 한계 1개("1 route
+  registrations …")만 더해졌다. Flask 저장소 자체 테스트(`--framework flask --include-tests`)는 사실 100개가 같고 fixture 앱
+  매개변수로 한 등록 212개를 새로 센다(grep으로 센 등록 모양은 사실이 된 것을 합쳐 332개). 라우트 오라클(`run_all.py`)은
+  정밀도 69/69·28/28, 기록 파일 변화 없음.
+- **적대적 입력**(약 40개, 판정은 Flask `url_map`): 람다·괄호 람다·`methods`를 준 람다, `view_func=None`, `functools.partial`,
+  앱 팩토리 지역 함수, import한 프로젝트 함수(이름·모듈 속성), `methods`를 단 호출 가능 객체, 프로젝트 믹스인에서 `methods`를 받는
+  `View`, 블루프린트의 변수 뷰, `decorators` 속성, `methods`를 준 변수 뷰, `getattr`로 꺼낸 뷰, 헬퍼 매개변수·주석 단 매개변수·
+  `current_app`·`self.app`·팩토리 결과·import한 앱. 새 판에서 GET이 아닌 실제 method를 GET으로 내는 사례는 함수에 `.methods`를
+  직접 달거나 장식자가 단 경우(기존, 아래 "남긴 것")뿐이다. 표준 출력은 `/dev/full`, 닫은 표준 출력, root-not-found 64 문서, cp1252
+  `PYTHONIOENCODING`, 1 Mi 문자를 넘는 문서, 비블로킹 파이프, 일찍 닫는 파이프, 파일 크기 상한을 버퍼 유무 두 가지로 비교했다.
+- **검증(이 브랜치)**: 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1726 passed, 4 skipped(기존 1714 + 새 12, 건너뜀은
+  기존 대소문자 구별 3개·Windows 전용 1개), 3.13 커버리지 93.99%(하한 90%), ruff·format·mypy(`--platform` win32·linux·darwin)
+  통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14 `unparsedFiles` 0·표준 오류 0바이트.
+  Windows·macOS 실행(콘솔 `_WindowsConsoleIO` 경로 포함)은 CI만 확인한다. GLM 리뷰(`packet-ask`)는 이 환경에 없어 받지 못했다.
 
 ## 3차 개선 (2026-11-22, `main` `596f379` 기준)
 
@@ -542,7 +574,6 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | Windows `project` 정규화 | bridge-facts v1은 POSIX 경로를 가정하고 Windows 정규화는 isthmus와 별도 합의 사항이다. pythograph는 realpath를 슬래시로 쓴 값(`C:/…`)을 낸다(README에 적음). |
 | 릴리스 워크플로의 Windows 검증 | 요청 범위가 CI다. CI 결과가 안정적이면 `release.yml` verify 매트릭스에 같은 잡을 더할지 정한다. |
 | CLI 명령 스레드의 `RLIMIT_AS` 비용 | 명령 스레드 스택(3.10 65 MiB)과 glibc 아레나로 빠듯한 `ulimit -v`에서 0.3.1보다 먼저 MemoryError(2)가 난다(3.13 자기 분석 약 123 MB → 134 MB). 3.10은 프로젝트의 가장 긴 사슬로 스레드 크기를 잡으면 줄일 수 있다(3차 리뷰 F3 제안). 해결하지 않았다. |
-| `PYTHONUNBUFFERED`·`-u`의 잘린 출력 | 버퍼 없는 표준 출력에서 읽는 쪽이 일찍 닫으면 `TextIOWrapper`가 짧은 쓰기를 무시해 잘린 문서와 0이 된다(3차 리뷰 cli F5, CPython 동작, 기존 결함). 바이트로 끝까지 나눠 쓰면 고칠 수 있지만 큰 문서의 메모리가 두 배가 된다. |
 | Windows Ctrl+C 대기 확인 | 주 스레드의 0.1초 대기가 Windows에서 Ctrl+C를 받는지 테스트하지 못했다. `CREATE_NEW_PROCESS_GROUP`과 `CTRL_C_EVENT`로 Windows 잡에 더할 수 있다. |
 | 라이브러리 호출의 스레드 오감 비용 | CLI는 명령 스레드 하나라 없다. 라이브러리로 부르면 128자를 넘는 소스마다 약 0.4–1.2 ms(CPU)가 든다(위 "성능"). 호출자가 큰 스택 스레드를 쓰면 없앨 수 있도록 `run_on_parse_stack`을 공개 API로 문서화할지 정한다. |
 | 스레드 없는 대체의 Windows 주 스레드(4차 리뷰 N3) | 대체 판정은 주 스레드 8 MiB를 가정한다. Windows `python.exe` 주 스레드(2,000,000 B)나 `ulimit -s`를 줄인 POSIX에서는 규칙 안의 소스(재귀 한도 1만인 3.11의 2만 5천 항 사슬, `ulimit -s 1953`으로 흉내 내 139)가 0.3.1처럼 프로세스를 죽인다. POSIX는 `RLIMIT_STACK`으로 실제 크기를 볼 수 있지만 Windows 예산은 실측 없이 정하지 않는다. 문서에 적었다. |
@@ -559,10 +590,14 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | change 캡처의 읽기 스레드 | change-impact의 git 캡처(출력 상한, 표준 입력)는 0.3.1부터 읽기·쓰기 스레드로 배수한다. 스레드를 만들 수 없으면 그 명령은 0.3.1처럼 내부 오류(2)다. 선택기 하나로 읽고 쓰면 스레드 없이 할 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 된다. |
 | 3.12까지 Ctrl+C 뒤 알림 없이 죽은 작업 스레드 | Ctrl+C로 기다림이 끊긴 뒤 작업 스레드가 끝을 알리지 못하고 죽으면(메모리가 모자란 `finally`) 3.10–3.12는 20초 유예를 다 기다린다(3.13부터 0.40초). 그 버전의 `is_alive`는 신호 예외가 그 안에 떨어지면 아직 도는 스레드를 끝난 것으로 표시해(bpo-45274) 정리 전에 나가게 하므로 믿지 않는다(5차 리뷰 C-F1). `threading._active` 소속으로 대신 볼 수 있지만 비공개 속성이고 시작 직후 잠깐 빠져 있어 하지 않았다. |
 | revision 조회의 큰 출력 | 스레드 없는 `communicate` 조각 읽기는 시간 초과마다 읽은 출력을 다시 이어 붙여, 수십 MB가 넘는 출력이면 부모 CPU가 늘어난다(6차 리뷰 N1, 3.12에서 200 MB 0.55초 → 2.70초). revision 조회의 출력은 작다. 선택기로 직접 읽으면 없앨 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 되고 취소 테스트를 다시 짜야 해 3차 개선에서도 뺐다. |
+| Flask 함수 뷰에 직접 단 `.methods`(4차 개선) | `def index(): …` 뒤 `index.methods = ["POST"]`, 또는 래퍼에 `w.methods = [...]`를 다는 장식자는 Flask가 그 methods를 쓰는데 pythograph는 증명한 함수라 GET을 낸다(0.3.1부터, 거짓 사실). `required_methods`·`provide_automatic_options` 속성도 같다. 이름 기준 속성 쓰기 판정(그래프의 "다시 쓰는 값" 규칙)으로 막을 수 있지만 장식자 안 쓰기까지 보려면 설계가 필요하고 실제 사용이 드물어 넣지 않았다. |
+| Flask 클래스 본문 안 등록(4차 개선) | `class Server: def __init__(self): self.app.add_url_rule(...)`나 클래스 본문의 `@app.route` 메서드는 걷개가 클래스에 들어가지 않아 사실도 한계도 없다. 4차 개선의 `_unmodeled` 계수를 클래스 본문까지 넓히면 된다. |
+| Flask 조건부 등록(결정 필요) | `docs/HTTP-ROUTES.md` 결정은 "조건부 등록은 decl이 아니라 스코프 있는 한계"인데 Flask 걷개는 `if`·`try` 블록 안 `@app.route`를 평범한 decl로 낸다(`if DEBUG:` 아래 `/debug`, 0.3.1부터). Django는 결정대로다. Flask도 결정대로 바꾸면 흔한 `if app.config[...]:` 등록이 사실에서 빠지므로 사용자 결정으로 남긴다. |
+| Flask `url_map.add(Rule(...))`·`MethodView` 상속 `methods`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 기반 클래스가 `methods`를 선언한 `MethodView` 하위 클래스는 Flask가 그 값과 핸들러의 합집합을 쓰는데(`__init_subclass__`) pythograph는 선언만 내 핸들러 method가 한계 없이 빠진다(사실 누락, 거짓은 아니다). 둘 다 드물어 남겼다. |
 
 ## 다음 할 일
 
-1. PR #34의 리뷰 반영 커밋 CI를 확인하고 머지한다(`dd67b99`는 9개 모두 성공, Windows에서 금지 문자 이름 테스트가 돌았다).
+1. 4차 개선 브랜치를 PR로 올리고 CI(Windows의 표준 출력 쓰기 경로 포함)를 확인해 머지한다.
 2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
 3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
