@@ -8,7 +8,10 @@ isthmus 상한을 넘는 출력, 예기치 못한 내부 오류), 64 사용법 �
 
 from __future__ import annotations
 
+import codecs
 import contextlib
+import errno
+import io
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -202,13 +205,15 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
     out = stdout or _exchange_stdout(sys.stdout)
+    # 주입한 스트림은 호출자의 쓰기 방식(줄바꿈 변환 포함)을 따르고, 프로세스 표준 출력만 원시 스트림에 끝까지 쓴다.
+    raw = None if stdout is not None else _stdout_raw(out)
     err = stderr or sys.stderr
     source = stdin or sys.stdin
     try:
         text = run_on_parse_stack(lambda: run(arguments, source))
     except RootNotFoundExit as partial:
         _report(err, f"{partial.missing} root id(s) are not graph nodes; the document lists them without symbol")
-        return _write(out, err, partial.text, EXIT_USAGE)
+        return _write(out, err, partial.text, EXIT_USAGE, raw)
     except UsageError as error:
         _report(err, str(error))
         return EXIT_USAGE
@@ -218,7 +223,7 @@ def _main(argv: Sequence[str] | None, stdout: TextIO | None, stderr: TextIO | No
     except Exception as error:  # 1은 예약이므로 어떤 내부 오류도 2로 바꾼다. 원문은 싣지 않는다.
         _report(err, f"internal error ({type(error).__name__}); please report it with the command line")
         return EXIT_INPUT
-    return _write(out, err, text, EXIT_OK)
+    return _write(out, err, text, EXIT_OK, raw)
 
 
 def _exchange_stdout(stream: TextIO) -> TextIO:
@@ -247,14 +252,44 @@ def _exchange_stdout(stream: TextIO) -> TextIO:
     return stream
 
 
-def _write(out: TextIO | None, err: TextIO | None, text: str, code: int) -> int:
-    """표준 출력에 결과를 쓴다. 닫힌 파이프·닫힌 표준 출력·인코딩 실패도 1이 아니라 2다.
+def _stdout_raw(stream: TextIO | None) -> io.RawIOBase | None:
+    """프로세스 표준 출력 텍스트 래퍼 아래의 원시 바이트 스트림을 돌려준다(문서를 그곳에 직접 끝까지 쓴다).
+
+    `TextIOWrapper`로 문서를 쓰면 두 가지가 틀렸다.
+
+    - `python -u`·`PYTHONUNBUFFERED`(컨테이너 이미지에 흔하다)에서 표준 출력은 `BufferedWriter` 없이 원시 스트림
+      (`FileIO`, Windows 콘솔은 `_WindowsConsoleIO`) 위의 래퍼이고, 그 `write`는 원시 스트림이 일부만 쓴 개수(짧은
+      쓰기)나 쓰지 못했다는 None을 버린다. 읽는 쪽이 중간에 닫은 파이프, 파일 크기 상한(`RLIMIT_FSIZE`)·디스크
+      공간에 닿은 파일, 블로킹하지 않는 파이프에서 잘린 문서를 쓰고도 0으로 끝났다.
+    - 버퍼 있는 표준 출력은 블로킹하지 않는 파이프에서 BlockingIOError(2)를 알린 뒤에도 못 쓴 바이트를
+      `BufferedWriter`에 남겨, 인터프리터가 끝날 때 다시 비우다 실패해 종료 상태가 계약 밖의 120이 됐다.
+
+    원시 스트림에 직접 쓰면(`_write_all`) 짧은 쓰기를 다시 쓰고, 실패하면 남은 바이트 없이 2로 끝난다.
+
+    Args:
+        stream: 표준 출력(없을 수 있다).
+
+    Returns:
+        원시 바이트 스트림. 텍스트 래퍼가 아니거나(떼어 낸 래퍼 포함) 그 아래가 원시 스트림·`BufferedWriter`가
+        아니면 None.
+    """
+    if not isinstance(stream, io.TextIOWrapper):
+        return None
+    binary = stream.buffer  # `detach()`한 래퍼는 None이다.
+    if isinstance(binary, io.BufferedWriter):
+        binary = binary.raw  # `detach()`한 버퍼는 None이다.
+    return binary if isinstance(binary, io.RawIOBase) else None
+
+
+def _write(out: TextIO | None, err: TextIO | None, text: str, code: int, raw: io.RawIOBase | None = None) -> int:
+    """표준 출력에 결과를 쓴다. 닫힌 파이프·닫힌 표준 출력·인코딩 실패·끝까지 쓰지 못함도 1이 아니라 2다.
 
     Args:
         out: 표준 출력.
         err: 표준 오류.
         text: 출력 문자열.
         code: 쓰기에 성공했을 때의 종료 코드.
+        raw: `out`이 프로세스 표준 출력이면 그 아래 원시 바이트 스트림(`_stdout_raw`), 아니면 None.
 
     Returns:
         종료 코드.
@@ -263,12 +298,64 @@ def _write(out: TextIO | None, err: TextIO | None, text: str, code: int) -> int:
         _report(err, "could not write the output (standard output is closed); check the output destination")
         return EXIT_INPUT
     try:
-        out.write(text)
-        out.flush()
+        if raw is None:
+            out.write(text)
+            out.flush()
+        else:
+            _write_all(out, raw, text)
     except (OSError, UnicodeError) as error:
         _report(err, f"could not write the output ({type(error).__name__}); check the output destination")
         return EXIT_INPUT
     return code
+
+
+#: 원시 스트림에 쓸 때 한 번에 인코딩하는 문자 수다. 문서 전체를 한꺼번에 인코딩하면 문서만큼 메모리가 더 든다.
+_WRITE_CHUNK_CHARACTERS = 1 << 20
+
+
+def _write_all(out: TextIO, raw: io.RawIOBase, text: str) -> None:
+    """텍스트 래퍼 아래 원시 스트림에 문자열을 끝까지 쓴다.
+
+    래퍼(와 그 `BufferedWriter`)를 먼저 비운 뒤 `out`의 인코딩·오류 처리로 조각마다 인코딩하고(상태 있는 인코딩도
+    이어지게 증분 인코더를 쓴다), 원시 스트림의 짧은 쓰기는 남은 바이트로 다시 쓴다. 줄바꿈은 바꾸지 않는다: 프로세스
+    표준 출력은 `_exchange_stdout`이 LF로 맞춘다.
+
+    Args:
+        out: 텍스트 래퍼(먼저 비운다).
+        raw: 그 아래 원시 바이트 스트림.
+        text: 쓸 문자열.
+
+    Raises:
+        BlockingIOError: 블로킹하지 않는 스트림이 더 받지 못한다(`BufferedWriter`와 같은 오류).
+        OSError: 쓰기가 실패했거나 원시 스트림이 한 바이트도 받지 않았다(같은 쓰기를 끝없이 되풀이하지 않는다).
+        UnicodeError: 인코딩하지 못하는 문자가 있다.
+    """
+    out.flush()
+    encoder = codecs.getincrementalencoder(out.encoding)(out.errors or "strict")
+    for start in range(0, len(text), _WRITE_CHUNK_CHARACTERS):
+        chunk = text[start : start + _WRITE_CHUNK_CHARACTERS]
+        _write_bytes(raw, encoder.encode(chunk, final=start + _WRITE_CHUNK_CHARACTERS >= len(text)))
+
+
+def _write_bytes(raw: io.RawIOBase, data: bytes) -> None:
+    """원시 바이트 스트림에 바이트를 짧은 쓰기 없이 끝까지 쓴다.
+
+    Args:
+        raw: 원시 바이트 스트림.
+        data: 쓸 바이트.
+
+    Raises:
+        BlockingIOError: 블로킹하지 않는 스트림이 더 받지 못한다.
+        OSError: 쓰기가 실패했거나 한 바이트도 받지 않았다(또는 받은 바이트 수가 맞지 않는다).
+    """
+    view = memoryview(data)
+    while view:
+        written = raw.write(view)
+        if written is None:
+            raise BlockingIOError(errno.EAGAIN, "the output would block")
+        if not 0 < written <= len(view):
+            raise OSError(errno.EIO, "the output accepted no bytes or reported an invalid count")
+        view = view[written:]
 
 
 def _report(err: TextIO | None, message: str) -> None:

@@ -99,7 +99,8 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 - `--generated-at`: 바이트 단위로 같은 출력을 위한 고정 `generatedAt`.
 - 종료 코드: `0` 성공(사실 0건도 성공이며 완전성의 증거가 아니다), `2` 읽을 수 없는 프로젝트·사실 100,000건
   초과·출력 16 Mi 문자 초과·내부 오류(문구에 원인과 해결 방향을 담고 소스 원문·절대 경로는 싣지 않는다),
-  `64` 사용법 오류. `1`은 예약이다.
+  `64` 사용법 오류. `1`은 예약이다. 문서는 표준 출력 아래 파일에 직접 쓰므로, 끝까지 쓰지 못한 출력(읽는 쪽이 닫은
+  파이프, 가득 찬 디스크·파일 크기 상한, 블로킹하지 않는 파이프)은 `python -u`·`PYTHONUNBUFFERED`에서도 `2`다.
 
 ### 모델링하는 것
 
@@ -157,7 +158,11 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 모르는 값이다. 그 값으로 만든 경로 문자열은 `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의
 `route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base` 앵커, 그렇게 바뀌는 `INSTALLED_APPS`는 스코프 없는
 `framework-provided-routes:` 한계가 된다. 그런 이름에 묶인 Flask 앱·블루프린트는 실행할 때 다른 객체일 수 있으므로, 그
-이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다.
+이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다. `methods=` 없이 등록한 Flask
+뷰의 method를 증명하지 못하면(변수에 담거나 호출로 감싼 뷰, 프로젝트 밖 뷰, 모르는 기반 클래스의 뷰 클래스) Flask가
+`GET` 기본값보다 `view_func.methods`를 먼저 쓰므로 `ANY`와 템플릿 스코프의 `route-coverage:`이고, 그 자리의 `lambda`는
+`GET`이다. 알려진 Flask 앱·블루프린트가 아닌 객체(`def register(app)` 같은 매개변수, `self.app`, `app = create_app()`,
+`current_app`)를 거친 등록과 `app.route(rule)(view)`는 사실로 내지 않고 스코프 없는 `route-coverage:`로 센다.
 
 ### 결정 사항
 

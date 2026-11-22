@@ -381,6 +381,138 @@ def test_view_classes_and_unknown_methods(make_project: Callable[[dict[str, str]
     ]  # type: ignore[operator]
 
 
+#: method를 확정하지 못한 Flask 뷰의 한계 문장이다(`{count}` 자리).
+UNKNOWN_VIEW_METHODS = (
+    "route-coverage: {count} Flask views accept methods that could not be determined statically and were emitted "
+    "as ANY or as their known methods"
+)
+
+
+def test_unresolved_view_without_methods_is_any(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`methods` 없이 등록한 모르는 뷰 식은 GET이 아니라 `ANY`다.
+
+    `add_url_rule`은 `methods`가 없으면 `view_func.methods`를 먼저 보고 없을 때만 GET을 쓴다. 변수에 담은
+    `Hook.as_view("hook")`(post만 정의), 감싼 `login_required(Put.as_view("put"))`, 외부 함수, 모르는 기반 클래스 뷰를
+    GET으로 내고 "ANY로 냈다"는 한계를 붙여, Flask가 405로 거부하는 GET 사실을 만들고 받는 POST·PUT은 빠뜨렸다.
+    그 자리에서 만든 람다는 속성이 없어 GET이 맞고 한계도 세지 않는다. `methods`를 준 등록은 그 동사 그대로다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView, View
+        from ext import ExtMixin, login_required, webhook
+        app = Flask(__name__, static_folder=None)
+        class Hook(MethodView):
+            def post(self):
+                pass
+        class Put(MethodView):
+            def put(self):
+                pass
+        class Mixed(ExtMixin, View):
+            def dispatch_request(self):
+                pass
+        class Bare(ExtMixin, MethodView):
+            pass
+        hook_view = Hook.as_view("hook")
+        app.add_url_rule("/hook", view_func=hook_view)
+        app.add_url_rule("/put", view_func=login_required(Put.as_view("put")))
+        app.add_url_rule("/webhook", "webhook", webhook)
+        app.add_url_rule("/mixed", view_func=Mixed.as_view("mixed"))
+        app.add_url_rule("/bare", view_func=Bare.as_view("bare"))
+        app.add_url_rule("/declared", view_func=hook_view, methods=["POST"])
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/hook", False, None),
+        ("ANY", "/put", False, None),
+        ("ANY", "/webhook", False, None),
+        ("ANY", "/mixed", False, "app.py#Mixed.dispatch_request"),
+        ("ANY", "/bare", False, None),
+        ("POST", "/declared", False, None),
+    }
+    assert sorted((text, scope["templates"]) for text, scope in scoped_limitations(document)) == [
+        (UNKNOWN_VIEW_METHODS.format(count=1), [path])
+        for path in sorted(("/hook", "/put", "/webhook", "/mixed", "/bare", "/declared"))
+    ]
+    lambda_root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\napp = Flask(__name__, static_folder=None)\n"
+            'app.add_url_rule("/lambda", "lambda", lambda: "")\n',
+        }
+    )
+    lambda_document = routes_document(lambda_root)
+    assert fact_rows(lambda_document) == {("GET", "/lambda", False, None)}
+    assert not any(str(text).startswith("route-coverage:") for text in lambda_document["limitations"])  # type: ignore[union-attr]
+
+
+#: 앱·블루프린트로 찾지 못한 수신자나 모델링하지 않은 모양의 등록 한계 문장이다(`{count}` 자리).
+UNMODELED_REGISTRATIONS = (
+    "route-coverage: {count} route registrations (route, add_url_rule or a method shortcut) go through an object "
+    "that is not a known Flask app or blueprint (a parameter, attribute, call result or another framework's router) "
+    "or use a form that is not modeled, so their routes were not emitted"
+)
+
+
+def test_registrations_on_unknown_receivers_are_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """앱·블루프린트로 찾지 못한 수신자의 등록은 사실이 아니라 한계로 센다.
+
+    `app = create_app()`(팩토리 결과)에 단 `@app.route`·`@app.post`, 헬퍼 매개변수의 `app.add_url_rule`,
+    `current_app.add_url_rule`, 알려진 앱의 `app.route(rule)(view)`가 사실도 한계도 없이 사라져 빈 문서가 완전한
+    결과처럼 읽혔다. Flask가 아닌 외부 이름(`mock.patch` 장식자, `bottle.route`)과 사전 `get` 결과 호출은 등록이 아니라
+    세지 않는다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "factory.py": """
+        from flask import Flask
+        def create_app():
+            built = Flask(__name__, static_folder=None)
+            return built
+    """,
+            "wsgi.py": """
+        from unittest import mock
+        import bottle
+        from flask import Flask, current_app
+        from factory import create_app
+        app = create_app()
+        known = Flask(__name__, static_folder=None)
+        handlers = {}
+        @app.route("/health")
+        def health():
+            pass
+        @app.post("/hook")
+        def hook():
+            pass
+        def register(target):
+            target.add_url_rule("/helper", view_func=health)
+        def late():
+            current_app.add_url_rule("/late", view_func=health)
+        known.route("/call")(health)
+        @known.get("/known")
+        def emitted():
+            pass
+        @mock.patch("os.getcwd")
+        def patched(getcwd):
+            pass
+        @bottle.route("/bottle")
+        def bottled():
+            pass
+        def dispatch(name, request):
+            return handlers.get(name)(request)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/known", False, "wsgi.py#emitted")}
+    assert UNMODELED_REGISTRATIONS.format(count=5) in document["limitations"]  # type: ignore[operator]
+
+
 def test_routing_extension_and_blueprint_static(make_project: Callable[[dict[str, str]], Path]) -> None:
     """라우트를 따로 등록하는 확장은 한계, 블루프린트 정적 폴더는 접두사 아래 스코프다."""
     root = make_project(

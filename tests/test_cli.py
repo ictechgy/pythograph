@@ -600,3 +600,190 @@ def test_output_write_failure_exits_2() -> None:
     broken = _BrokenStream()
     assert cli.main(["routes", "--role", "server", "--project", DJANGO], stdout=broken, stderr=broken) == 2  # type: ignore[arg-type]
     assert cli.main(["nope"], stdout=broken, stderr=broken) == 64  # type: ignore[arg-type]
+
+
+class _ShortRaw(io.RawIOBase):
+    """한 번에 `limit` 바이트까지만 받는 원시 스트림이다(파이프·콘솔의 짧은 쓰기 흉내).
+
+    `stall_after` 바이트를 받은 뒤에는 `stall`(블로킹하지 않는 스트림의 None 또는 0)을 돌려준다.
+    """
+
+    def __init__(self, limit: int, stall_after: int | None = None, stall: int | None = None) -> None:
+        """스트림을 만든다.
+
+        Args:
+            limit: 한 번의 쓰기가 받는 최대 바이트 수.
+            stall_after: 이만큼 받은 뒤 더 받지 않는다(None이면 끝까지 받는다).
+            stall: 더 받지 않을 때 `write`가 돌려줄 값.
+        """
+        super().__init__()
+        self.data = bytearray()
+        self.calls = 0
+        self.limit = limit
+        self.stall_after = stall_after
+        self.stall = stall
+
+    def writable(self) -> bool:
+        """쓸 수 있다."""
+        return True
+
+    def write(self, data: bytes | bytearray | memoryview) -> int | None:  # type: ignore[override]
+        """`limit` 바이트까지만 받고 받은 수를 돌려준다."""
+        self.calls += 1
+        if self.stall_after is not None and len(self.data) >= self.stall_after:
+            return self.stall
+        accepted = bytes(memoryview(data)[: self.limit])
+        self.data += accepted
+        return len(accepted)
+
+
+def _process_stdout(monkeypatch: pytest.MonkeyPatch, raw: _ShortRaw, buffered: bool) -> io.TextIOWrapper:
+    """프로세스 표준 출력을 원시 스트림 위의 텍스트 래퍼로 바꾼다(로캘 인코딩·CRLF로 연다).
+
+    Args:
+        monkeypatch: pytest monkeypatch.
+        raw: 아래 원시 스트림.
+        buffered: 파이썬 기본처럼 `BufferedWriter`를 끼울지(아니면 `python -u`처럼 원시 스트림 바로 위다).
+
+    Returns:
+        바꾼 표준 출력.
+    """
+    binary = io.BufferedWriter(raw) if buffered else raw
+    stream = io.TextIOWrapper(binary, encoding="cp1252", newline="\r\n", write_through=not buffered)  # type: ignore[arg-type]
+    monkeypatch.setattr(sys, "stdout", stream)
+    return stream
+
+
+@pytest.mark.parametrize("buffered", [False, True])
+def test_stdout_short_writes_are_written_again(
+    buffered: bool, make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """원시 스트림이 한 번에 다 받지 않아도(파이프·콘솔의 짧은 쓰기) 문서를 끝까지 쓴다.
+
+    버퍼 없는 표준 출력(`python -u`·`PYTHONUNBUFFERED`)의 `TextIOWrapper.write`는 원시 스트림이 일부만 받은 수를 버려
+    잘린 문서를 쓰고도 0이었다. 조각 경계에 걸린 여러 바이트 문자도 이어지고, 바이트는 주입한 스트림에 쓴 문서와
+    같다(UTF-8·LF).
+    """
+    root = make_project(NON_ASCII_PROJECT)
+    arguments = ["graph", "--project", str(root), "--generated-at", GENERATED_AT, "--revision", "x"]
+    code, expected, err = run_cli(arguments)
+    assert code == 0, err
+    monkeypatch.setattr(cli, "_WRITE_CHUNK_CHARACTERS", 5)
+    raw = _ShortRaw(limit=7)
+    _process_stdout(monkeypatch, raw, buffered)
+    errors = io.StringIO()
+    assert cli.main(arguments, stderr=errors) == 0, errors.getvalue()
+    assert bytes(raw.data) == expected.encode("utf-8")
+    assert raw.calls > len(raw.data) // 7
+
+
+@pytest.mark.parametrize(
+    ("buffered", "stall", "error"),
+    [(False, None, "BlockingIOError"), (False, 0, "OSError"), (True, None, "BlockingIOError")],
+)
+def test_stdout_that_stops_accepting_exits_2_with_nothing_left(
+    buffered: bool,
+    stall: int | None,
+    error: str,
+    make_project: Callable[[dict[str, str]], Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """원시 스트림이 더 받지 않으면(블로킹하지 않는 파이프의 None, 0바이트) 2이고 표준 출력에 남는 바이트가 없다.
+
+    버퍼 없는 표준 출력의 `TextIOWrapper`는 None도 버려 나머지 문서를 조용히 잃고 0이었다. 버퍼 있는 표준 출력은 2를
+    알렸지만 못 쓴 바이트를 `BufferedWriter`에 남겨 인터프리터가 끝날 때 다시 비우다 실패했다(종료 상태 120). 0바이트는
+    같은 쓰기를 끝없이 되풀이하지 않고 OSError로 끝낸다.
+    """
+    root = make_project(NON_ASCII_PROJECT)
+    raw = _ShortRaw(limit=64, stall_after=128, stall=stall)
+    stream = _process_stdout(monkeypatch, raw, buffered)
+    errors = io.StringIO()
+    arguments = ["graph", "--project", str(root), "--generated-at", GENERATED_AT, "--revision", "x"]
+    assert cli.main(arguments, stderr=errors) == 2
+    assert len(raw.data) == 128
+    assert errors.getvalue() == f"pythograph: could not write the output ({error}); check the output destination\n"
+    calls = raw.calls
+    stream.flush()  # 인터프리터 종료 때의 비우기와 같다. 남은 바이트가 없으니 원시 스트림을 다시 부르지 않는다.
+    assert raw.calls == calls
+
+
+def test_stdout_raw_finds_only_a_raw_stream_under_a_text_wrapper() -> None:
+    """원시 스트림은 텍스트 래퍼 바로 아래나 그 `BufferedWriter` 아래에서만 찾고, 떼어 낸 래퍼·버퍼와 메모리 스트림은
+    전처럼 래퍼의 `write`로 쓰게 둔다(쓰기 실패는 그 경로가 알린다)."""
+    unbuffered_raw, buffered_raw = _ShortRaw(limit=1), _ShortRaw(limit=1)
+    unbuffered = io.TextIOWrapper(unbuffered_raw, encoding="utf-8")  # type: ignore[arg-type]
+    buffered = io.TextIOWrapper(io.BufferedWriter(buffered_raw), encoding="utf-8")
+    assert cli._stdout_raw(unbuffered) is unbuffered_raw
+    assert cli._stdout_raw(buffered) is buffered_raw
+    detached_buffer = io.BufferedWriter(_ShortRaw(limit=1))
+    over_detached_buffer = io.TextIOWrapper(detached_buffer, encoding="utf-8")
+    detached_buffer.detach()
+    detached = io.TextIOWrapper(io.BufferedWriter(_ShortRaw(limit=1)), encoding="utf-8")
+    detached.detach()
+    memory = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    for stream in (over_detached_buffer, detached, memory, io.StringIO(), None):
+        assert cli._stdout_raw(stream) is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="블로킹하지 않는 파이프(O_NONBLOCK)는 POSIX 기능이다.")
+@pytest.mark.parametrize("unbuffered", [False, True])
+def test_non_blocking_stdout_pipe_that_fills_exits_2(unbuffered: bool) -> None:
+    """블로킹하지 않는 표준 출력 파이프(부모가 O_NONBLOCK을 켠 파이프)가 차면 버퍼 여부와 관계없이 2다.
+
+    버퍼 있는 표준 출력은 2를 돌려준 뒤 인터프리터가 끝날 때 남은 바이트를 다시 비우다 실패해 종료 상태가 120이었고,
+    `python -u`는 쓰지 못한 나머지를 버리고 0이었다. 읽는 쪽은 자식이 끝난 뒤에야 읽는다.
+    """
+    read_end, write_end = os.pipe()
+    os.set_blocking(write_end, False)
+    flags = ["-u"] if unbuffered else []
+    command = [sys.executable, *flags, "-m", "pythograph", "graph", "--project", str(FIXTURES), "--revision", "x"]
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"}
+    try:
+        process = subprocess.Popen(command, stdout=write_end, stderr=subprocess.PIPE, cwd=REPOSITORY, env=environment)
+    finally:
+        os.close(write_end)
+    try:
+        _, stderr = process.communicate(timeout=120)
+    finally:
+        os.close(read_end)
+    assert process.returncode == 2, stderr
+    assert stderr == b"pythograph: could not write the output (BlockingIOError); check the output destination\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="파일 크기 상한(RLIMIT_FSIZE)은 POSIX 기능이다.")
+@pytest.mark.parametrize("unbuffered", [False, True])
+def test_output_cut_by_file_size_limit_exits_2(unbuffered: bool, tmp_path: Path) -> None:
+    """파일 크기 상한에 닿아 문서를 끝까지 쓰지 못하면 버퍼 여부와 관계없이 2다.
+
+    파이썬은 SIGXFSZ를 무시하므로 상한을 넘는 쓰기는 상한까지 쓴 짧은 쓰기다. `python -u`에서는 그 짧은 쓰기를
+    버려 4,096바이트로 잘린 문서를 남기고 0으로 끝났다(버퍼 있는 표준 출력은 EFBIG으로 2였다). 디스크 공간이 쓰기
+    도중에 모자랄 때도 같은 짧은 쓰기다.
+    """
+    launcher = (
+        "import os, resource, sys\n"
+        "resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))\n"
+        "os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
+    )
+    flags = ["-u"] if unbuffered else []
+    command = [
+        sys.executable,
+        "-c",
+        launcher,
+        *flags,
+        "-m",
+        "pythograph",
+        "graph",
+        "--project",
+        DJANGO,
+        "--revision",
+        "x",
+    ]
+    environment = {key: value for key, value in os.environ.items() if key != "PYTHONUNBUFFERED"}
+    output = tmp_path / "graph.json"
+    with output.open("wb") as handle:
+        result = subprocess.run(
+            command, stdout=handle, stderr=subprocess.PIPE, check=False, cwd=REPOSITORY, env=environment
+        )
+    assert result.returncode == 2, result.stderr
+    assert b"could not write the output (OSError)" in result.stderr
+    assert output.stat().st_size == 4096

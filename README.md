@@ -106,7 +106,9 @@ Writes a bridge-facts v1 document to stdout: `platform: "python"`, `target: "htt
 - `--generated-at`: a fixed `generatedAt` for byte-identical output.
 - Exit codes: `0` success (zero facts is still success, not proof of completeness), `2` unreadable project,
   more than 100,000 facts, output over 16 Mi characters, or an internal error (the message states the cause
-  and a fix, never source text or absolute paths), `64` usage error. `1` is reserved.
+  and a fix, never source text or absolute paths), `64` usage error. `1` is reserved. The document goes straight to
+  the file under standard output, so output that cannot be written completely (a reader that closed the pipe, a
+  full disk or file size limit, a non-blocking pipe) is `2` also with `python -u` or `PYTHONUNBUFFERED`.
 
 Example (synthetic, compacted; the real output is key-sorted JSON with two-space indentation):
 
@@ -204,7 +206,12 @@ is unknown: a route string built from it is `dynamic`, a method list from it lea
 or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
 `INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation. A Flask app or blueprint
 bound to such a name may be a different object at run time, so the rules and blueprint registrations that go through
-that name get the `base` anchor with `unresolved-route-prefix:`.
+that name get the `base` anchor with `unresolved-route-prefix:`. A Flask view registered without `methods=` whose
+methods are not proven (a view held in a variable or wrapped in a call, a view from outside the project, a view class
+with an unknown base) is `ANY` with a scoped `route-coverage:`, because Flask uses `view_func.methods` before its `GET`
+default; an inline `lambda` is `GET`. Route registrations through an object that is not a known Flask app or blueprint
+(a parameter as in `def register(app)`, `self.app`, `app = create_app()`, `current_app`) and `app.route(rule)(view)`
+are not emitted; they are counted in an unscoped `route-coverage:`.
 
 ### Decisions
 

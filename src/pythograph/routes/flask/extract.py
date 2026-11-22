@@ -5,9 +5,10 @@
 - `Flask(...)`·`Blueprint(...)` 객체를 모듈 수준과 함수(앱 팩토리) 안 대입에서 찾는다.
 - 등록: `@X.route(rule, methods=…)`, `@X.get/post/put/delete/patch(rule)`(Flask 2.0+), `X.add_url_rule(rule,
   endpoint, view_func, methods=…)`, `X.register_blueprint(bp, url_prefix=…)`(중첩 블루프린트 포함).
-- method: `methods`가 없으면 `view_func.methods` 또는 `("GET",)`(`App.add_url_rule`). GET이 있으면 HEAD를,
-  `PROVIDE_AUTOMATIC_OPTIONS`면 OPTIONS를 Werkzeug·Flask가 더하므로 decl로 내지 않는다.
-  `MethodView`는 정의한 핸들러 이름(대문자)과 기반 클래스 `methods`의 합집합이다(`__init_subclass__`).
+- method: `methods`가 없으면 `view_func.methods` 또는 `("GET",)`(`App.add_url_rule`). 그래서 증명하지 못한 뷰 식은
+  GET이 아니라 `ANY`다. GET이 있으면 HEAD를, `PROVIDE_AUTOMATIC_OPTIONS`면 OPTIONS를 Werkzeug·Flask가 더하므로 decl로
+  내지 않는다. `MethodView`는 정의한 핸들러 이름(대문자)과 기반 클래스 `methods`의 합집합이다(`__init_subclass__`).
+- 앱·블루프린트로 찾지 못한 수신자의 등록은 사실 대신 `route-coverage:`로 센다(`_UNMODELED_REGISTRATIONS`).
 - 접두사: 블루프린트 규칙은 `url_prefix.rstrip("/") + "/" + rule.lstrip("/")`(규칙이 비면 접두사 그대로),
   중첩은 부모 접두사와 같은 방식으로 잇는다(`BlueprintSetupState`, `Blueprint.register`).
 - 끝 슬래시: `strict_slashes`(기본 True)면 한쪽만 핸들러에 닿고(끝 `/` 규칙은 다른 쪽을 308로 넘긴다) `strict`,
@@ -39,6 +40,7 @@ from pythograph.routes.pattern import (
 from pythograph.source.evaluate import UNKNOWN, Evaluator
 from pythograph.source.project import is_test_path
 from pythograph.source.symbols import (
+    ExternalSymbol,
     ImportBinding,
     ProjectSymbol,
     Symbol,
@@ -130,6 +132,15 @@ _REBOUND_REGISTRATIONS = (
 _REBOUND_RULES = (
     "{count} Flask rules are registered through a module name that may refer to another app or blueprint "
     "(bound more than once or conditionally), so they are emitted with a base anchor"
+)
+
+#: 앱·블루프린트로 찾지 못한 수신자(함수 매개변수, `self.app` 같은 속성, `create_app()` 결과를 담은 이름, 다른
+#: 프레임워크의 라우터)나 모델링하지 않은 모양(`X.route(rule)(view)`)의 등록 limitation 문장 틀이다. 전에는 한계 없이
+#: 사라져 빈 문서가 완전한 결과처럼 읽혔다. 그 객체가 블루프린트일 수 있어 접두사를 모르므로 스코프를 싣지 않는다.
+_UNMODELED_REGISTRATIONS = (
+    "{count} route registrations (route, add_url_rule or a method shortcut) go through an object that is not a known "
+    "Flask app or blueprint (a parameter, attribute, call result or another framework's router) or use a form that is "
+    "not modeled, so their routes were not emitted"
 )
 
 
@@ -398,7 +409,8 @@ def _emit_rule(
         scope = ScopeRange(templates=templates) if anchor == "root" and len(templates) == len(shapes) else None
         extraction.add_gap(
             "route-coverage:",
-            "{count} Flask views accept methods that could not be determined statically and were emitted as ANY",
+            "{count} Flask views accept methods that could not be determined statically and were emitted as ANY "
+            "or as their known methods",
             scope,
         )
     for shape in shapes:
@@ -879,6 +891,21 @@ class _Registrar:
                 return found, found is None or self.collector.symbols.proven(symbol)
         return None, True
 
+    def _unmodeled(self, receiver: ast.expr, scope: str) -> None:
+        """앱·블루프린트로 찾지 못한 수신자의 등록(`route`·`add_url_rule`·단축 장식자)을 한계로 센다.
+
+        수신자가 Flask가 아닌 외부 이름으로 풀리면(`unittest.mock.patch` 장식자, `bottle.route`) 라우트 등록이 아니거나
+        다른 한계(지원하지 않는 프레임워크)가 이미 세므로 세지 않는다. `flask.current_app`은 앱이므로 센다.
+
+        Args:
+            receiver: 등록 메서드의 수신자 식.
+            scope: 함수 점 경로.
+        """
+        symbol = self._resolve(receiver, scope) if isinstance(receiver, (ast.Name, ast.Attribute)) else None
+        if isinstance(symbol, ExternalSymbol) and not (symbol.dotted == "flask" or symbol.dotted.startswith("flask.")):
+            return
+        self.collector.gaps.append(("route-coverage:", _UNMODELED_REGISTRATIONS))
+
     def _decorated(
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, scope: str, loops: dict[str, list[ast.expr]]
     ) -> None:
@@ -897,6 +924,7 @@ class _Registrar:
                 continue
             owner, proven = self._lookup(decorator.func.value, scope, loops)
             if owner is None:
+                self._unmodeled(decorator.func.value, scope)
                 continue
             qualname = f"{scope}.{function.name}" if scope else function.name
             usr = f"{self.path}#{qualname}"
@@ -907,12 +935,18 @@ class _Registrar:
     def _call(self, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.add_url_rule`·`X.register_blueprint`·`X.url_map.converters.update` 호출을 처리한다.
 
+        `X`를 앱·블루프린트로 찾지 못한 `add_url_rule`과 `X.route(rule)(view)` 모양은 모델링하지 않은 등록으로 센다.
+
         Args:
             call: 호출 식.
             scope: 함수 점 경로.
             loops: 반복 변수 바인딩.
         """
         func = call.func
+        if isinstance(func, ast.Call) and isinstance(func.func, ast.Attribute) and func.func.attr == "route":
+            # `X.route(rule)(view)`: 장식자 문법 밖의 등록은 모델링하지 않는다.
+            self._unmodeled(func.func.value, scope)
+            return
         if not isinstance(func, ast.Attribute):
             return
         if func.attr == "update" and _is_map_attribute(func.value, "converters"):
@@ -923,6 +957,8 @@ class _Registrar:
             return
         owner, owner_proven = self._lookup(func.value, scope, loops)
         if owner is None:
+            if func.attr == "add_url_rule":
+                self._unmodeled(func.value, scope)
             return
         if func.attr == "add_url_rule":
             self._add_url_rule(owner, call, scope, loops, rebound=not owner_proven)
@@ -1006,6 +1042,9 @@ class _Registrar:
         """
         if isinstance(view, ast.Call) and isinstance(view.func, ast.Attribute) and view.func.attr == "as_view":
             return self._class_handlers(view.func.value)
+        if isinstance(view, ast.Lambda) or (isinstance(view, ast.Constant) and view.value is None):
+            # 그 자리에서 만든 람다와 None은 `methods` 속성이 없어 `add_url_rule`이 GET을 쓴다(핸들러 id만 없다).
+            return [("*", None, "unresolved-view")], None, False
         if isinstance(view, ast.Name):
             local = self._local_function(view.id, scope)
             if local is not None:
@@ -1120,7 +1159,8 @@ class _Registrar:
         loops: dict[str, list[ast.expr]],
         rebound: bool,
     ) -> None:
-        """규칙을 기록한다. method는 `methods` 인자 → 단축 장식자 → 뷰의 methods → GET 순서다.
+        """규칙을 기록한다. method는 `methods` 인자 → 단축 장식자 → 뷰의 methods → GET 순서다(모르는 뷰는 GET 대신
+        `ANY`, `_methods`).
 
         Args:
             owner: 앱·블루프린트.
@@ -1180,8 +1220,10 @@ class _Registrar:
             if listed is None:
                 return None, True
             return tuple(item.upper() for item in listed), uncertain
-        if view_methods == ():
-            # 뷰 클래스의 methods를 확정하지 못했다(빈 튜플 표식). ANY로 낸다.
+        if view_methods == () or (view_methods is None and uncertain):
+            # 뷰의 methods를 확정하지 못했다(빈 튜플 표식, 또는 `methods` 속성을 실을 수 있는 모르는 뷰 식·기반
+            # 클래스). `add_url_rule`은 `view_func.methods`가 있으면 GET 대신 그것을 쓰므로 GET은 증명한 사실이 아니다.
+            # ANY로 낸다.
             return None, True
         return (view_methods or ("GET",)), uncertain
 
