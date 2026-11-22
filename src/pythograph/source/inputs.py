@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import stat
 import sys
@@ -26,8 +27,9 @@ _NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 #: 입력 파일을 여는 플래그다. Windows에서 줄바꿈 변환을 끄도록 O_BINARY를 더한다.
 _READ_FLAGS = os.O_RDONLY | _NONBLOCK | getattr(os, "O_BINARY", 0)
 
-#: 크기를 모르는 입력을 이어 읽을 때 한 번에 청하는 양(바이트·문자)이다. glibc의 기본 mmap 문턱(128 KiB)보다 작아 조각
-#: 버퍼를 따로 mmap하지 않고 힙에서 받는다.
+#: 크기를 모르는 입력을 이어 읽을 때 한 번에 청하는 양(바이트·문자)이다. 이진 핸들에서는 glibc의 기본 mmap
+#: 문턱(128 KiB)보다 작다. 텍스트 핸들은 문자 수에 바이트/문자 비율을 곱한 만큼 아래 핸들에 청하므로 조각 하나가
+#: 그보다 클 수 있다.
 READ_CHUNK = 64 * 1024
 
 
@@ -80,8 +82,8 @@ def read_bounded(handle: IO[AnyStr], limit: int, size_hint: int = 0) -> AnyStr:
     `RLIMIT_AS`(`ulimit -v`)에서 MemoryError(내부 오류 2)로 끝났다. 첫 읽기는 알려진 크기 + 1(모르면 `READ_CHUNK`)만
     청하고, 청한 만큼 다 왔을 때만(읽는 사이 커진 파일, 크기를 모르는 파이프·표준 입력) 조각으로 이어 읽는다. 버퍼 있는
     핸들의 `read(n)`은 끝(또는 would-block)에서만 n보다 적게 돌려주므로 짧은 읽기에서 멈춘다. 그래서 크기를 아는 파일은
-    전처럼 `read`를 한 번만 부른다. 조각이 하나면 이어 붙이지 않는다(`join`이 그 객체를 그대로 돌려준다). 상한을
-    넘었는지는 부른 쪽이 길이로 판정한다.
+    전처럼 `read`를 한 번만 부른다. 조각이 하나면 그 조각을 그대로 돌려준다. 상한을 넘었는지는 부른 쪽이 길이로
+    판정한다.
 
     Args:
         handle: 버퍼 있는 읽기 핸들(이진·텍스트).
@@ -93,12 +95,65 @@ def read_bounded(handle: IO[AnyStr], limit: int, size_hint: int = 0) -> AnyStr:
     """
     remaining = max(limit + 1, 0)  # 음수 크기의 `read`는 끝까지 읽으므로 0 아래로 내려가지 않게 한다.
     request = min(size_hint + 1 if size_hint > 0 else READ_CHUNK, remaining)
-    chunks: list[AnyStr] = []
-    while True:
+    first = handle.read(request)
+    if len(first) < request or len(first) >= remaining:
+        return first
+    rest = _following_chunks(handle, remaining - len(first))
+    if isinstance(first, bytes):
+        return _gather_bytes(first, rest)
+    return _gather_text(first, rest)
+
+
+def _following_chunks(handle: IO[AnyStr], remaining: int) -> Iterator[AnyStr]:
+    """첫 조각 뒤의 조각을 `READ_CHUNK`씩, 짧은 읽기(끝)를 만나거나 남은 양을 다 읽을 때까지 낸다.
+
+    Args:
+        handle: 버퍼 있는 읽기 핸들.
+        remaining: 더 읽어도 되는 양(바이트·문자, 1 이상).
+
+    Yields:
+        읽은 조각(빈 조각은 내지 않는다).
+    """
+    while remaining > 0:
+        request = min(READ_CHUNK, remaining)
         chunk = handle.read(request)
         if chunk:
-            chunks.append(chunk)
+            yield chunk
         remaining -= len(chunk)
-        if len(chunk) < request or remaining <= 0:
-            return chunk[:0].join(chunks)
-        request = min(READ_CHUNK, remaining)
+        if len(chunk) < request:
+            return
+
+
+def _gather_bytes(first: bytes, rest: Iterator[bytes]) -> bytes:
+    """이진 조각들을 버퍼 하나에 이어 써서 돌려준다.
+
+    조각 목록을 모았다가 이어 붙이면 상한 가까운 입력에서 목록과 결과를 함께 쥐어 상한의 두 배가 든다(크기를 모르는
+    파이프로 온 큰 `--wrappers`가 빠듯한 `ulimit -v`에서 종료 64 대신 내부 오류 2였다, 3차 리뷰 1). `io.BytesIO`는 쓴
+    만큼만 늘리고 `getvalue`가 그 버퍼를 복사하지 않고 넘긴다. 텍스트 입력은 전처럼 목록을 이어 붙인다(그 최고점은
+    `main`과 같다, `_gather_text`).
+
+    Args:
+        first: 첫 조각.
+        rest: 나머지 조각.
+
+    Returns:
+        이어 붙인 내용.
+    """
+    buffer = io.BytesIO()
+    buffer.write(first)
+    for chunk in rest:
+        buffer.write(chunk)
+    return buffer.getvalue()
+
+
+def _gather_text(first: str, rest: Iterator[str]) -> str:
+    """텍스트 조각들을 이어 붙여 돌려준다(최고점은 조각 목록과 결과를 합한 만큼으로 `main`의 텍스트 읽기와 같다).
+
+    Args:
+        first: 첫 조각.
+        rest: 나머지 조각.
+
+    Returns:
+        이어 붙인 내용.
+    """
+    return "".join([first, *rest])

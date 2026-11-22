@@ -76,7 +76,7 @@ def _read(argument: str, stdin: TextIO | None) -> str:
         RootsError: 표준 입력이 닫혔거나, 읽지 못하거나, 일반 파일·파이프가 아니거나, 너무 클 때.
     """
     if argument == "-":
-        if stdin is None or stdin.closed:  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
+        if stdin is None or _stdin_closed(stdin):  # 표준 입력을 닫고 실행하면 `sys.stdin`이 None이다.
             raise RootsError(
                 "--roots-from - reads standard input, but standard input is closed; pipe the roots in or pass a file."
             )
@@ -92,6 +92,24 @@ def _read(argument: str, stdin: TextIO | None) -> str:
     if len(text) > MAX_ROOTS_INPUT:
         raise RootsError("--roots-from is larger than 16 MiB; split the roots into several runs.")
     return text
+
+
+def _stdin_closed(stdin: TextIO) -> bool:
+    """표준 입력이 닫혔는지 본다.
+
+    떼어 낸(`detach`) 텍스트 핸들은 `closed`를 읽기만 해도 ValueError라(라이브러리로 부른 경우) 닫힌 것으로 본다(3차
+    리뷰 2: 전에는 내부 오류 2였다).
+
+    Args:
+        stdin: 표준 입력.
+
+    Returns:
+        읽을 수 없으면 True.
+    """
+    try:
+        return stdin.closed
+    except ValueError:
+        return True
 
 
 def _read_file(argument: str) -> str:

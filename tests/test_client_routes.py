@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import threading
 import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
@@ -1022,6 +1024,41 @@ def test_small_wrapper_file_reserves_no_cap_sized_buffer(tmp_path: Path) -> None
     loaded: list[object] = []
     assert allocation_peak(lambda: loaded.append(load_wrappers(path))) < SMALL_READ_PEAK_BYTES
     assert loaded == [[]]
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="/dev/fd가 없는 플랫폼")
+def test_oversized_wrapper_pipe_holds_one_cap_sized_buffer() -> None:
+    """크기를 모르는 파이프로 온 4 MiB 넘는 선언도 상한 크기 버퍼 하나만 잡고 선언 오류(64로 이어진다)다.
+
+    조각 목록을 모았다가 이어 붙이던 판은 목록과 결과를 함께 쥐어 최고점이 상한의 약 2배(8.4 MB)라, 빠듯한
+    `ulimit -v`에서 종료 64 대신 내부 오류 2였다(3차 리뷰 1). 일반 파일은 크기 힌트가 있어 이 경로를 타지 않는다.
+    """
+    payload = b"\0" * (MAX_WRAPPERS_BYTES + 2 * 1024 * 1024)  # 재기 전에 만들어 둔다(쓰는 스레드도 할당하지 않는다).
+    read_end, write_end = os.pipe()
+
+    def feed() -> None:
+        """내용을 쓰고 닫는다. 읽는 쪽이 상한에서 멈추고 닫으면 끊긴 파이프는 무시한다."""
+        with contextlib.suppress(BrokenPipeError), os.fdopen(write_end, "wb") as writer:
+            writer.write(payload)
+
+    failures: list[str] = []
+
+    def load() -> None:
+        """파이프를 선언 파일로 읽고 선언 오류를 기록한다."""
+        try:
+            load_wrappers(Path(f"/dev/fd/{read_end}"))
+        except WrapperDeclarationError as error:
+            failures.append(str(error))
+
+    writer_thread = threading.Thread(target=feed, daemon=True)
+    writer_thread.start()
+    try:
+        peak = allocation_peak(load)
+    finally:
+        os.close(read_end)
+        writer_thread.join(5)
+    assert len(failures) == 1 and "larger than 4 MiB" in failures[0]
+    assert peak < MAX_WRAPPERS_BYTES * 3 // 2
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")

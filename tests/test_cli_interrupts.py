@@ -192,6 +192,21 @@ def test_closed_stdin_roots_are_a_usage_error(tmp_path: Path, monkeypatch: pytes
     )
 
 
+def test_detached_stdin_roots_are_a_usage_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """라이브러리로 부를 때 떼어 낸(`detach`) 표준 입력도 닫힌 표준 입력과 같은 roots 입력 오류(64)다.
+
+    떼어 낸 텍스트 핸들은 `closed`를 읽기만 해도 ValueError라, 그 확인을 감싸지 않던 판은 내부 오류 2였다(3차 리뷰 2).
+    """
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    detached = io.TextIOWrapper(io.BytesIO(b"[]"), encoding="utf-8")
+    detached.detach()
+    monkeypatch.setattr(sys, "stdin", detached)
+    err = io.StringIO()
+    code = cli_main.main(["reach", "--project", str(tmp_path), "--roots-from", "-"], io.StringIO(), err)
+    assert code == 64
+    assert "standard input is closed" in err.getvalue()
+
+
 @pytest.mark.parametrize("inside_except", [False, True])
 def test_interrupt_during_start_never_runs_the_command_twice(
     monkeypatch: pytest.MonkeyPatch, inside_except: bool

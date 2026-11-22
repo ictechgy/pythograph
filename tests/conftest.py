@@ -79,10 +79,10 @@ SYMLINKS = pytest.mark.skipif(SKIP_SYMLINK_TESTS, reason=SYMLINK_SKIP_REASON)
 REQUIRE_SYMLINKS_VARIABLE = "PYTHOGRAPH_REQUIRE_SYMLINKS"
 
 
-#: 파일 이름에 C0 제어 문자(U+0001–U+001F)를 쓸 수 있는지다. NTFS(Win32 이름 규칙)는 그런 이름을 거부하지만 나머지
-#: 계약 금지 문자(DEL·NEL 같은 C1 제어 문자, U+2028/2029)는 받는다. 금지 이름 테스트는 Windows에서만 C0 이름을 빼고
-#: 나머지 이름으로 검사한다. 다른 플랫폼에서 C0 이름을 못 만들면 건너뛰지 않고 실패로 드러낸다(이름 거부는 교환 형식
-#: 경계라 조용히 빠지면 안 된다).
+#: 파일 이름에 C0 제어 문자(U+0001–U+001F)를 쓸 수 있는지다. NTFS(Win32 이름 규칙)는 그런 이름을 거부하지만 계약 금지
+#: 문자 중 C0 밖의 것(DEL U+007F, NEL 같은 C1 제어 문자, U+2028/2029)은 받는다. 금지 이름 테스트는 Windows에서만 C0
+#: 이름을 빼고 나머지 이름으로 검사한다. 다른 플랫폼에서 C0 이름을 못 만들면 건너뛰지 않고 실패로 드러낸다(이름
+#: 거부는 교환 형식 경계라 조용히 빠지면 안 된다).
 CONTROL_CHARACTER_NAMES_ALLOWED = os.name != "nt"
 
 

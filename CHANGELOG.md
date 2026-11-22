@@ -62,10 +62,10 @@
   명령 모두 LF 파일과 같은 문서를 낸다(정적 `user2_fa`와 열 사실, 한계 없음).
 - 분석 대상 소스·`--wrappers`·`--roots-from`을 `read(상한 + 1)`로 읽어, 내용이 몇 바이트든 상한 크기 버퍼(소스 파일마다·
   `--wrappers` 4 MiB, `--roots-from` 16 MiB)를 먼저 할당했다. 빠듯한 `RLIMIT_AS`(`ulimit -v`)에서는 22바이트 프로젝트의
-  `graph`·`routes --role client --wrappers`·`reach --roots-from`이 `internal error (MemoryError)`로 종료 2였다(3.13 실측: 명령이
-  성공하는 가장 작은 `ulimit -v`가 60,781 KiB(`reach --roots-from` 81,171 KiB) → 모두 56,816 KiB, 3.14 `graph` 53,984 → 50,018
-  KiB, 3.10은 이 프로젝트에서 다른 자원이 먼저 모자라 같은 값). 이제 일반 파일은 연 핸들의 크기 + 1만, 파이프·텍스트 입력은
-  64 KiB 조각으로 상한 + 1까지 읽는다(청하는 크기는 여전히 상한 + 1을 넘지 않는다). 출력은 같다(fixture 디렉터리 7개 × 명령
+  `graph`·`routes --role client --wrappers`·`reach --roots-from`이 `internal error (MemoryError)`로 종료 2였다(3.13 `ulimit -v
+  58500`의 `graph`). 이제 일반 파일은 연 핸들의 크기 + 1만, 파이프·텍스트 입력은 64 KiB 조각으로 상한 + 1까지 읽는다(청하는
+  크기는 여전히 상한 + 1을 넘지 않고, 파이프로 온 큰 이진 입력도 상한 크기 버퍼 하나만 쓴다). 22바이트 소스 읽기의 할당
+  최고점은 약 4.2 MB에서 약 11 KB가 됐다. 출력은 같다(fixture 디렉터리 7개 × 명령
   5개와 이 저장소의 graph·schema·client 문서가 종료 코드·표준 오류까지 바이트로 같다).
 - 표준 입력을 닫고 `--roots-from -`을 주면(`<&-`) 종료 64는 맞지만 문구가 깨진 입력과 같은 "could not be read as UTF-8
   text"라 원인을 가렸다. 이제 "standard input is closed"라고 알린다(종료 코드는 같다).

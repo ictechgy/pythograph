@@ -7,7 +7,8 @@
 
 - **3차 개선 브랜치**: `ccr-37904670-hxdjsx`를 `main` `596f379`에서 다시 시작했다(아래 "3차 개선"). 상한 크기 버퍼를 미리 잡던
   읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던 금지 문자 이름 테스트, Windows mypy를
-  고쳤다. 아직 push·PR 전이다.
+  고쳤다. PR #34로 올렸고, `dd67b99`(Windows에서만 틀리던 테스트 기대값 수정)의 CI는 9개 모두 성공했다. 독립 리뷰의 지적
+  (파이프로 온 큰 입력의 최고점이 상한의 두 배 등)은 그 다음 커밋이 고쳤다(아래 "3차 개선 리뷰 반영").
 - PR #33은 2026-11-17에 `main`으로 스쿼시 머지됐고(`596f379`) 그 `main` push의 CI가 성공했다(2026-11-16T17:59Z 실행). 아래
   PR #33 경과는 기록으로 남긴다.
 - 발행본은 **0.3.1**이다. PyPI 게시(2026-11-03), 태그 `v0.3.1`, `pyproject.toml` 버전이 일치한다.
@@ -52,10 +53,24 @@ HANDOFF "남긴 것"의 작은 후속 중 사용자 결정이 필요 없는 네 
 
 | 항목 | 재현(고치기 전) | 수정과 확인 |
 |---|---|---|
-| 상한 크기 버퍼 미리 할당(적대적 리뷰 8, 기존 결함) | `Project._read_bytes`가 `read(4 MiB + 1)`, `--wrappers`가 `read(4 MiB + 1)`, `--roots-from`(파일·`-`)이 텍스트 핸들 `read(16 MiB + 1)`로 읽었다. 버퍼 있는 핸들은 요청 크기를 먼저 할당하므로(텍스트 핸들의 `read1`도) 22바이트 파일 읽기의 할당 최고점이 4,202,445 B(`module` 4,202,701 B), `--roots-from` 16,788,923 B, `--wrappers` 4,200,447 B였다. 프로세스 주소 공간을 VmSize + 3 MiB로 묶으면 `Project.module`이 MemoryError. 3.13 CLI는 `ulimit -v 58500`에서 `graph`가 `internal error (MemoryError)` 종료 2(3번 모두), `ulimit -v 70000`에서 `reach --roots-from` 2 | `source/inputs.py`의 `read_bounded`가 일반 파일은 연 핸들 크기 + 1(`regular_file_size`), 크기를 모르는 입력은 64 KiB 조각으로 상한 + 1까지 읽고 짧은 읽기(끝)에서 멈춘다. 크기를 아는 파일은 전처럼 `read`를 한 번 부르고 조각이 하나면 이어 붙이지 않는다. 최고점 10,746 B(`module` 26,557 B), `--roots-from` 77,242 B, `--wrappers` 71,678 B. VmSize + 512 KiB에서도 읽는다. 3.13에서 명령이 성공하는 가장 작은 `ulimit -v`(1 MiB 이분 탐색, 2번 같음): `graph`·`routes --role client --wrappers` 60,781 → 56,816 KiB, `reach --roots-from` 81,171 → 56,816 KiB, 3.14 `graph` 53,984 → 50,018 KiB. 3.10은 이 프로젝트에서 44,354 KiB로 같다(그 아래에서는 수정 전후 모두 인터프리터가 SIGSEGV로 죽는다: 기존 "CLI 명령 스레드의 `RLIMIT_AS` 비용"과 같은 종류). `ulimit -v 58500`의 `graph`는 0(3번 모두). 출력은 fixture 디렉터리 7개 × 명령 5개(graph·schema·client·Django·Flask)의 표준 출력·오류·종료 코드와 `main` 트리의 graph(1,468,299 B)·schema·client 문서가 바이트로 같다. 새 테스트 `test_small_source_reads_reserve_no_budget_sized_buffer[module|read_text]`·`test_roots_from_reads_reserve_no_cap_sized_buffer`·`test_small_wrapper_file_reserves_no_cap_sized_buffer`(할당 최고점 < 1 MiB, `tracemalloc`)는 수정 전 코드에서 실패하고, `test_bounded_reads_request_at_most_what_remains`(16개)는 짧은 읽기 멈춤·음수 상한 고정·크기 힌트·첫 요청 크기를 각각 바꾼 변이에서 6·2·7·16개 실패한다. 기존 `test_reads_request_only_the_byte_budget`(요청 `[9]`)과 `test_oversized_wrapper_file_reads_only_the_byte_budget`(최고점 < 8 MiB)은 그대로 통과한다(파일 크기 힌트 없이 조각으로만 읽은 첫 시도는 뒤 테스트를 8,403,124 B로 넘겨 힌트를 넣었다) |
+| 상한 크기 버퍼 미리 할당(적대적 리뷰 8, 기존 결함) | `Project._read_bytes`가 `read(4 MiB + 1)`, `--wrappers`가 `read(4 MiB + 1)`, `--roots-from`(파일·`-`)이 텍스트 핸들 `read(16 MiB + 1)`로 읽었다. 버퍼 있는 핸들은 요청 크기를 먼저 할당하므로(텍스트 핸들의 `read1`도) 22바이트 파일 읽기의 할당 최고점이 4,202,445 B(`module` 4,202,701 B), `--roots-from` 16,788,923 B, `--wrappers` 4,200,447 B였다. 프로세스 주소 공간을 VmSize + 3 MiB로 묶으면 `Project.module`이 MemoryError. 3.13 CLI는 `ulimit -v 58500`에서 `graph`가 `internal error (MemoryError)` 종료 2(3번 모두), `ulimit -v 70000`에서 `reach --roots-from` 2 | `source/inputs.py`의 `read_bounded`가 일반 파일은 연 핸들 크기 + 1(`regular_file_size`), 크기를 모르는 입력은 64 KiB 조각으로 상한 + 1까지 읽고 짧은 읽기(끝)에서 멈춘다. 크기를 아는 파일은 전처럼 `read`를 한 번 부르고 조각이 하나면 이어 붙이지 않는다. 최고점 10,746 B(`module` 26,557 B), `--roots-from` 77,242 B, `--wrappers` 71,678 B. VmSize + 512 KiB에서도 읽는다. 3.13 `ulimit -v 58500`의 `graph`는 `main` 2, 이 판 0(3번 모두). 명령이 성공하는 경계 `ulimit -v`는 인터프리터·스레드의 주소 공간 배치에 따라 단조롭지 않아(리뷰어 측정: `main`의 `graph`는 54,000·52,000 KiB에서 0인데 56,816·58,500 KiB에서 2) 수치 경계로 적지 않는다. 출력은 fixture 디렉터리 7개 × 명령 5개(graph·schema·client·Django·Flask)의 표준 출력·오류·종료 코드와 `main` 트리의 graph(1,468,299 B)·schema·client 문서가 바이트로 같다. 새 테스트 `test_small_source_reads_reserve_no_budget_sized_buffer[module|read_text]`·`test_roots_from_reads_reserve_no_cap_sized_buffer`·`test_small_wrapper_file_reserves_no_cap_sized_buffer`(할당 최고점 < 1 MiB, `tracemalloc`)는 수정 전 코드에서 실패하고, `test_bounded_reads_request_at_most_what_remains`(16개)는 짧은 읽기 멈춤·음수 상한 고정·크기 힌트·첫 요청 크기를 각각 바꾼 변이에서 6·2·7·16개 실패한다. 기존 `test_reads_request_only_the_byte_budget`(요청 `[9]`)과 `test_oversized_wrapper_file_reads_only_the_byte_budget`(최고점 < 8 MiB)은 그대로 통과한다(파일 크기 힌트 없이 조각으로만 읽은 첫 시도는 뒤 테스트를 8,403,124 B로 넘겨 힌트를 넣었다) |
 | 닫힌 표준 스트림(리뷰 N6) | HANDOFF 행은 낡았다: `main`은 이미 `--version >&-`가 2(원인 문구), `--roots-from - <&-`가 64다(PR #33, CHANGELOG에 있음). 남은 것은 문구였다: `--roots-from - <&-`가 "could not be read as UTF-8 text"라 깨진 입력과 구별되지 않았다 | `_read`가 읽기 전에 닫힌 표준 입력(`None`·`closed`)을 따로 알린다: "--roots-from - reads standard input, but standard input is closed; pipe the roots in or pass a file."(종료 64 그대로). `_read_source`를 `_read_file`로 나눴다. `test_closed_stdin_roots_are_a_usage_error`(문구 전체)와 `test_exchange_stdout_reconfigures_only_streams_that_allow_it`(닫힌 `TextIOWrapper`)가 수정 전 코드에서 실패한다 |
 | 금지 문자 파일 이름 테스트 | 이름 하나라도 못 만들면 테스트 전체를 건너뛰어 Windows에서는 NTFS가 받는 NEL·U+2028 이름도 검사하지 않았다. NTFS 이름 규칙(C0 제어 문자 거부)을 흉내 낸 pytest 플러그인으로 7개 모두 건너뜀 | `CONTROL_CHARACTER_NAMES_ALLOWED`(`os.name != "nt"`)로 C0 이름만 Windows에서 빼고 NEL·DEL·U+2028·U+2029 이름과 NEL이 든 디렉터리 성분(DEL·U+2029·디렉터리 성분은 새로 더함)은 모든 플랫폼에서 만든다. 다른 플랫폼에서 못 만들면 건너뛰지 않고 실패한다. 같은 흉내에서 7개 모두 통과, 제품 금지 문자 정규식에서 C1·U+2028/2029를 빼는 변이는 흉내에서 새 테스트 7개가 실패하고 옛 테스트는 7개 건너뛴다. Windows 실제 실행은 CI만 확인한다 |
 | Windows에서 mypy | `uv run mypy --platform win32`: `inputs.py`의 `os.set_blocking`, `project.py`의 `os.O_DIRECTORY`·`os.O_NOFOLLOW` 오류 3개 | `sys.platform` 분기를 조건 맨 앞에 둔다(`sys.platform != "win32" and stat.S_ISFIFO(mode) and _NONBLOCK`, `sys.platform == "win32" or not _HAS_DIR_FD`). Windows에서는 원래 그 분기에 오지 않으므로 실행 결과는 같다. `getattr`로 읽는 방법은 이름 오타가 조용히 0이 되고 두 플래그를 빼는 변이를 어떤 테스트도 잡지 못해 쓰지 않았다. `--platform win32·linux·darwin` 모두 통과. CI `verify-windows`에 Typecheck 단계를 더했다 |
+
+### 3차 개선 리뷰 반영 (PR #34)
+
+독립 리뷰(차단 0)의 지적을 재현한 뒤 고쳤다.
+
+| 지적 | 재현(고치기 전) | 반영과 확인 |
+|---|---|---|
+| 1(고쳐야 할 것): 크기를 모르는 이진 입력(파이프·FIFO의 `--wrappers`)은 조각 목록을 모았다가 이어 붙여, 상한 가까운 입력에서 목록과 결과를 함께 쥐었다 | 6 MB 파이프의 `load_wrappers` 할당 최고점: `main` 4,200,182 B, `9b1e4e0` 8,402,096 B. 리뷰어 측정 3.13 `ulimit -v 62000`에서 `main` 64, `9b1e4e0` 2 | 이진 조각은 `io.BytesIO`에 이어 쓴다(`_gather_bytes`, `getvalue`가 복사하지 않는다). 최고점 4,405,306 B(`main`의 약 1.05배). 새 테스트 `test_oversized_wrapper_pipe_holds_one_cap_sized_buffer`(최고점 < 상한 × 1.5)가 `dd67b99`에서 실패한다. 같은 `ulimit -v` 비교는 세 판 모두 단조롭지 않았다(58,000–72,000 KiB에서 `main` 2·2·64·64·64·64·64, 수정 판 64·2·2·64·64·64·64) |
+| 2: 라이브러리로 부를 때 떼어 낸(`detach`) 표준 입력은 `closed`를 읽기만 해도 ValueError라 내부 오류 2였다(`main`은 64) | 리뷰어 `t_detached.py` | `_stdin_closed`가 ValueError를 닫힌 것으로 본다. `test_detached_stdin_roots_are_a_usage_error`가 `dd67b99`에서 실패한다 |
+| 3: CHANGELOG·HANDOFF의 "성공하는 가장 작은 `ulimit -v`" 수치가 재현되지 않았다(`main`은 단조롭지 않다) | 리뷰어 표 | 수치 경계를 지우고 `ulimit -v 58500` 비교와 할당 최고점으로 적었다 |
+| 4(사소함): `READ_CHUNK` 주석(텍스트 핸들은 조각이 128 KiB를 넘을 수 있다), DEL을 C1로 적은 주석, HANDOFF 다음 할 일의 없는 문구 확인 | 리뷰어 측정(4바이트 UTF-8 텍스트에서 아래 핸들 요청 196,608–262,144 B) | 주석을 고치고, Windows 확인은 CI 통과 수로 적었다. Windows 행렬 두 판의 Typecheck가 같은 결과인 것(mypy가 3.10으로 고정)은 무해해 그대로 둔다 |
+
+Windows CI(`dd67b99`): `verify-windows (3.10)`·`(3.13)` 모두 1640 passed, 76 skipped이고 건너뛴 이유에 금지 문자 이름이 없다(전에는
+그 테스트 7개가 Windows에서 건너뛰었다). 새 Typecheck 단계는 두 판 모두 `Success: no issues found in 89 source files`.
 
 검증(이 브랜치): 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1712 passed, 4 skipped(기존 1692 + 새 20, 건너뜀은
 기존 대소문자 구별 3개·Windows 전용 1개), 3.13 커버리지 93.95%(하한 90%), ruff·format·mypy(`--platform` win32·linux·darwin)
@@ -547,9 +562,7 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 
 ## 다음 할 일
 
-1. 3차 개선 브랜치를 push하고 PR을 만든다(코디네이터 몫). Windows CI에서 금지 문자 이름 테스트가 건너뛰지 않고 도는지(`-rs`
-   로그에 "the filesystem rejects control characters" 이유가 없어야 한다)와 새 Typecheck 단계를 확인한다. NTFS가 NEL·DEL·
-   U+2028/2029 이름을 받는다는 것은 Win32 이름 규칙(1–31만 거부)으로 판단했고 Windows에서 실행해 보지는 못했다.
+1. PR #34의 리뷰 반영 커밋 CI를 확인하고 머지한다(`dd67b99`는 9개 모두 성공, Windows에서 금지 문자 이름 테스트가 돌았다).
 2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
 3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
