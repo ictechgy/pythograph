@@ -16,7 +16,16 @@ import pytest
 import pythograph
 from pythograph.cli import main as cli
 from pythograph.graph.roots import RootsError, collect_roots
-from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, SYMLINKS, routes_document, run_cli
+from tests.conftest import (
+    CONTROL_CHARACTER_NAMES_ALLOWED,
+    DEEP_SOURCES,
+    FIXTURES,
+    GENERATED_AT,
+    REPOSITORY,
+    SYMLINKS,
+    routes_document,
+    run_cli,
+)
 
 #: Django fixture 경로다.
 DJANGO = str(FIXTURES / "django" / "drf-shop")
@@ -448,7 +457,7 @@ def test_exchange_stdout_reconfigures_only_streams_that_allow_it() -> None:
         assert cli._exchange_stdout(stream) is stream
     closed_stdin = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
     closed_stdin.close()
-    with pytest.raises(RootsError, match="UTF-8 text"):
+    with pytest.raises(RootsError, match="standard input is closed"):
         collect_roots([], "-", closed_stdin)
 
 
@@ -466,14 +475,24 @@ def test_symlinks_are_not_followed(make_project: Callable[[dict[str, str]], Path
 #: isthmus가 식별자에서 거부하는 문자다(parse.ts `controlCharacterPattern`과 짝 없는 서러게이트, 제품 코드와 따로 둔다).
 CONTRACT_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]")
 
-#: 이름에 계약 금지 문자가 든 모듈 경로다(디렉터리 성분 포함). git은 이런 이름을 허용한다.
-FORBIDDEN_NAMES = (
+#: 이름에 C0 제어 문자가 든 모듈 경로다(디렉터리 성분 포함). git은 이런 이름을 허용하지만 NTFS는 거부한다.
+CONTROL_CHARACTER_NAMES = (
     "shop/ev\x1b[31mil.py",
     "shop/bel\x07.py",
-    "shop/nel\x85.py",
-    "shop/ls\u2028.py",
     "odd\x07dir/mod.py",
 )
+
+#: 이름에 NTFS도 받는 계약 금지 문자(NEL·DEL, U+2028/2029)가 든 모듈 경로다(디렉터리 성분 포함). 모든 플랫폼에서 만든다.
+PORTABLE_FORBIDDEN_NAMES = (
+    "shop/nel\x85.py",
+    "shop/del\x7f.py",
+    "shop/ls\u2028.py",
+    "shop/ps\u2029.py",
+    "odd\x85dir/mod.py",
+)
+
+#: 이 플랫폼에서 만드는 계약 금지 이름이다(Windows는 C0 이름을 뺀다).
+FORBIDDEN_NAMES = PORTABLE_FORBIDDEN_NAMES + (CONTROL_CHARACTER_NAMES if CONTROL_CHARACTER_NAMES_ALLOWED else ())
 
 #: 금지 이름 모듈의 내용이다. 정상 뷰를 부르고 HTTP·ORM 호출을 담아, 이름이 사실·정점에 실리면 드러난다.
 FORBIDDEN_NAME_SOURCE = (
@@ -490,7 +509,7 @@ def _forbidden_name_project(make_project: Callable[[dict[str, str]], Path]) -> P
         make_project: 프로젝트 생성 함수.
 
     Returns:
-        프로젝트 루트(파일시스템이 그런 이름을 거부하면 테스트를 건너뛴다).
+        프로젝트 루트.
     """
     root = make_project(
         {
@@ -509,12 +528,9 @@ def _forbidden_name_project(make_project: Callable[[dict[str, str]], Path]) -> P
             ),
         }
     )
-    try:
-        for name in FORBIDDEN_NAMES:
-            (root / name).parent.mkdir(parents=True, exist_ok=True)
-            (root / name).write_text(FORBIDDEN_NAME_SOURCE, encoding="utf-8")
-    except OSError:
-        pytest.skip("the filesystem rejects control characters in file names")
+    for name in FORBIDDEN_NAMES:
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(FORBIDDEN_NAME_SOURCE, encoding="utf-8")
     return root
 
 

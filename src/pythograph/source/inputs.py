@@ -5,18 +5,19 @@
 끝이 없어 읽기 상한까지 메모리를 쓰고 디렉터리는 읽을 내용이 없다. O_NONBLOCK으로 열어 쓰는 쪽이 없는 FIFO도 열기가
 바로 돌아오게 하고, FIFO는 연 뒤 블로킹 읽기로 되돌려 쓰는 쪽이 끝낼 때까지 읽는다(쓰는 쪽이 없으면 곧바로 끝이라
 멈추지 않는다). 경로를 먼저 stat하지 않고 연 핸들의 fstat으로 판정하므로 판정과 읽기 사이에 대상이 바뀔 틈이 없다.
-읽는 양은 호출한 쪽이 `read(상한 + 1)`로 제한한다. 여러 계층(graph·routes)이 함께 쓰므로 다른 패키지를 import하지 않는
-맨 아래 계층에 둔다.
+읽는 양은 호출한 쪽이 `read_bounded`로 상한 + 1까지로 제한한다(분석 대상 소스 읽기도 같은 함수를 쓴다). 여러
+계층(graph·routes)이 함께 쓰므로 다른 패키지를 import하지 않는 맨 아래 계층에 둔다.
 """
 
 from __future__ import annotations
 
 import os
 import stat
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO, AnyStr, BinaryIO
 
 #: 열기를 블로킹하지 않는 플래그다(없는 플랫폼은 0). FIFO 열기가 쓰는 쪽을 기다리지 않게 한다. 일반 파일 읽기에는 영향이
 #: 없다.
@@ -24,6 +25,10 @@ _NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 
 #: 입력 파일을 여는 플래그다. Windows에서 줄바꿈 변환을 끄도록 O_BINARY를 더한다.
 _READ_FLAGS = os.O_RDONLY | _NONBLOCK | getattr(os, "O_BINARY", 0)
+
+#: 크기를 모르는 입력을 이어 읽을 때 한 번에 청하는 양(바이트·문자)이다. glibc의 기본 mmap 문턱(128 KiB)보다 작아 조각
+#: 버퍼를 따로 mmap하지 않고 힙에서 받는다.
+READ_CHUNK = 64 * 1024
 
 
 @contextmanager
@@ -45,8 +50,55 @@ def open_input_file(path: Path) -> Iterator[BinaryIO]:
     """
     with os.fdopen(os.open(path, _READ_FLAGS), "rb") as handle:
         mode = os.fstat(handle.fileno()).st_mode
-        if stat.S_ISFIFO(mode) and _NONBLOCK:
+        # Windows에는 O_NONBLOCK이 없어 이 분기에 오지 않는다. 플랫폼을 먼저 보아 타입 검사도 Windows에서 이 분기를
+        # 건너뛴다(3.12 전 Windows에는 `os.set_blocking`이 없다).
+        if sys.platform != "win32" and stat.S_ISFIFO(mode) and _NONBLOCK:
             os.set_blocking(handle.fileno(), True)
         elif not stat.S_ISREG(mode):
             raise OSError("not a regular file or a pipe")
         yield handle
+
+
+def regular_file_size(handle: BinaryIO) -> int:
+    """연 핸들이 일반 파일이면 그 크기를, 아니면(파이프) 0을 돌려준다. `read_bounded`의 첫 읽기 크기로 쓴다.
+
+    Args:
+        handle: 연 이진 핸들.
+
+    Returns:
+        일반 파일의 크기(바이트), 파이프면 0.
+    """
+    info = os.fstat(handle.fileno())
+    return info.st_size if stat.S_ISREG(info.st_mode) else 0
+
+
+def read_bounded(handle: IO[AnyStr], limit: int, size_hint: int = 0) -> AnyStr:
+    """핸들에서 `limit + 1`개(이진 핸들은 바이트, 텍스트 핸들은 문자)까지 읽는다. 상한만큼 버퍼를 미리 잡지 않는다.
+
+    `read(limit + 1)`은 내용이 몇 바이트든 상한 크기의 버퍼를 먼저 할당한다(버퍼 있는 이진 핸들, 그 위 텍스트 핸들의
+    `read1`도 같다). 22바이트 소스 하나를 읽는 데 4 MiB, `--roots-from` 하나에 16 MiB의 주소 공간이 들어 빠듯한
+    `RLIMIT_AS`(`ulimit -v`)에서 MemoryError(내부 오류 2)로 끝났다. 첫 읽기는 알려진 크기 + 1(모르면 `READ_CHUNK`)만
+    청하고, 청한 만큼 다 왔을 때만(읽는 사이 커진 파일, 크기를 모르는 파이프·표준 입력) 조각으로 이어 읽는다. 버퍼 있는
+    핸들의 `read(n)`은 끝(또는 would-block)에서만 n보다 적게 돌려주므로 짧은 읽기에서 멈춘다. 그래서 크기를 아는 파일은
+    전처럼 `read`를 한 번만 부른다. 조각이 하나면 이어 붙이지 않는다(`join`이 그 객체를 그대로 돌려준다). 상한을
+    넘었는지는 부른 쪽이 길이로 판정한다.
+
+    Args:
+        handle: 버퍼 있는 읽기 핸들(이진·텍스트).
+        limit: 상한(바이트·문자).
+        size_hint: 연 일반 파일의 크기(fstat). 0이면 모른다.
+
+    Returns:
+        읽은 내용(최대 `limit + 1`개). 핸들과 같은 종류(바이트·문자열)다.
+    """
+    remaining = max(limit + 1, 0)  # 음수 크기의 `read`는 끝까지 읽으므로 0 아래로 내려가지 않게 한다.
+    request = min(size_hint + 1 if size_hint > 0 else READ_CHUNK, remaining)
+    chunks: list[AnyStr] = []
+    while True:
+        chunk = handle.read(request)
+        if chunk:
+            chunks.append(chunk)
+        remaining -= len(chunk)
+        if len(chunk) < request or remaining <= 0:
+            return chunk[:0].join(chunks)
+        request = min(READ_CHUNK, remaining)

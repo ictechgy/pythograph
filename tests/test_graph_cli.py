@@ -19,7 +19,16 @@ from pythograph.cli.main import main
 from pythograph.graph import revision as revision_module
 from pythograph.graph.roots import RootsError, collect_roots, parse_roots_text
 from pythograph.source.syntax import MAX_AST_DEPTH
-from tests.conftest import DEEP_SOURCES, FIXTURES, GENERATED_AT, REPOSITORY, run_cli, tree_depth
+from tests.conftest import (
+    DEEP_SOURCES,
+    FIXTURES,
+    GENERATED_AT,
+    REPOSITORY,
+    SMALL_READ_PEAK_BYTES,
+    allocation_peak,
+    run_cli,
+    tree_depth,
+)
 
 #: 해석 fixture다.
 RESOLUTION = str(FIXTURES / "graph" / "resolution")
@@ -288,6 +297,24 @@ def test_roots_input_limits(tmp_path: Path) -> None:
         collect_roots([f"a#{index}" for index in range(10_001)], None, io.StringIO())
     with pytest.raises(RootsError):
         collect_roots([], "-", io.StringIO("x" * (16 * 1024 * 1024 + 1)))
+
+
+def test_roots_from_reads_reserve_no_cap_sized_buffer(tmp_path: Path) -> None:
+    """`--roots-from` 파일·표준 입력을 읽을 때 16 MiB 상한만큼 버퍼를 미리 잡지 않는다.
+
+    `read(16 MiB + 1)`은 텍스트 핸들의 `read1`이 상한 크기 버퍼를 먼저 할당해 몇 바이트짜리 입력에도 할당 최고점이
+    약 16.8 MB였다(빠듯한 `RLIMIT_AS`에서 MemoryError, 내부 오류 2). 표준 입력은 프로세스 표준 입력과 같은 구조(버퍼
+    있는 이진 핸들 위 텍스트 핸들)로 흉내 낸다.
+    """
+    roots = tmp_path / "roots.json"
+    roots.write_text(json.dumps(["a#b"]), encoding="utf-8")
+    stdin = io.TextIOWrapper(io.BufferedReader(io.BytesIO(json.dumps(["c#d"]).encode())), encoding="utf-8")
+    collected: list[tuple[str, ...]] = []
+    assert allocation_peak(lambda: collected.append(collect_roots([], str(roots), io.StringIO()))) < (
+        SMALL_READ_PEAK_BYTES
+    )
+    assert allocation_peak(lambda: collected.append(collect_roots([], "-", stdin))) < SMALL_READ_PEAK_BYTES
+    assert collected == [("a#b",), ("c#d",)]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="장치 파일과 심볼릭 링크는 POSIX에서 만든다")

@@ -418,9 +418,11 @@ documents as input errors. `--dispatch specificity` remains for those older rele
 
 ## Bounded source scanning
 
-Source reads request at most 4 MiB plus one overflow byte. Directory enumeration consumes at most 200,000 entries
-plus one overflow entry, with a maximum depth of 64. An oversized directory is omitted as a whole rather than selecting
-an arbitrary filesystem-order subset; files from previously completed directories remain available. Unreadable directory
+Source reads request at most 4 MiB plus one overflow byte and allocate only for the content that is there (the file's
+size, or 64 KiB pieces for pipes and text input), never the whole cap up front; `--wrappers` (4 MiB cap) and
+`--roots-from` (16 MiB cap) read the same way. Directory enumeration consumes at most 200,000 entries plus one overflow
+entry, with a maximum depth of 64. An oversized directory is omitted as a whole rather than selecting an arbitrary
+filesystem-order subset; files from previously completed directories remain available. Unreadable directory
 entries are counted in limitations for routes, schema, and graph output, and prevent closed-world `bound` proofs that
 would otherwise rely on missing modules. A successful command with these limitations is still an incomplete analysis.
 

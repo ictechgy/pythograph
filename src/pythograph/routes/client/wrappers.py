@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pythograph.exchange.methods import HTTP_METHODS
-from pythograph.source.inputs import open_input_file
+from pythograph.source.inputs import open_input_file, read_bounded, regular_file_size
 from pythograph.source.text import FORBIDDEN_CHARACTERS
 
 #: 선언 파일 최대 크기(바이트)다.
@@ -148,6 +148,7 @@ def load_wrappers(path: Path) -> list[WrapperDecl]:
 
     일반 파일과 파이프(프로세스 치환 `<(…)` 포함)만 열고(마지막 링크는 따라간다) 상한보다 1바이트만 더 읽어 크기를
     판정한다. 파일 전체를 읽은 뒤 자르면 큰 파일이나 `/dev/zero`를 가리키는 링크가 상한과 무관하게 메모리를 쓴다.
+    작은 파일에 상한만큼 버퍼를 미리 잡지 않도록 일반 파일은 그 크기만큼, 파이프는 조각으로 읽는다(`read_bounded`).
 
     Args:
         path: 선언 파일 경로.
@@ -160,7 +161,7 @@ def load_wrappers(path: Path) -> list[WrapperDecl]:
         WrapperDeclarationError: 스키마 위반·크기 초과.
     """
     with open_input_file(path) as handle:
-        data = handle.read(MAX_WRAPPERS_BYTES + 1)
+        data = read_bounded(handle, MAX_WRAPPERS_BYTES, regular_file_size(handle))
     if len(data) > MAX_WRAPPERS_BYTES:
         raise WrapperDeclarationError("the wrappers file is larger than 4 MiB; split or trim it.")
     try:

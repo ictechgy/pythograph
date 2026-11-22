@@ -6,6 +6,7 @@ import ast
 import io
 import json
 import os
+import string
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
@@ -16,11 +17,12 @@ from typing import BinaryIO, Literal
 import pytest
 
 from pythograph.graph.build import build_graph
+from pythograph.source import inputs as inputs_module
 from pythograph.source import project as project_module
 from pythograph.source import syntax
 from pythograph.source.project import Project, ReadFailure, SourceModule, source_budget_reason, syntax_nodes_reason
 from pythograph.source.syntax import MAX_CHAIN_TOKENS
-from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
+from tests.conftest import GENERATED_AT, REPOSITORY, SMALL_READ_PEAK_BYTES, allocation_peak, run_cli
 
 MakeProject = Callable[[dict[str, str]], Path]
 
@@ -136,6 +138,95 @@ def test_negative_text_budget_never_opens_a_file(make_project: MakeProject, monk
 
     monkeypatch.setattr(project_module.os, "open", unexpected_open)
     assert project.read_text("app.py", limit=-2) is None
+
+
+@pytest.mark.parametrize("method", ["module", "read_text"])
+def test_small_source_reads_reserve_no_budget_sized_buffer(make_project: MakeProject, method: str) -> None:
+    """작은 소스 하나를 읽을 때 4 MiB 상한만큼 버퍼를 미리 잡지 않는다.
+
+    `read(4 MiB + 1)`은 22바이트 파일에도 상한 크기 버퍼를 먼저 할당해(할당 최고점 약 4.2 MB, 지금 수십 KB), 빠듯한
+    `RLIMIT_AS`(`ulimit -v`)에서 작은 프로젝트의 읽기도 MemoryError(내부 오류 2)로 끝났다.
+    """
+    content = "def f():\n    return 1\n"
+    root = make_project({"pkg/__init__.py": "", "pkg/mod.py": content})
+    project = Project.open(root)
+    project.read_text("pkg/__init__.py")  # 처음 한 번만 드는 할당(지연 import 등)을 재기 전에 치른다.
+    results: list[object] = []
+    peak = allocation_peak(lambda: results.append(getattr(project, method)("pkg/mod.py")))
+    assert peak < SMALL_READ_PEAK_BYTES
+    assert isinstance(results[0], SourceModule) if method == "module" else results == [content]
+
+
+class _RecordingBytes(io.BytesIO):
+    """`read` 요청 크기를 기록하는 이진 핸들."""
+
+    def __init__(self, data: bytes) -> None:
+        """내용을 담고 기록을 비운다.
+
+        Args:
+            data: 내용.
+        """
+        super().__init__(data)
+        self.requests: list[int | None] = []
+
+    def read(self, size: int | None = -1, /) -> bytes:
+        """요청 크기를 기록하고 읽는다."""
+        self.requests.append(size)
+        return super().read(size)
+
+
+class _RecordingText(io.StringIO):
+    """`read` 요청 크기를 기록하는 텍스트 핸들."""
+
+    def __init__(self, data: str) -> None:
+        """내용을 담고 기록을 비운다.
+
+        Args:
+            data: 내용.
+        """
+        super().__init__(data)
+        self.requests: list[int | None] = []
+
+    def read(self, size: int | None = -1, /) -> str:
+        """요청 크기를 기록하고 읽는다."""
+        self.requests.append(size)
+        return super().read(size)
+
+
+@pytest.mark.parametrize("kind", ["bytes", "text"])
+@pytest.mark.parametrize(
+    ("length", "limit", "size_hint", "requests", "read_length"),
+    [
+        pytest.param(10, 100, 10, [11], 10, id="known-size-reads-once"),
+        pytest.param(10, 100, 0, [4, 4, 4], 10, id="unknown-size-in-chunks"),
+        pytest.param(8, 100, 0, [4, 4, 4], 8, id="ends-on-a-chunk-boundary"),
+        pytest.param(20, 9, 0, [4, 4, 2], 10, id="stops-one-past-the-limit"),
+        pytest.param(10, 100, 5, [6, 4, 4], 10, id="file-grew-after-fstat"),
+        pytest.param(20, 9, 50, [10], 10, id="known-size-over-the-limit"),
+        pytest.param(10, -2, 0, [0], 0, id="negative-limit-never-reads-all"),
+        pytest.param(0, 100, 0, [4], 0, id="empty"),
+    ],
+)
+def test_bounded_reads_request_at_most_what_remains(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    length: int,
+    limit: int,
+    size_hint: int,
+    requests: list[int],
+    read_length: int,
+) -> None:
+    """`read_bounded`는 알려진 크기 + 1이나 조각 크기만 청하고, 상한 + 1개나 짧은 읽기(끝)에서 멈춘다.
+
+    청하는 크기가 상한 + 1을 넘지 않으므로 큰 파일도 상한만큼만 읽고, 작은 입력에는 상한 크기 버퍼를 잡지 않는다.
+    """
+    monkeypatch.setattr(inputs_module, "READ_CHUNK", 4)
+    text = (string.ascii_letters * 2)[:length]
+    handle = _RecordingBytes(text.encode()) if kind == "bytes" else _RecordingText(text)
+    result = inputs_module.read_bounded(handle, limit, size_hint)  # type: ignore[type-var]
+    expected = text[:read_length]
+    assert result == (expected.encode() if kind == "bytes" else expected)
+    assert handle.requests == requests
 
 
 @pytest.mark.parametrize("reverse", [False, True])

@@ -60,6 +60,15 @@
   모델이 2·3 규칙이 다른 dynamic 사실(`User2FA`)이 되고 열 사실이 빠졌으며 `flask-sqlalchemy-naming-unverified:`·
   `persistence-framework-version-unknown:` 한계가 붙었다. 이제 지정자의 공백 문자(탭·CR·LF 포함)를 모두 지우고 읽어 세
   명령 모두 LF 파일과 같은 문서를 낸다(정적 `user2_fa`와 열 사실, 한계 없음).
+- 분석 대상 소스·`--wrappers`·`--roots-from`을 `read(상한 + 1)`로 읽어, 내용이 몇 바이트든 상한 크기 버퍼(소스 파일마다·
+  `--wrappers` 4 MiB, `--roots-from` 16 MiB)를 먼저 할당했다. 빠듯한 `RLIMIT_AS`(`ulimit -v`)에서는 22바이트 프로젝트의
+  `graph`·`routes --role client --wrappers`·`reach --roots-from`이 `internal error (MemoryError)`로 종료 2였다(3.13 실측: 명령이
+  성공하는 가장 작은 `ulimit -v`가 60,781 KiB(`reach --roots-from` 81,171 KiB) → 모두 56,816 KiB, 3.14 `graph` 53,984 → 50,018
+  KiB, 3.10은 이 프로젝트에서 다른 자원이 먼저 모자라 같은 값). 이제 일반 파일은 연 핸들의 크기 + 1만, 파이프·텍스트 입력은
+  64 KiB 조각으로 상한 + 1까지 읽는다(청하는 크기는 여전히 상한 + 1을 넘지 않는다). 출력은 같다(fixture 디렉터리 7개 × 명령
+  5개와 이 저장소의 graph·schema·client 문서가 종료 코드·표준 오류까지 바이트로 같다).
+- 표준 입력을 닫고 `--roots-from -`을 주면(`<&-`) 종료 64는 맞지만 문구가 깨진 입력과 같은 "could not be read as UTF-8
+  text"라 원인을 가렸다. 이제 "standard input is closed"라고 알린다(종료 코드는 같다).
 
 ### Changed
 
@@ -74,7 +83,11 @@
 - CI에 Windows 잡(`windows-latest`, Python 3.10·3.13 — Windows stat·fstat 구현이 바뀐 3.12 전후)을 더했다. 테스트·커버리지
   게이트·CLI 계약(개발 설치·빌드한 wheel)·자기 분석을 돌리고 건너뛴 테스트와 이유를 로그에 남긴다. `.gitattributes`로 모든
   텍스트 파일을 LF로 체크아웃해 공유 벡터 sha256·fixture 바이트·golden이 Windows에서도 같다. Windows에 없는 기능(디렉터리
-  핸들·FIFO·`/dev/fd`·POSIX 셸 스크립트·실행 권한 비트·파일 이름의 제어 문자)을 쓰는 테스트는 전처럼 건너뛴다. 심볼릭 링크
+  핸들·FIFO·`/dev/fd`·POSIX 셸 스크립트·실행 권한 비트)을 쓰는 테스트는 전처럼 건너뛴다. 계약 금지 문자 파일 이름 테스트는
+  NTFS가 거부하는 C0 제어 문자 이름만 Windows에서 빼고 NTFS가 받는 이름(NEL·DEL, U+2028/2029)으로 검사한다(전에는 이름 하나를
+  못 만들면 테스트 전체를 건너뛰어 Windows에서는 아무것도 검사하지 않았다). Windows 잡은 Typecheck(`mypy`)도 돈다:
+  `os.O_DIRECTORY`·`os.O_NOFOLLOW`·`os.set_blocking`을 쓰는 곳을 `sys.platform` 분기 안에 두어(실행 결과는 같다) Windows의
+  mypy가 없는 속성으로 보지 않는다. 심볼릭 링크
   테스트는 권한 없는 Windows에서만 건너뛰고(POSIX에서 링크를 못 만들면 실패로 드러난다), Windows CI는
   `PYTHOGRAPH_REQUIRE_SYMLINKS=1`로 링크를 만들 수 없으면 테스트를 시작하지 않는다. `change-impact` 문서에 Git의 작업 트리
   변환(줄바꿈·`ident`·smudge filter·`working-tree-encoding`)이 작업 트리 비교에서 과다 선택과 순회 잘림을 만들 수 있다는 점을

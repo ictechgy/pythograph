@@ -32,7 +32,7 @@ from pythograph.routes.client.formats import Field, format_pieces, percent_piece
 from pythograph.routes.client.parts import MAX_URL_PARTS
 from pythograph.routes.client.wrappers import MAX_WRAPPERS_BYTES, WrapperDeclarationError, load_wrappers
 from pythograph.routes.versions import spec_minimum
-from tests.conftest import GENERATED_AT, REPOSITORY, run_cli
+from tests.conftest import GENERATED_AT, REPOSITORY, SMALL_READ_PEAK_BYTES, allocation_peak, run_cli
 
 #: 합성 프로젝트를 만드는 함수 타입이다.
 MakeProject = Callable[[dict[str, str]], Path]
@@ -1010,6 +1010,18 @@ def test_oversized_wrapper_file_reads_only_the_byte_budget(make_project: MakePro
     code, out, err = run_cli(["routes", "--role", "client", "--project", str(root), "--wrappers", str(path)])
     assert (code, out) == (64, "")
     assert "larger than 4 MiB" in err
+
+
+def test_small_wrapper_file_reserves_no_cap_sized_buffer(tmp_path: Path) -> None:
+    """작은 선언 파일을 읽을 때 4 MiB 상한만큼 버퍼를 미리 잡지 않는다.
+
+    `read(4 MiB + 1)`은 몇십 바이트 파일에도 상한 크기 버퍼를 먼저 할당해 할당 최고점이 약 4.2 MB였다(빠듯한
+    `RLIMIT_AS`에서 MemoryError, 내부 오류 2).
+    """
+    path = _wrappers(tmp_path, [])
+    loaded: list[object] = []
+    assert allocation_peak(lambda: loaded.append(load_wrappers(path))) < SMALL_READ_PEAK_BYTES
+    assert loaded == [[]]
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO가 없는 플랫폼")
