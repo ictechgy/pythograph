@@ -209,16 +209,27 @@ bound to such a name may be a different object at run time, so the rules and blu
 that name get the `base` anchor with `unresolved-route-prefix:`. Flask reads a view's `methods` and
 `required_methods` attributes ("View Function Options") before its `GET` default, so a view whose methods are not proven
 is `ANY` with a scoped `route-coverage:` (with `methods=` the declared verbs keep that limitation): a view wrapped in a
-call or held in a rebound variable, a view from outside the project, a view class with an unknown base, and a function
-whose module sets one of those attributes on its name (assignment or `setattr`) or that a project decorator under the
-route sets them on. An inline `lambda` or `None` is `GET`, and a module variable bound once to `View.as_view(...)` keeps
-the class's methods. `app.route(rule)(view)` and the method shortcuts called the same way are emitted like
-`add_url_rule`; registrations in class bodies and methods and inside `match`, `while`, `async with`, and
-`try … except*` are read like the others. Route registrations through an object that is not a known Flask app or
-blueprint (a parameter as in `def register(app)`, `self.app`, `app = create_app()`, `current_app`, an app imported
-from another package, a Flask subclass instance) are not emitted; they are counted in an unscoped `route-coverage:`.
-Test doubles (`mock.patch`) and objects of the unsupported frameworks above (`FastAPI()`, `APIRouter()`, `Quart()`)
-are not counted there, because the framework import limitation already covers them.
+call or held in a rebound or hidden variable, a view from outside the project, a view class with an unknown base or
+whose `methods` is assigned outside its body, and a function whose name gets one of those attributes anywhere in the
+project (assignment, `setattr`, `__dict__`, `vars`) or that a decorator under the route may set them on: a project
+decorator function, factory, class (including `__call__` and a `methods` declaration), class member or lambda that
+writes them, or a decorator that cannot be resolved, such as a parameter. Decorators from outside the project and
+methods of objects built by outside constructors (`login_required`, `cache.cached`) are assumed not to set them.
+Writes that cannot be tied to a project function or class (an alias such as `f = view`, a loop variable, a parameter
+outside a decorator, `functools.wraps`/`update_wrapper` of a function with those attributes) leave the `GET` facts in
+place and are counted in one unscoped `route-coverage:`. An inline `lambda` or `None` is `GET`, and a module variable
+bound once to `View.as_view(...)` keeps the class's methods. Parameters, local assignments, and class-body assignments
+hide outer apps, blueprints, and views of the same name, as in Python. `app.route(rule)(view)` and the method shortcuts
+called the same way (also nested) are emitted like `add_url_rule`; registrations in class bodies and methods and inside
+`match`, `while`, `async with`, `try … except*`, and `for … else` are read like the others, and registrations in
+functions or methods that are never called still produce facts (the same design as for app factories). Route
+registrations through an object that is not a known Flask app or blueprint (a parameter as in `def register(app)`,
+`self.app`, `app = create_app()`, `current_app`, an app imported from another package, a Flask subclass instance) and
+uses of a known app outside these shapes (`return app.route(rule)(view)`, a list element or call argument, a walrus,
+`x = app.get`, `@app.route` on a class) are not emitted; they are counted in an unscoped `route-coverage:`. Test
+doubles (`mock.patch`) and objects of the unsupported frameworks above (`FastAPI()`, `APIRouter()`, `Quart()`, also in
+function locals and `self.X` attributes) are not counted there, because the framework import limitation already covers
+them.
 
 ### Decisions
 

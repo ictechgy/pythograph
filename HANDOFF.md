@@ -8,7 +8,8 @@
 - **4차 개선 브랜치**: PR #34(3차 개선)가 `main` `1244635`로 스쿼시 머지된 뒤 `ccr-37904670-hxdjsx`를 그 커밋에서 다시
   시작했다(아래 "4차 개선"). Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
   한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. PR #35(head `e5f3247`)의 CI는 9개 모두
-  성공했고, 독립 리뷰(차단 0, 표준 출력 쓰기는 유지)의 S1–S4·N1–N4를 그 다음 커밋이 고쳤다(아래 "4차 개선 리뷰 반영").
+  성공했고, 독립 리뷰(차단 0, 표준 출력 쓰기는 유지)의 S1–S4·N1–N4를 `26b4172`가 고쳤다(아래 "4차 개선 리뷰 반영"). 그
+  델타 리뷰(차단 1·고쳐야 할 것 4·사소한 것 5)를 그 다음 커밋이 고쳤다(아래 "델타 리뷰 반영").
   그 커밋은 아직 push하지 않았다(조정자가 올린다).
 - 3차 개선(PR #34): 상한 크기 버퍼를 미리 잡던 읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던
   금지 문자 이름 테스트, Windows mypy를 고쳤다. `dd67b99`의 CI는 9개 모두 성공했고 독립 리뷰의 지적은 그 다음 커밋이
@@ -110,12 +111,42 @@
   모듈), import한 장식자, 같은 모듈의 무관한 `self.methods`, 블루프린트의 호출 모양, 중첩 클래스·`staticmethod` 위 등록, 별칭
   import한 FastAPI·Starlette `Router`·Quart `Blueprint`와 `current_app` 별칭, import한 변수 `as_view`, 외부 클래스 `as_view`,
   `match` 캡처로 다시 묶인 앱, 장식자의 `required_methods`, 리터럴이 아닌 `setattr` 이름. 앞선 4차 합성 사례까지 94개 중 29개가
-  바뀌었고, `ANY`가 아닌 새 사실 중 Flask `url_map`에 없는 것은 기존 설계(조건부 등록 decl, 호출되지 않는 함수 안 등록, base
-  앵커 사실)뿐이다(새 것은 호출되지 않는 `async def` 안의 `/asyncwith` — 함수 안 등록과 같은 설계).
+  바뀌었다. 이때 "`ANY`가 아닌 새 사실 중 `url_map`에 없는 것은 기존 설계뿐"이라고 적었지만 델타 리뷰가 새 거짓 사실(가린
+  이름을 모듈 변수·객체로 푼 것)을 찾았다. 다시 잰 결과는 아래 "델타 리뷰 반영"에 있다.
 - **실제 프로젝트**(main·`e5f3247`·이 판): 50개 문서 중 48개가 세 판 모두 같고, flaskbb server routes 두 판은 `e5f3247`과 한계 문장만
   다르다(수 1 같음). Flask 저장소 자체 테스트(`--framework flask --include-tests`)는 `e5f3247` 사실 100개가 그대로 있고, 테스트
   클래스 메서드에서 만든 앱의 등록 7개와 `bp.route("/", endpoint="a.b")(lambda: "")` 1개가 새 사실이며, 세는 등록은 212개 →
   230개(테스트 클래스 본문의 `@app.route` 등)다. 라우트 오라클은 정밀도 69/69·28/28, 기록 파일 변화 없음.
+
+### 델타 리뷰 반영 (`e5f3247..26b4172`)
+
+델타 리뷰가 찾은 것을 합성 앱으로 다시 만들어 Flask 3.1.3 `url_map`(Werkzeug 3.1.9)과 비교했다. "e5f3247 / 26b4172 / 이 판"이다.
+
+| 지적 | Flask `url_map` | e5f3247 / 26b4172 / 이 판 | 반영 |
+|---|---|---|---|
+| B1(차단, 새 거짓 사실): 매개변수·지역 변수가 가린 뷰 이름을 모듈 변수로 풂 | 모듈 `view = Getter.as_view(…)`(get만), `def register(rule, view)`에 넘긴 `Poster`·팩토리 지역 `view = Poster…`는 POST, 팩토리 지역 `view = poster`(`poster.methods = ["POST"]`)는 POST | `ANY`·한계 / `GET`(usr `Getter.get`)·dynamic `GET` / `ANY`·한계, `/getter`는 `GET` 그대로 | `_view_handlers`가 `_resolve(view, scope)`로 지역 묶음을 보고, `_statement`가 함수 매개변수를 지역 묶음으로 둔다. 같은 원인의 기존 `view = poster` 거짓 GET도 `ANY`가 된다 |
+| S-1(새 거짓 사실): 클래스 걷기가 가린 이름에 모듈 객체를 씀 | 클래스 본문 `bp = Blueprint(…, url_prefix="/admin")`의 `@bp.route("/panel")` → `/admin/panel`, 메서드·함수 매개변수 `bp`에 `api_bp`(`/api`)를 넘긴 `/api/items` | 없음(함수 매개변수는 `/main/items`) / `/main/panel`·`/main/items` / 사실 없이 등록 3개 계수 | `_lookup`이 안쪽 범위부터 객체 → 지역 묶음 순으로 보고 지역 묶음(매개변수·지역 대입·클래스 본문 대입)이 가리면 모르는 수신자로 센다. `_visible`이 바깥 클래스 본문을 건너뛴다(메서드는 클래스 본문 이름을 보지 못한다). 최상위 함수 매개변수도 같은 수정이다 |
+| S-2: 모듈 수준 밖 프로젝트 장식자 | 앱 팩토리 안 장식자, `@Decos.post_only`(staticmethod), 클래스 본문 장식자, 클래스 기반 장식자 → POST | GET / GET(클래스 본문은 새 사실) / `ANY`·한계 | `_decorator_may_set_options`가 범위 안 지역 함수(`_visible_function`), `MemberSymbol`(그 클래스 본문), 클래스 장식자(본문의 쓰기와 `methods` 선언), 람다, 지역 값(`limiter = Limiter(app)`)을 보고, 프로젝트 밖 이름·밖 생성자로 만든 객체의 메서드는 달지 않는다고, 풀지 못한 장식자(매개변수, 정의를 찾지 못한 이름)는 단다고 본다 |
+| S-3(기존): 간접 옵션 쓰기의 거짓 GET | 별칭·반복 변수·장식자가 아닌 헬퍼 매개변수·옵션을 쓴 함수의 `wraps`·다른 모듈의 `view.methods`·`__dict__`·`vars`·람다 장식자 → GET이 아닌 method | 모두 GET, 한계 없음 / 같음 / 다른 모듈·`__dict__`·`vars`·람다는 `ANY`, 별칭·반복·헬퍼·`wraps`는 GET + "4 writes …" 스코프 없는 한계 | `view_options.scan_option_writes`가 프로젝트 전체의 옵션 쓰기 대상(끝 이름)과 프로젝트 함수·클래스·장식자에 묶지 못한 쓰기 수를 한 번에 모은다. 리터럴이 아닌 `setattr`·`__dict__` 쓰기는 같은 모듈의 함수·클래스 대상만 본다(flaskbb의 `setattr(user, name, value)`를 옵션으로 세지 않는다) |
+| S-4(성능 회귀): 장식자 본문을 등록마다 다시 걸음 | — | main / 26b4172 / 이 판: 5,000 등록·120줄 장식자 1.17–1.98 s / 8.1–13.3 s / 1.31–1.79 s, 2,500 등록·2,000문장 장식자 0.97–1.44 s / 62.6–75.5 s / 0.92–1.09 s(부하 있는 기계에서 두 번씩) | `_Collector.stores`가 정의마다 결과를 기억하고, 옵션 쓰기 훑기는 추출마다 한 번(두 패스), 남은 등록 사용 계수는 모듈마다 한 번 걷는다 |
+| N1: 겹친 호출 모양 | `app.route("/c02a")(app.route("/c02b")(view))` 둘 다 GET | 1개 계수 / `/c02a ANY`, `/c02b` 잃음 / 둘 다 GET | `_call_form_view`가 안쪽 호출 모양을 먼저 등록하고 그 뷰를 바깥 등록에 쓴다 |
+| N2: 다른 조용한 누락 | `return app.route(…)(v)`, `return app.add_url_rule(…)`, 목록 원소, 인자, `for … else`, 바다코끼리, `x = app.get; x(…)(v)`, `r = app.route; @r(…)`, 클래스에 단 `@app.route` | 모두 사실·한계 없음 / 같음 / `for … else`는 사실, 나머지 8개는 계수 | `_loop`가 `else` 블록을 걷고, `_Registrar.sweep`가 모듈을 다 걸은 뒤 처리하지 못한 알려진 앱·블루프린트의 등록 메서드 속성을 센다(수신자 끝 이름이 알려진 객체 이름일 때만 푼다) |
+| N3: 이중 계수 | 함수 안 `r: APIRouter = APIRouter()`, 메서드 안 `self.router = APIRouter()` | 1 / 2 / 0(프레임워크 import 한계만) | `_foreign_local`이 주석 대입과 `self.X`·`cls.X` 대상도 기록한다. `h.web = bottle.Bottle()`·`bottle.default_app().route`는 여전히 센다(아래 "남긴 것") |
+| N4: 본문 밖 `Hook.methods = {"PUT"}` | PUT | 변수 `ANY`·직접 `POST`·`PUT` / 둘 다 POST·PUT / 둘 다 `ANY`·한계 | `_class_handlers`가 등록한 클래스 이름이 옵션 쓰기 대상이면 methods를 모른다 |
+| N5: 문서 과장 | — | — | 위 "적대적 입력"의 문장을 고치고, README·HTTP-ROUTES에 간접 쓰기의 한계와 호출되지 않는 함수·메서드 안 등록도 사실이라는 것을 적었다 |
+
+- **회귀 테스트와 변이**: 새 테스트 `test_hidden_names_are_not_resolved_to_module_objects`·`test_decorators_outside_module_level_are_checked`·
+  `test_indirect_option_writes_are_counted`·`test_decorator_option_checks_are_remembered`(장식자 판정을 등록 40개에 한 번)·
+  `test_more_registration_shapes_are_emitted_or_counted`와 고친 `test_view_option_targets_and_block_targets` 6개가 모두 `26b4172`·
+  `e5f3247`·main 코드에서 실패한다. 스크래치 사본의 변이 22개(B1 둘, S-1 둘, S-2 여섯, S-3 다섯 — 리터럴이 아닌 쓰기를 확실한
+  쓰기로 보는 것 포함 —, S-4 하나, N1 하나, N2 둘, N3 둘, N4 하나)가 모두 하나 이상의 테스트에서 실패한다.
+- **검증(델타 리뷰 반영 뒤)**: 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1738 passed, 4 skipped(새 5개), 3.13 커버리지
+  94.09%, ruff·format·mypy(win32·linux·darwin) 통과, CLI 계약 0/2/64(개발 설치·wheel), 자기 분석 3.10·3.13·3.14 `unparsedFiles` 0.
+  실제 프로젝트 50개 문서는 `26b4172`와 모두 바이트로 같다(main·`e5f3247` 대비는 위와 같이 flaskbb 두 문서만 다르다). Flask 저장소
+  자체 테스트는 `26b4172`와 사실 108개·계수 230개가 같다. 라우트 오라클 정밀도 69/69·28/28, 기록 파일 변화 없음.
+- **다시 잰 합성 사례**: 이전 사례 94개와 리뷰 사례 11개, 105개 중 `26b4172` 대비 12개가 바뀌었다. `ANY`가 아닌 사실 중 Flask
+  `url_map`에 없는 것은 조건부 등록 decl(`if DEBUG:`), 호출되지 않는 함수 안 등록(`/asyncwith` 포함), 한계와 함께 낸 base 앵커
+  사실, 하네스가 읽지 않는 두 번째 앱, 그리고 S-3의 묶지 못한 쓰기 GET 다섯 개(스코프 없는 "writes" 한계가 덮는다)다.
 
 ## 3차 개선 (2026-11-22, `main` `596f379` 기준)
 
@@ -629,14 +660,14 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | change 캡처의 읽기 스레드 | change-impact의 git 캡처(출력 상한, 표준 입력)는 0.3.1부터 읽기·쓰기 스레드로 배수한다. 스레드를 만들 수 없으면 그 명령은 0.3.1처럼 내부 오류(2)다. 선택기 하나로 읽고 쓰면 스레드 없이 할 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 된다. |
 | 3.12까지 Ctrl+C 뒤 알림 없이 죽은 작업 스레드 | Ctrl+C로 기다림이 끊긴 뒤 작업 스레드가 끝을 알리지 못하고 죽으면(메모리가 모자란 `finally`) 3.10–3.12는 20초 유예를 다 기다린다(3.13부터 0.40초). 그 버전의 `is_alive`는 신호 예외가 그 안에 떨어지면 아직 도는 스레드를 끝난 것으로 표시해(bpo-45274) 정리 전에 나가게 하므로 믿지 않는다(5차 리뷰 C-F1). `threading._active` 소속으로 대신 볼 수 있지만 비공개 속성이고 시작 직후 잠깐 빠져 있어 하지 않았다. |
 | revision 조회의 큰 출력 | 스레드 없는 `communicate` 조각 읽기는 시간 초과마다 읽은 출력을 다시 이어 붙여, 수십 MB가 넘는 출력이면 부모 CPU가 늘어난다(6차 리뷰 N1, 3.12에서 200 MB 0.55초 → 2.70초). revision 조회의 출력은 작다. 선택기로 직접 읽으면 없앨 수 있지만 Windows는 파이프에 선택기를 쓸 수 없어 두 경로가 되고 취소 테스트를 다시 짜야 해 3차 개선에서도 뺐다. |
-| Flask 뷰 옵션 속성 판정의 빈틈(4차 리뷰 반영) | 이름 기준이라 다른 이름으로 단 속성(`alias = index; alias.methods = …`), 클래스 장식자·프로젝트 밖 장식자가 다는 속성, 다른 모듈에서 함수를 import 없이 바꾸는 경우는 보지 않는다. 쓰는 순서도 따지지 않아 등록 뒤에 쓴 속성도 `ANY`로 만든다(넓게 잡는 쪽). |
-| Flask 매개변수·지역 이름과 모듈 앱(기존) | `_lookup`은 함수 매개변수와 지역 대입을 가림으로 보지 않아, 모듈에 `app = Flask(…)`가 있으면 `def register(app): app.add_url_rule(…)`나 `def f(): app = make(); app.route(…)`를 모듈 앱의 사실로 낸다(0.3.1부터). 대개 같은 앱이라 맞지만 증명하지 않는다. 가림으로 바꾸면 사실이 한계로 바뀌어 근거 비교가 필요하다. 4차 리뷰 반영의 클래스 걷기도 같은 판정을 쓴다. |
+| Flask 뷰 옵션 속성 판정의 남은 모양(델타 리뷰 반영) | 이름 기준이다. 다른 이름으로 단 속성(`f = view; f.methods = …`)·반복 변수·장식자가 아닌 함수의 매개변수·옵션을 쓴 함수의 `wraps`는 원래 뷰에 이르지 못해 GET 사실을 두고 스코프 없는 한계로만 센다(모두 `ANY`로 내리면 정밀도를 지나치게 잃는다). 프로젝트 밖 장식자는 옵션을 달지 않는다고 본다. 이름이 같은 다른 함수의 쓰기도 그 이름의 뷰를 `ANY`로 만들고, 쓰는 순서는 따지지 않는다(넓게 잡는 쪽). |
+| Flask 프레임워크 객체의 남은 이중 계수(델타 리뷰 반영) | `h.web = bottle.Bottle()` 뒤 `h.web.route`, `bottle.default_app().route`는 수신자를 프레임워크 객체로 증명하지 못해 모델링하지 않은 등록으로도 센다(프레임워크 import 한계와 이중). |
 | Flask 조건부 등록(결정 필요) | `docs/HTTP-ROUTES.md` 결정은 "조건부 등록은 decl이 아니라 스코프 있는 한계"인데 Flask 걷개는 `if`·`try` 블록 안 `@app.route`를 평범한 decl로 낸다(`if DEBUG:` 아래 `/debug`, 0.3.1부터). Django는 결정대로다. Flask도 결정대로 바꾸면 흔한 `if app.config[...]:` 등록이 사실에서 빠지므로 사용자 결정으로 남긴다. |
 | Flask `url_map.add(Rule(...))`·`MethodView` 상속 `methods`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 기반 클래스가 `methods`를 선언한 `MethodView` 하위 클래스는 Flask가 그 값과 핸들러의 합집합을 쓰는데(`__init_subclass__`) pythograph는 선언만 내 핸들러 method가 한계 없이 빠진다(사실 누락, 거짓은 아니다). 둘 다 드물어 남겼다. |
 
 ## 다음 할 일
 
-1. PR #35에 리뷰 반영 커밋을 올리고 CI(Windows의 표준 출력 쓰기 경로 포함)를 확인해 머지한다.
+1. PR #35에 델타 리뷰 반영 커밋을 올리고 CI(Windows의 표준 출력 쓰기 경로 포함)를 확인해 머지한다.
 2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
 3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.

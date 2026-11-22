@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from pythograph.exchange.document import MAX_FACTS
@@ -32,7 +33,7 @@ from pythograph.routes.classes import analyze_class, attribute_literal
 from pythograph.routes.django.urlconf import converter_regex, node_location
 from pythograph.routes.django.views import emitted_methods
 from pythograph.routes.flask.rules import rule_alternatives
-from pythograph.routes.flask.view_options import option_targets, stores_options
+from pythograph.routes.flask.view_options import ProjectOptionWrites, scan_option_writes, stores_options
 from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape, ScopeRange
 from pythograph.routes.pattern import (
     Unconvertible,
@@ -47,6 +48,8 @@ from pythograph.source.project import is_test_path
 from pythograph.source.symbols import (
     ExternalSymbol,
     ImportBinding,
+    MemberSymbol,
+    ModuleSymbol,
     ProjectSymbol,
     Symbol,
     SymbolTable,
@@ -77,8 +80,22 @@ _BLOCK_STATEMENTS: tuple[type[ast.stmt], ...] = (
     *_TRY_STATEMENTS,
 )
 
+#: 본문을 따로 걷는 정의 문장이다.
+_DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
 #: 테스트 대역 모듈이다. 그 이름으로 풀리는 수신자의 단축 장식자(`mock.patch`)는 라우트 등록이 아니다.
 _MOCK_MODULES = ("mock", "unittest.mock")
+
+#: 규칙을 등록하는 앱·블루프린트 메서드 이름이다(`_sweep`이 처리하지 못한 사용을 센다).
+_REGISTRATION_METHODS = frozenset({"route", "add_url_rule", *_SHORTCUTS})
+
+#: 프로젝트 함수·클래스나 장식자에 묶지 못한 뷰 함수 옵션 속성 쓰기의 limitation 문장 틀이다(`view_options`). 그 쓰기가
+#: 어느 뷰에 닿는지 모르므로 스코프를 싣지 않는다. 모두 `ANY`로 내리면 정밀도를 지나치게 잃어 세기만 한다.
+_UNTIED_OPTION_WRITES = (
+    "{count} writes of the Flask view options methods or required_methods go through a name that is not a project "
+    "function or class (an alias, loop variable, parameter, __dict__ or vars, functools.wraps or update_wrapper), so "
+    "views registered without methods may accept other methods than the emitted GET"
+)
 
 #: 사실이 담지 못하는 호스트·리다이렉트 등록 옵션이다(규칙·블루프린트·`register_blueprint`).
 _HOST_KEYWORDS = frozenset({"subdomain", "host", "redirect_to"})
@@ -303,6 +320,8 @@ def extract_flask(symbols: SymbolTable, options: FlaskOptions) -> Extraction:
             _emit_object(blueprint, None, emission, None, "base")
     for gap in collector.gaps:
         extraction.add_gap(*gap)
+    for _ in range(collector.option_writes().untied):
+        extraction.add_gap("route-coverage:", _UNTIED_OPTION_WRITES)
     return extraction
 
 
@@ -524,22 +543,46 @@ class _Collector:
         self.include_tests = include_tests
         self.objects: dict[tuple[str, str, str], _Object] = {}
         self.gaps: list[tuple[str, str]] = []
-        # 모듈 경로 → 뷰 함수 옵션 속성(`methods`·`required_methods`)을 쓰는 대상의 끝 이름이다(처음 쓸 때 만든다).
-        self._option_targets: dict[str, frozenset[str]] = {}
+        # 알려진 객체 이름이다(객체를 모두 모은 뒤 처음 쓸 때 만든다).
+        self._object_names: frozenset[str] | None = None
+        # 프로젝트 전체의 뷰 함수 옵션 속성 쓰기 요약이다(처음 쓸 때 한 번 만든다).
+        self._option_writes: ProjectOptionWrites | None = None
+        # 장식자 정의 → 옵션 속성을 쓰는지다. 같은 장식자를 쓰는 등록마다 본문을 다시 걷지 않는다(등록 수 × 본문 크기).
+        self._stores: dict[ast.AST, bool] = {}
 
-    def option_targets(self, path: str) -> frozenset[str]:
-        """모듈이 뷰 함수 옵션 속성을 쓰는 대상의 끝 이름을 돌려준다(`view_options.option_targets`).
-
-        Args:
-            path: 모듈 경로.
+    def object_names(self) -> frozenset[str]:
+        """알려진 앱·블루프린트를 묶은 이름들이다(`_Registrar._sweep`이 수신자 후보를 거른다).
 
         Returns:
-            끝 이름 집합(모듈을 읽지 못하면 빈 집합).
+            이름 집합.
         """
-        if path not in self._option_targets:
-            index = self.symbols.index(path)
-            self._option_targets[path] = option_targets(index.module.tree) if index is not None else frozenset()
-        return self._option_targets[path]
+        if self._object_names is None:
+            self._object_names = frozenset(key[2] for key in self.objects)
+        return self._object_names
+
+    def option_writes(self) -> ProjectOptionWrites:
+        """프로젝트(볼 파일) 전체의 뷰 함수 옵션 속성 쓰기를 돌려준다(`view_options.scan_option_writes`).
+
+        Returns:
+            쓰기 요약.
+        """
+        if self._option_writes is None:
+            indexes = [self.symbols.index(path) for path in self._files()]
+            self._option_writes = scan_option_writes(index.module.tree for index in indexes if index is not None)
+        return self._option_writes
+
+    def stores(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda) -> bool:
+        """장식자 정의가 옵션 속성을 쓰는지 기억해 둔 결과로 돌려준다(`view_options.stores_options`).
+
+        Args:
+            node: 장식자 함수·클래스·람다.
+
+        Returns:
+            쓰면 True.
+        """
+        if node not in self._stores:
+            self._stores[node] = stores_options(node)
+        return self._stores[node]
 
     def _files(self) -> list[str]:
         """볼 파이썬 파일을 돌려준다.
@@ -573,7 +616,9 @@ class _Collector:
             if index is None:
                 continue
             self._scan_extensions(index.module.tree)
-            _Registrar(self, path, index.module.has_bom).run(index.module.tree.body, "", {})
+            registrar = _Registrar(self, path, index.module.has_bom)
+            registrar.run(index.module.tree.body, "", {})
+            registrar.sweep(index.module.tree)
 
     def collect_objects(self) -> None:
         """모든 파일에서 `Flask(...)`·`Blueprint(...)` 대입을 찾는다."""
@@ -763,6 +808,15 @@ class _Registrar:
         # 함수 안에서 지원하지 않는 서버 프레임워크 생성자로 묶은 지역 이름((함수 점 경로, 이름))이다. 그 객체의 등록은
         # 프레임워크 import 한계가 이미 센다.
         self.foreign_locals: set[tuple[str, str]] = set()
+        # 메서드 안 `self.X = FastAPI()`처럼 지원하지 않는 서버 프레임워크 객체를 담은 `self`·`cls` 속성 이름이다.
+        self.foreign_attributes: set[str] = set()
+        # 클래스 본문 범위(어휘적 점 경로)다. 클래스 본문의 이름은 그 본문에서만 보이고 메서드에서는 보이지 않는다.
+        self.class_scopes: set[str] = set()
+        # 함수·클래스 본문의 단순 이름 대입 값((범위, 이름) → 값 식, 두 번 이상 묶이면 None)이다. 지역 장식자
+        # (`limiter = Limiter(app)` 뒤 `@limiter.limit(…)`)가 프로젝트 밖 객체인지 본다.
+        self.local_values: dict[tuple[str, str], ast.expr | None] = {}
+        # 처리한(사실로 냈거나 센) 등록 메서드 속성 식의 id다. `_sweep`이 그 밖의 등록 사용을 센다.
+        self.handled: set[int] = set()
         # 모듈 안 함수 정의(어휘적 점 경로 → 정의들)다. `view_func=이름` 등록마다 구문 트리 전체를 걷지 않도록 처음
         # 쓸 때 만든다.
         self._function_nodes: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] | None = None
@@ -787,23 +841,28 @@ class _Registrar:
             loops: 반복 변수 바인딩.
         """
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            # 클래스 본문과 메서드도 걷는다(확장의 `init_app(self, app)`, 클래스 본문의 `@app.route`).
-            if not isinstance(statement, ast.ClassDef):
-                self._decorated(statement, scope, loops)
+            # 클래스 본문과 메서드도 걷는다(확장의 `init_app(self, app)`, 클래스 본문의 `@app.route`). 매개변수는 바깥
+            # 이름을 가리는 지역 묶음이다.
             inner = f"{scope}.{statement.name}" if scope else statement.name
+            if isinstance(statement, ast.ClassDef):
+                self.class_scopes.add(inner)
+            else:
+                self._decorated(statement, scope, loops)
+                for name in _parameter_names(statement.args):
+                    self.local_imports[(inner, name)] = None
+                    self.local_values[(inner, name)] = None
             self.run(statement.body, inner, loops)
         elif isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
             self._call(statement.value, scope, loops)
-        elif isinstance(statement, ast.Assign):
+        elif isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
             if isinstance(statement.value, ast.Call):
                 self._call_form(statement.value, scope, loops)
-                self._foreign_local(statement, scope)
-            self._shadow(statement.targets, scope)
-            self._assignment(statement, scope, loops)
-        elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
-            if isinstance(statement.value, ast.Call):
-                self._call_form(statement.value, scope, loops)
-            self._shadow([statement.target], scope)
+                self._foreign_local(targets, statement.value, scope)
+            self._shadow(targets, scope)
+            self._remember_values(targets, statement, scope)
+            if isinstance(statement, ast.Assign):
+                self._assignment(statement, scope, loops)
         elif isinstance(statement, (ast.For, ast.AsyncFor)):
             self._shadow([statement.target], scope)
             self._loop(statement, scope, loops)
@@ -813,6 +872,38 @@ class _Registrar:
                 self.run(block, scope, loops)
         elif isinstance(statement, (ast.Import, ast.ImportFrom)) and scope:
             self._local_import(statement, scope)
+
+    def _remember_values(self, targets: list[ast.expr], statement: ast.stmt, scope: str) -> None:
+        """함수·클래스 본문의 단순 이름 대입 값을 기록한다(누적 대입이나 두 번째 묶음이면 모르는 값).
+
+        Args:
+            targets: 대입 대상 식.
+            statement: 대입문.
+            scope: 함수 점 경로.
+        """
+        value = getattr(statement, "value", None)
+        if not scope:
+            return
+        for target in targets:
+            if isinstance(target, ast.Name):
+                key = (scope, target.id)
+                once = isinstance(statement, (ast.Assign, ast.AnnAssign)) and key not in self.local_values
+                self.local_values[key] = value if once else None
+
+    def sweep(self, tree: ast.Module) -> None:
+        """모듈을 다 걸은 뒤 처리하지 못한 등록 메서드 사용을 모델링하지 않은 등록으로 센다.
+
+        `return app.route(rule)(view)`, 목록 원소·인자 안 등록, 바다코끼리, `x = app.get` 뒤 `x(…)(view)`, 클래스에 단
+        `@app.route`처럼 걷개의 모양 밖에서 알려진 앱·블루프린트의 `route`·`add_url_rule`·단축 장식자를 쓰면 사실도
+        한계도 없이 사라졌다. 수신자 끝 이름이 알려진 객체 이름인 속성만 찾아본다(사전 `get` 같은 흔한 이름을 모두 풀지
+        않는다). 리터럴 목록을 도는 반복 변수 수신자는 풀지 않는다.
+
+        Args:
+            tree: 걸은 모듈 구문 트리.
+        """
+        for node, scope in _registration_uses(tree, "", self.collector.object_names()):
+            if id(node) not in self.handled and self._lookup(node.value, scope, {})[0] is not None:
+                self.collector.gaps.append(("route-coverage:", _UNMODELED_REGISTRATIONS))
 
     def _local_import(self, statement: ast.Import | ast.ImportFrom, scope: str) -> None:
         """함수 안 import 문을 지역 묶음으로 기록한다(`*`와 풀 수 없는 상대 import는 건너뛴다).
@@ -858,13 +949,32 @@ class _Registrar:
         Returns:
             import 묶음, 지역에서 import가 아닌 방식으로 묶였으면 True, 지역 묶음이 없으면 False.
         """
-        parts = scope.split(".") if scope else []
-        for depth in range(len(parts), 0, -1):
-            key = (".".join(parts[:depth]), name)
+        for prefix in self._visible(scope):
+            key = (prefix, name)
             if key in self.local_imports:
                 binding = self.local_imports[key]
                 return True if binding is None else binding
         return False
+
+    def _visible(self, scope: str) -> list[str]:
+        """범위에서 이름을 찾는 함수·클래스 범위를 안쪽부터 돌려준다(모듈 제외).
+
+        파이썬처럼 바깥 클래스 본문은 건너뛴다: 메서드는 클래스 본문의 이름을 이름으로 보지 못한다. 현재 범위가 클래스
+        본문이면 그 본문은 본다.
+
+        Args:
+            scope: 함수 점 경로.
+
+        Returns:
+            범위 점 경로 목록.
+        """
+        parts = scope.split(".") if scope else []
+        prefixes: list[str] = []
+        for depth in range(len(parts), 0, -1):
+            prefix = ".".join(parts[:depth])
+            if depth == len(parts) or prefix not in self.class_scopes:
+                prefixes.append(prefix)
+        return prefixes
 
     def _resolve(self, node: ast.expr, scope: str) -> Symbol | None:
         """이름·속성 식을 해석한다. 맨 앞 이름이 함수 안 import로 묶였으면 그 묶음으로만 푼다(모듈 이름을 가린다).
@@ -901,8 +1011,9 @@ class _Registrar:
         if isinstance(statement.target, ast.Name) and isinstance(statement.iter, (ast.List, ast.Tuple)):
             for element in statement.iter.elts:
                 self.run(statement.body, scope, {**loops, statement.target.id: [element]})
-            return
-        self.run(statement.body, scope, loops)
+        else:
+            self.run(statement.body, scope, loops)
+        self.run(statement.orelse, scope, loops)
 
     def _object(self, node: ast.expr, scope: str, loops: dict[str, list[ast.expr]]) -> _Object | None:
         """식이 가리키는 앱·블루프린트를 찾는다(`_lookup`의 객체만).
@@ -936,11 +1047,19 @@ class _Registrar:
         if isinstance(node, ast.Name) and node.id in loops and loops[node.id]:
             return self._lookup(loops[node.id][0], scope, {})
         if isinstance(node, ast.Name):
-            parts = scope.split(".") if scope else []
-            for depth in range(len(parts), -1, -1):
-                found = self.collector.objects.get((self.path, ".".join(parts[:depth]), node.id))
+            for prefix in self._visible(scope):
+                found = self.collector.objects.get((self.path, prefix, node.id))
                 if found is not None:
-                    return found, depth > 0 or not self.collector.module_name_rebound(self.path, node.id)
+                    return found, True
+                if (prefix, node.id) in self.local_imports:
+                    if self.local_imports[(prefix, node.id)] is None:
+                        # 매개변수·지역 대입·클래스 본문 대입이 바깥 객체를 가린다(그 값은 모른다).
+                        return None, True
+                    break
+            else:
+                found = self.collector.objects.get((self.path, "", node.id))
+                if found is not None:
+                    return found, not self.collector.module_name_rebound(self.path, node.id)
         if isinstance(node, (ast.Name, ast.Attribute)):
             symbol = self._resolve(node, scope)
             if isinstance(symbol, ValueSymbol):
@@ -975,10 +1094,16 @@ class _Registrar:
         Returns:
             세지 않을 수신자면 True.
         """
-        if isinstance(receiver, ast.Name):
-            parts = scope.split(".") if scope else []
-            if any((".".join(parts[:depth]), receiver.id) in self.foreign_locals for depth in range(len(parts), 0, -1)):
-                return True
+        if isinstance(receiver, ast.Name) and any(
+            (p, receiver.id) in self.foreign_locals for p in self._visible(scope)
+        ):
+            return True
+        if (
+            isinstance(receiver, ast.Attribute)
+            and _is_self_attribute(receiver)
+            and receiver.attr in self.foreign_attributes
+        ):
+            return True
         symbol = self._resolve(receiver, scope) if isinstance(receiver, (ast.Name, ast.Attribute)) else None
         if isinstance(symbol, ExternalSymbol):
             return _foreign_name(symbol.dotted)
@@ -992,22 +1117,26 @@ class _Registrar:
             return isinstance(constructor, ExternalSymbol) and unsupported_framework(constructor.dotted) is not None
         return False
 
-    def _foreign_local(self, statement: ast.Assign, scope: str) -> None:
-        """함수 안에서 지원하지 않는 서버 프레임워크 생성자로 묶은 지역 이름을 기록한다(`app = FastAPI()`).
+    def _foreign_local(self, targets: list[ast.expr], call: ast.Call, scope: str) -> None:
+        """지원하지 않는 서버 프레임워크 생성자로 묶은 지역 이름·`self` 속성을 기록한다(`r: APIRouter = APIRouter()`,
+        메서드 안 `self.router = APIRouter()`).
 
         Args:
-            statement: 값이 호출인 대입문.
+            targets: 대입 대상 식.
+            call: 대입 값 호출.
             scope: 함수 점 경로.
         """
-        call = statement.value
-        if not scope or not isinstance(call, ast.Call) or not isinstance(call.func, (ast.Name, ast.Attribute)):
+        if not scope or not isinstance(call.func, (ast.Name, ast.Attribute)):
             return
         constructor = self._resolve(call.func, scope)
         if not (isinstance(constructor, ExternalSymbol) and unsupported_framework(constructor.dotted) is not None):
             return
-        for target in statement.targets:
+        for target in targets:
             if isinstance(target, ast.Name):
                 self.foreign_locals.add((scope, target.id))
+            elif _is_self_attribute(target):
+                assert isinstance(target, ast.Attribute)
+                self.foreign_attributes.add(target.attr)
 
     def _decorated(
         self, function: ast.FunctionDef | ast.AsyncFunctionDef, scope: str, loops: dict[str, list[ast.expr]]
@@ -1025,6 +1154,7 @@ class _Registrar:
             name = decorator.func.attr
             if name != "route" and name not in _SHORTCUTS:
                 continue
+            self.handled.add(id(decorator.func))
             owner, proven = self._lookup(decorator.func.value, scope, loops)
             if owner is None:
                 self._unmodeled(decorator.func.value, scope)
@@ -1032,57 +1162,177 @@ class _Registrar:
             qualname = f"{scope}.{function.name}" if scope else function.name
             usr = f"{self.path}#{qualname}"
             # 장식자는 아래부터 적용되므로 등록하는 함수는 이 장식자 아래 장식자들이 감싼 것이다(위 장식자는 등록 뒤다).
-            uncertain = self._decorators_store_options(self.path, function.decorator_list[position + 1 :])
+            below = function.decorator_list[position + 1 :]
+            uncertain = self._decorators_store_options(self.path, below, scope)
             self._add_rule(
                 owner, decorator, _SHORTCUTS.get(name), [("*", usr, usr)], None, uncertain, loops, rebound=not proven
             )
 
-    def _decorators_store_options(self, path: str, decorators: list[ast.expr]) -> bool:
-        """장식자 중 프로젝트 함수(또는 팩토리)가 뷰 함수 옵션 속성을 쓰는지 본다(`view_options.stores_options`).
-
-        프로젝트 밖 장식자(`login_required` 등)는 옵션을 달지 않는다고 본다. 그것까지 모른다고 하면 장식한 거의 모든
-        뷰가 `ANY`가 된다.
+    def _decorators_store_options(self, path: str, decorators: list[ast.expr], scope: str) -> bool:
+        """장식자 중 뷰 함수 옵션 속성을 달 수 있는 것이 있는지 본다(`_decorator_may_set_options`).
 
         Args:
             path: 장식자 식이 있는 모듈 경로.
             decorators: 장식자 식 목록.
+            scope: 장식자 식을 평가하는 범위(다른 모듈이면 모듈 수준).
 
         Returns:
-            옵션을 쓰는 프로젝트 장식자가 있으면 True.
+            있으면 True.
         """
-        for decorator in decorators:
-            target = decorator.func if isinstance(decorator, ast.Call) else decorator
-            symbol = (
-                self.collector.symbols.resolve_expr(path, target)
-                if isinstance(target, (ast.Name, ast.Attribute))
-                else None
-            )
-            functions = (ast.FunctionDef, ast.AsyncFunctionDef)
-            if isinstance(symbol, ProjectSymbol) and isinstance(symbol.node, functions) and stores_options(symbol.node):
-                return True
-        return False
+        return any(self._decorator_may_set_options(decorator, path, scope) for decorator in decorators)
+
+    def _decorator_may_set_options(self, decorator: ast.expr, path: str, scope: str) -> bool:
+        """장식자(또는 장식자 팩토리)가 옵션 속성을 다는지, 프로젝트 장식자인데 풀지 못하는지 본다.
+
+        프로젝트 함수·클래스(본문의 `methods = …`와 `__call__` 포함)·람다 장식자는 본문을 보고, 범위 안 지역 함수(앱
+        팩토리 안 정의)·클래스 본문 정의·`Decos.post_only` 같은 클래스 멤버도 같다. 프로젝트 밖 이름과 그 생성자로 만든
+        객체의 메서드(`login_required`, `cache.cached`, 지역 `limiter = Limiter(app)`의 `limiter.limit`)는 옵션을 달지
+        않는다고 본다. 매개변수처럼 무엇인지 모르는 장식자는 단다고 본다.
+
+        Args:
+            decorator: 장식자 식.
+            path: 장식자 식이 있는 모듈 경로.
+            scope: 장식자 식을 평가하는 범위.
+
+        Returns:
+            달 수 있으면 True.
+        """
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        if isinstance(target, ast.Lambda):
+            return self.collector.stores(target)
+        if not isinstance(target, (ast.Name, ast.Attribute)):
+            return True
+        if path == self.path and isinstance(target, ast.Name):
+            local = self._visible_function(target.id, scope)
+            if local is not None:
+                return any(self.collector.stores(node) for node in local[1])
+            if self._local_binding(target.id, scope) is True:
+                return self._value_may_set_options(self._local_value(target.id, scope), path, scope)
+        symbol = (
+            self._resolve(target, scope) if path == self.path else self.collector.symbols.resolve_expr(path, target)
+        )
+        if symbol is None and isinstance(target, ast.Attribute):
+            return self._owner_may_set_options(target.value, path, scope)
+        return self._symbol_may_set_options(symbol, path)
+
+    def _owner_may_set_options(self, owner: ast.expr, path: str, scope: str) -> bool:
+        """`X.attr` 장식자의 `X`가 무엇인지로 판정한다(프로젝트 클래스면 그 본문, 프로젝트 밖 객체면 달지 않는다).
+
+        Args:
+            owner: 속성 앞 식.
+            path: 모듈 경로.
+            scope: 범위.
+
+        Returns:
+            달 수 있으면 True.
+        """
+        if path == self.path and isinstance(owner, ast.Name) and self._local_binding(owner.id, scope) is True:
+            return self._value_may_set_options(self._local_value(owner.id, scope), path, scope)
+        if not isinstance(owner, (ast.Name, ast.Attribute)):
+            return True
+        symbol = self._resolve(owner, scope) if path == self.path else self.collector.symbols.resolve_expr(path, owner)
+        if isinstance(symbol, ModuleSymbol):
+            return True
+        return self._symbol_may_set_options(symbol, path)
+
+    def _symbol_may_set_options(self, symbol: Symbol | None, path: str) -> bool:
+        """해석한 장식자(또는 그 주인)가 옵션 속성을 달 수 있는지 본다.
+
+        Args:
+            symbol: 해석 결과.
+            path: 모듈 경로.
+
+        Returns:
+            달 수 있으면 True.
+        """
+        definitions = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        if isinstance(symbol, (ExternalSymbol, ModuleSymbol)):
+            return False
+        if isinstance(symbol, ProjectSymbol) and isinstance(symbol.node, definitions):
+            return self.collector.stores(symbol.node)
+        if isinstance(symbol, MemberSymbol) and isinstance(symbol.owner.node, ast.ClassDef):
+            # `Decos.post_only` 같은 프로젝트 클래스 멤버는 그 클래스 본문 전체로 판정한다.
+            return self.collector.stores(symbol.owner.node)
+        if isinstance(symbol, ValueSymbol):
+            return self._value_may_set_options(symbol.node, symbol.path, "")
+        return True
+
+    def _value_may_set_options(self, value: ast.expr | None, path: str, scope: str) -> bool:
+        """변수에 담은 장식자 값(람다, 생성자·팩토리 호출 결과)이 옵션 속성을 달 수 있는지 본다.
+
+        Args:
+            value: 대입 값 식(모르면 None).
+            path: 값이 있는 모듈 경로.
+            scope: 값을 평가한 범위.
+
+        Returns:
+            달 수 있으면 True.
+        """
+        if isinstance(value, ast.Lambda):
+            return self.collector.stores(value)
+        if isinstance(value, ast.Call) and isinstance(value.func, (ast.Name, ast.Attribute)):
+            func = value.func
+            built = self._resolve(func, scope) if path == self.path else self.collector.symbols.resolve_expr(path, func)
+            return self._symbol_may_set_options(built, path) if built is not None else True
+        return True
+
+    def _local_value(self, name: str, scope: str) -> ast.expr | None:
+        """범위 안 지역 이름의 대입 값을 찾는다(매개변수·여러 번 묶인 이름·없으면 None).
+
+        Args:
+            name: 이름.
+            scope: 범위.
+
+        Returns:
+            값 식 또는 None.
+        """
+        for prefix in self._visible(scope):
+            if (prefix, name) in self.local_imports:
+                return self.local_values.get((prefix, name))
+        return None
+
+    def _visible_function(
+        self, name: str, scope: str
+    ) -> tuple[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] | None:
+        """범위에서 보이는 지역 함수 정의(앱 팩토리 안·클래스 본문의 정의)를 찾는다. 지역 묶음이 가리면 없다.
+
+        Args:
+            name: 이름.
+            scope: 범위.
+
+        Returns:
+            (점 경로, 정의들) 또는 None.
+        """
+        for prefix in self._visible(scope):
+            qualname = f"{prefix}.{name}"
+            found = self._functions().get(qualname)
+            if found:
+                return qualname, found
+            if (prefix, name) in self.local_imports:
+                return None
+        return None
 
     def _function_options_unknown(
-        self, path: str, functions: list[ast.FunctionDef | ast.AsyncFunctionDef], used_name: str | None
+        self, path: str, functions: list[ast.FunctionDef | ast.AsyncFunctionDef], used_name: str | None, scope: str
     ) -> bool:
         """`view_func`로 넘긴 프로젝트 함수의 옵션 속성(`methods`·`required_methods`)을 모르는지 본다.
 
-        정의한 모듈이 그 함수 이름의 옵션 속성을 쓰거나, 등록하는 모듈이 넘긴 이름의 옵션 속성을 쓰거나, 프로젝트
-        장식자가 옵션을 달면 모른다. 쓰는 순서(등록 앞인지 뒤인지)는 따지지 않는다.
+        프로젝트 어디서든 그 함수 이름이나 등록에서 넘긴 이름의 옵션 속성을 쓰거나(`view_options`), 그 함수의 장식자가
+        옵션을 달 수 있으면 모른다. 쓰는 순서(등록 앞인지 뒤인지)는 따지지 않는다.
 
         Args:
             path: 함수를 정의한 모듈 경로.
             functions: 같은 점 경로의 정의들(재정의 포함).
             used_name: 등록에서 넘긴 이름의 끝 이름(`views.index`면 `index`).
+            scope: 함수를 정의한 범위(장식자를 평가하는 범위).
 
         Returns:
             모르면 True.
         """
-        if any(function.name in self.collector.option_targets(path) for function in functions):
+        targets = self.collector.option_writes().targets
+        if any(function.name in targets for function in functions) or used_name in targets:
             return True
-        if used_name is not None and used_name in self.collector.option_targets(self.path):
-            return True
-        return any(self._decorators_store_options(path, function.decorator_list) for function in functions)
+        return any(self._decorators_store_options(path, function.decorator_list, scope) for function in functions)
 
     def _call(self, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.add_url_rule`·`X.register_blueprint`·`X.url_map.converters.update` 호출을 처리한다.
@@ -1104,6 +1354,8 @@ class _Registrar:
                 for key, value in zip(call.args[0].keys, call.args[0].values, strict=False):
                     self._converter(owner, key, value)
             return
+        if func.attr == "add_url_rule":
+            self.handled.add(id(func))
         owner, owner_proven = self._lookup(func.value, scope, loops)
         if owner is None:
             if func.attr == "add_url_rule":
@@ -1137,24 +1389,51 @@ class _Registrar:
         Returns:
             그런 모양이면 True.
         """
+        return self._call_form_view(call, scope, loops)[0]
+
+    def _call_form_view(
+        self, call: ast.Call, scope: str, loops: dict[str, list[ast.expr]]
+    ) -> tuple[bool, ast.expr | None]:
+        """`_call_form`의 본체다. 등록한 뷰 식을 돌려줘 겹친 호출(`app.route(a)(app.route(b)(view))`)이 안쪽 뷰를 쓴다.
+
+        Flask의 장식자는 받은 함수를 그대로 돌려주므로 바깥 등록의 뷰는 안쪽 등록의 뷰다.
+
+        Args:
+            call: 호출 식.
+            scope: 함수 점 경로.
+            loops: 반복 변수 바인딩.
+
+        Returns:
+            (그런 모양인지, 알려진 앱·블루프린트에 등록한 뷰 식 — 센 등록이면 None).
+        """
         inner = call.func
         if not (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute)):
-            return False
+            return False, None
         name = inner.func.attr
         if name != "route" and name not in _SHORTCUTS:
-            return False
+            return False, None
         owner, proven = self._lookup(inner.func.value, scope, loops)
         if owner is None:
-            if name == "route":
-                self._unmodeled(inner.func.value, scope)
-            return name == "route"
+            if name != "route":
+                return False, None
+            self.handled.add(id(inner.func))
+            self._unmodeled(inner.func.value, scope)
+            return True, None
+        self.handled.add(id(inner.func))
         plain = len(call.args) == 1 and not call.keywords and not isinstance(call.args[0], ast.Starred)
         if not plain:
             self.collector.gaps.append(("route-coverage:", _UNMODELED_REGISTRATIONS))
-            return True
-        handlers, view_methods, uncertain = self._view_handlers(call.args[0], scope)
+            return True, None
+        view: ast.expr | None = call.args[0]
+        if isinstance(view, ast.Call):
+            nested, inner_view = self._call_form_view(view, scope, loops)
+            view = inner_view if nested else view
+        handlers, view_methods, uncertain = self._view_handlers(view, scope)
+        if view is None:
+            # 안쪽 등록의 뷰를 모른다(모르는 수신자): 받는 method도 모른다.
+            uncertain = True
         self._add_rule(owner, inner, _SHORTCUTS.get(name), handlers, view_methods, uncertain, loops, rebound=not proven)
-        return True
+        return True, view
 
     def _assignment(self, statement: ast.Assign, scope: str, loops: dict[str, list[ast.expr]]) -> None:
         """`X.url_map.strict_slashes = …`·`X.url_map.merge_slashes = …`·`X.url_map.converters[n] = C`를 처리한다.
@@ -1231,19 +1510,17 @@ class _Registrar:
             # 그 자리에서 만든 람다와 None은 `methods` 속성이 없어 `add_url_rule`이 GET을 쓴다(핸들러 id만 없다).
             return [("*", None, "unresolved-view")], None, False
         if isinstance(view, ast.Name) and scope:
-            qualname = f"{scope}.{view.id}"
-            local = self._functions().get(qualname)
-            if local:
+            local = self._visible_function(view.id, scope)
+            if local is not None:
+                qualname, nodes = local
                 usr = f"{self.path}#{qualname}"
-                return [("*", usr, usr)], None, self._function_options_unknown(self.path, local, view.id)
-        symbol = (
-            self.collector.symbols.resolve_expr(self.path, view)
-            if isinstance(view, (ast.Name, ast.Attribute))
-            else None
-        )
+                defined_in = qualname.rsplit(".", 1)[0]
+                return [("*", usr, usr)], None, self._function_options_unknown(self.path, nodes, view.id, defined_in)
+        # 매개변수·지역 대입이 가린 이름은 모듈 정의로 풀지 않는다(`_resolve`가 지역 묶음을 본다).
+        symbol = self._resolve(view, scope) if isinstance(view, (ast.Name, ast.Attribute)) else None
         used = view.id if isinstance(view, ast.Name) else view.attr if isinstance(view, ast.Attribute) else None
         if isinstance(symbol, ProjectSymbol) and isinstance(symbol.node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            unknown = self._function_options_unknown(symbol.path, [symbol.node], used)
+            unknown = self._function_options_unknown(symbol.path, [symbol.node], used, "")
             return [("*", symbol.id, symbol.id)], None, unknown
         if isinstance(symbol, ValueSymbol) and _is_as_view(symbol.node) and self.collector.symbols.proven(symbol):
             return self._class_view_variable(symbol, used)
@@ -1266,9 +1543,8 @@ class _Registrar:
         call = symbol.node
         assert isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
         handlers, methods, uncertain = self._class_handlers(call.func.value, symbol.path)
-        if symbol.name in self.collector.option_targets(symbol.path) or (
-            used is not None and used in self.collector.option_targets(self.path)
-        ):
+        targets = self.collector.option_writes().targets
+        if symbol.name in targets or used in targets:
             return handlers, (), True
         return handlers, methods, uncertain
 
@@ -1312,6 +1588,11 @@ class _Registrar:
         if info is None or not isinstance(info.symbol, ProjectSymbol):
             return [("*", None, "unresolved-view")], (), True
         base_id = info.symbol.id
+        node = info.symbol.node
+        if isinstance(node, ast.ClassDef) and node.name in self.collector.option_writes().targets:
+            # 클래스 본문 밖에서 `Hook.methods = …`로 바꾸면 `as_view`가 그 값을 읽는다(`view.methods = cls.methods`).
+            dispatch = f"{base_id}.dispatch_request"
+            return [("*", None, dispatch)], (), True
         dispatch = f"{base_id}.dispatch_request"
         declared = attribute_literal(info, "methods")
         if isinstance(declared, (list, tuple, set)) and all(isinstance(item, str) for item in declared):
@@ -1513,6 +1794,73 @@ def _blocks(statement: ast.stmt) -> list[list[ast.stmt]]:
     blocks.extend(handler.body for handler in getattr(statement, "handlers", []))
     blocks.extend(case.body for case in getattr(statement, "cases", []))
     return blocks
+
+
+def _is_self_attribute(node: ast.expr) -> bool:
+    """`self.X`·`cls.X` 식인지 본다.
+
+    Args:
+        node: 식.
+
+    Returns:
+        맞으면 True.
+    """
+    return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in ("self", "cls")
+
+
+def _parameter_names(arguments: ast.arguments) -> list[str]:
+    """함수 매개변수 이름을 모두 돌려준다(위치 전용·키워드 전용·`*args`·`**kwargs` 포함).
+
+    Args:
+        arguments: 함수 인자 정의.
+
+    Returns:
+        이름 목록.
+    """
+    names = [argument.arg for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)]
+    names.extend(argument.arg for argument in (arguments.vararg, arguments.kwarg) if argument is not None)
+    return names
+
+
+def _registration_uses(node: ast.AST, scope: str, names: frozenset[str]) -> Iterator[tuple[ast.Attribute, str]]:
+    """등록 메서드 속성(`X.route`·`X.add_url_rule`·`X.get`…) 중 `X` 끝 이름이 알려진 객체 이름인 것을 범위와 함께
+    찾는다.
+
+    Args:
+        node: 구문 노드.
+        scope: 노드가 있는 함수 점 경로.
+        names: 알려진 객체 이름.
+
+    Returns:
+        (속성 식, 범위) 반복자.
+    """
+    if isinstance(node, ast.Attribute) and node.attr in _REGISTRATION_METHODS and _last_name(node.value) in names:
+        yield node, scope
+    if isinstance(node, _DEFINITIONS):
+        for decorator in node.decorator_list:
+            yield from _registration_uses(decorator, scope, names)
+        inner = f"{scope}.{node.name}" if scope else node.name
+        for statement in node.body:
+            yield from _registration_uses(statement, inner, names)
+        return
+    for child in ast.iter_child_nodes(node):
+        yield from _registration_uses(child, scope, names)
+
+
+def _last_name(node: ast.expr) -> str | None:
+    """`a`·`a.b` 식의 끝 이름이다.
+
+    Args:
+        node: 식.
+
+    Returns:
+        끝 이름, 이름·속성 식이 아니면 None.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
 
 
 def _block_targets(statement: ast.stmt) -> list[ast.expr]:

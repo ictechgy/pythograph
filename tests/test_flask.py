@@ -575,8 +575,9 @@ def test_view_function_options_make_methods_unknown(make_project: Callable[[dict
 
 
 def test_view_option_targets_and_block_targets() -> None:
-    """옵션 속성 쓰기는 대입·주석 대입·누적 대입·`setattr`(이름이 리터럴이 아니어도)의 끝 이름으로 찾고, 블록 문장이
-    묶는 이름(`with … as`, 예외 이름, `match` 캡처)은 함수 지역 묶음으로 가린다."""
+    """옵션 속성 쓰기는 대입·주석 대입·누적 대입·`setattr`(이름이 리터럴이 아니어도)·`__dict__`·`vars` 쓰기의 끝
+    이름으로 찾고, 프로젝트 함수·클래스에 묶지 못한 쓰기와 그 대상의 `wraps`를 센다. 블록 문장이 묶는 이름
+    (`with … as`, 예외 이름, `match` 캡처)은 함수 지역 묶음으로 가린다."""
     tree = ast.parse(
         "a.methods = 1\n"
         "pkg.b.required_methods: list = []\n"
@@ -587,8 +588,22 @@ def test_view_option_targets_and_block_targets() -> None:
         "make().methods = 1\n"
         "g.methods[0] = 'GET'\n"
         "h.other = 1\n"
+        "i.__dict__['methods'] = 1\n"
+        "vars(j).update(methods=1)\n"
+        "k.__dict__.update(other=1)\n"
+        "l.__dict__.update(options)\n"
+        "self.methods = 1\n"
+        "functools.wraps(a)\n"
+        "functools.update_wrapper(w, zz)\n"
+        "def tied():\n    pass\n"
+        "tied.methods = 1\n"
+        "def dynamic():\n    pass\n"
+        "setattr(dynamic, name, 1)\n"
     )
-    assert flask_extract.option_targets(tree) == {"a", "b", "c", "d", "e"}
+    writes = flask_extract.scan_option_writes([tree])
+    # 이름이 리터럴이 아닌 쓰기(`setattr(d, name, 1)`, `l.__dict__.update(options)`)는 이 모듈의 함수에만 묶는다.
+    assert writes.targets == {"a", "b", "c", "e", "i", "j", "tied", "dynamic"}
+    assert writes.untied == 8
     decorator, harmless = ast.parse(
         "def deco(f):\n    def wrapper():\n        pass\n    wrapper.required_methods = ['PUT']\n    return wrapper\n"
         "def harmless(f):\n    f.other = 1\n    return f\n"
@@ -843,6 +858,345 @@ def test_class_bodies_are_walked(make_project: Callable[[dict[str, str]], Path])
     }
     assert {fact["pathAnchor"] for fact in document["facts"]} == {"root"}  # type: ignore[union-attr]
     assert UNMODELED_REGISTRATIONS.format(count=2) in document["limitations"]  # type: ignore[operator]
+
+
+def test_hidden_names_are_not_resolved_to_module_objects(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """매개변수·지역 대입·클래스 본문 대입이 가린 이름은 같은 이름의 모듈 변수·앱·블루프린트로 풀지 않는다.
+
+    모듈 `view = Getter.as_view(…)`(get만)을 매개변수·지역 `view`(Poster, post만)에 써서 Flask가 POST만 받는 `/poster`·
+    `/poster2`를 `Getter.get`의 GET으로 냈고, 클래스 본문의 `bp`·메서드·함수 매개변수 `bp`를 모듈 `bp`(접두사 `/main`)로
+    풀어 Flask의 `/admin/panel`·`/api/items` 대신 `/main/…`을 냈다. 가린 이름의 등록은 세고, 모르는 뷰는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Blueprint, Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        bp = Blueprint("main", __name__, url_prefix="/main")
+        api_bp = Blueprint("api", __name__, url_prefix="/api")
+        class Getter(MethodView):
+            def get(self):
+                pass
+        class Poster(MethodView):
+            def post(self):
+                pass
+        def poster():
+            pass
+        poster.methods = ["POST"]
+        def items():
+            pass
+        view = Getter.as_view("getter")
+        app.add_url_rule("/getter", view_func=view)
+        def register(rule, view):
+            app.add_url_rule(rule, view_func=view)
+        def factory():
+            view = Poster.as_view("poster2")
+            app.add_url_rule("/poster2", view_func=view)
+            items = poster
+            app.add_url_rule("/function", view_func=items)
+        class Admin:
+            bp = Blueprint("admin", __name__, url_prefix="/admin")
+            @bp.route("/panel")
+            def panel():
+                pass
+        class Api:
+            def register(self, bp):
+                bp.add_url_rule("/items", view_func=items)
+        def attach(bp):
+            bp.add_url_rule("/attached", view_func=items)
+        app.register_blueprint(bp)
+        app.register_blueprint(api_bp)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/getter", False, "app.py#Getter.get"),
+        ("ANY", None, True, None),
+        ("ANY", "/poster2", False, None),
+        ("ANY", "/function", False, None),
+    }
+    assert UNMODELED_REGISTRATIONS.format(count=3) in document["limitations"]  # type: ignore[operator]
+
+
+#: 프로젝트 함수·클래스에 묶지 못한 뷰 옵션 속성 쓰기의 한계 문장이다(`{count}` 자리).
+UNTIED_OPTION_WRITES = (
+    "route-coverage: {count} writes of the Flask view options methods or required_methods go through a name that is "
+    "not a project function or class (an alias, loop variable, parameter, __dict__ or vars, functools.wraps or "
+    "update_wrapper), so views registered without methods may accept other methods than the emitted GET"
+)
+
+
+def test_decorators_outside_module_level_are_checked(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """앱 팩토리 안·클래스 본문·클래스 멤버(`staticmethod`)·클래스 장식자와 매개변수 장식자도 옵션 속성 판정에 든다.
+
+    모듈 수준 함수 장식자만 풀어 Flask가 POST만 받는 뷰를 한계 없이 GET으로 냈다. 프로젝트 밖 장식자와 그 객체의
+    메서드(`cache.cached`, 지역 `limiter = Limiter(app)`의 `limiter.limit`)는 그대로 GET이다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import functools
+        from flask import Flask
+        from flask_caching import Cache
+        from flask_limiter import Limiter
+        from somelib import make_decorator
+        app = Flask(__name__, static_folder=None)
+        cache = Cache(app)
+        class Decos:
+            @staticmethod
+            def post_only(f):
+                f.methods = ["POST"]
+                return f
+        class Plain:
+            @staticmethod
+            def harmless(f):
+                return f
+        class PostOnly:
+            def __init__(self, f):
+                functools.update_wrapper(self, f)
+                self.methods = ["POST"]
+        def create(deco):
+            def local_post(f):
+                f.methods = ["POST"]
+                return f
+            def local_harmless(f):
+                return f
+            limiter = Limiter(app)
+            external_local = make_decorator()
+            @app.route("/factory-deco")
+            @local_post
+            def factory_view():
+                pass
+            @app.route("/factory-harmless")
+            @local_harmless
+            def factory_harmless():
+                pass
+            @app.route("/external-local")
+            @external_local
+            def external_local_view():
+                pass
+            @app.route("/param-deco")
+            @deco
+            def param_view():
+                pass
+            @app.route("/limited")
+            @limiter.limit("1/second")
+            def limited():
+                pass
+        @app.route("/static-deco")
+        @Decos.post_only
+        def static_view():
+            pass
+        class Views:
+            def body_post(f):
+                f.methods = ["POST"]
+                return f
+            @app.route("/class-deco")
+            @body_post
+            def class_view():
+                pass
+        @app.route("/class-based")
+        @PostOnly
+        def class_based():
+            pass
+        @app.route("/cached")
+        @cache.cached(timeout=5)
+        def cached():
+            pass
+        @app.route("/member")
+        @Plain.harmless
+        def member():
+            pass
+        @app.route("/lambda-harmless")
+        @(lambda f: f)
+        def lambda_harmless():
+            pass
+        @app.route("/undefined")
+        @undefined_decorator
+        def undefined():
+            pass
+    """,
+        }
+    )
+    rows = fact_rows(routes_document(root))
+    assert rows == {
+        ("ANY", "/factory-deco", False, "app.py#create.factory_view"),
+        ("ANY", "/param-deco", False, "app.py#create.param_view"),
+        ("GET", "/limited", False, "app.py#create.limited"),
+        ("ANY", "/static-deco", False, "app.py#static_view"),
+        ("ANY", "/class-deco", False, "app.py#Views.class_view"),
+        ("ANY", "/class-based", False, "app.py#class_based"),
+        ("GET", "/cached", False, "app.py#cached"),
+        ("GET", "/member", False, "app.py#member"),
+        ("GET", "/factory-harmless", False, "app.py#create.factory_harmless"),
+        ("GET", "/external-local", False, "app.py#create.external_local_view"),
+        ("GET", "/lambda-harmless", False, "app.py#lambda_harmless"),
+        ("ANY", "/undefined", False, "app.py#undefined"),
+    }
+
+
+def test_indirect_option_writes_are_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """프로젝트 함수·클래스 이름에 묶지 못한 옵션 속성 쓰기는 스코프 없는 한계로 세고, 묶을 수 있는 쓰기는 그 뷰를
+    모른다.
+
+    별칭(`f = view`)·반복 변수·장식자가 아닌 함수의 매개변수에 쓰는 것과 옵션을 쓴 함수의 `functools.wraps`는 어느 뷰에
+    닿는지 몰라 GET 사실에 한계 없이 남았다. 다른 모듈(`tweak.py`)의 `view.methods = …`, `__dict__`·`vars` 쓰기,
+    `setattr` 람다 장식자, 클래스 본문 밖 `Hook.methods = …`는 그 뷰를 `ANY`로 만든다(Flask는 모두 다른 method다).
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "views.py": """
+        def shared():
+            pass
+    """,
+            "tweak.py": """
+        from views import shared
+        shared.methods = ["POST"]
+    """,
+            "app.py": """
+        import functools
+        from flask import Flask
+        from flask.views import MethodView
+        from views import shared
+        app = Flask(__name__, static_folder=None)
+        def alias_target():
+            pass
+        f = alias_target
+        f.methods = ["POST"]
+        def index():
+            pass
+        for fn in (index,):
+            fn.methods = ["POST"]
+        def helper(target, verb):
+            target.methods = [verb]
+            return target
+        def base():
+            pass
+        base.methods = ["POST"]
+        @functools.wraps(base)
+        def wrapped():
+            pass
+        def via_dict():
+            pass
+        via_dict.__dict__["methods"] = ["POST"]
+        def via_vars():
+            pass
+        vars(via_vars).update(methods=["POST"])
+        class Hook(MethodView):
+            def post(self):
+                pass
+            def put(self):
+                pass
+        Hook.methods = {"PUT"}
+        app.add_url_rule("/alias", view_func=alias_target)
+        app.add_url_rule("/loop", view_func=index)
+        app.add_url_rule("/wraps", view_func=wrapped)
+        app.add_url_rule("/third", view_func=shared)
+        app.add_url_rule("/dict", view_func=via_dict)
+        app.add_url_rule("/vars", view_func=via_vars)
+        app.add_url_rule("/hook", view_func=Hook.as_view("hook"))
+        @app.route("/lambda")
+        @(lambda target: setattr(target, "methods", ["PATCH"]) or target)
+        def lambda_decorated():
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/alias", False, "app.py#alias_target"),
+        ("GET", "/loop", False, "app.py#index"),
+        ("GET", "/wraps", False, "app.py#wrapped"),
+        ("ANY", "/third", False, "views.py#shared"),
+        ("ANY", "/dict", False, "app.py#via_dict"),
+        ("ANY", "/vars", False, "app.py#via_vars"),
+        ("ANY", "/hook", False, None),
+        ("ANY", "/lambda", False, "app.py#lambda_decorated"),
+    }
+    assert UNTIED_OPTION_WRITES.format(count=4) in document["limitations"]  # type: ignore[operator]
+
+
+def test_decorator_option_checks_are_remembered(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 프로젝트 장식자를 쓰는 등록마다 장식자 본문을 다시 걷지 않는다(등록 수 × 본문 크기였다)."""
+    views = "".join(f'@app.route("/r{index}")\n@deco\ndef view_{index}():\n    pass\n' for index in range(40))
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\napp = Flask(__name__, static_folder=None)\n"
+            "def deco(f):\n    return f\n" + views,
+        }
+    )
+    calls: list[str] = []
+    original = flask_extract.stores_options
+
+    def counting(node: ast.AST) -> bool:
+        """부른 정의를 기록하고 원래 판정을 돌려준다."""
+        calls.append(getattr(node, "name", "lambda"))
+        return original(node)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(flask_extract, "stores_options", counting)
+    assert len(fact_rows(routes_document(root))) == 40
+    assert calls == ["deco"]
+
+
+def test_more_registration_shapes_are_emitted_or_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """겹친 장식자 호출과 `for … else`는 사실로 내고, 걷개의 모양 밖 등록(`return`·목록 원소·인자·바다코끼리·별칭·
+    클래스에 단 `@app.route`)은 센다. 함수 안 `r: APIRouter = APIRouter()`와 메서드 안 `self.router = APIRouter()`의
+    등록은 프레임워크 import 한계가 이미 세므로 세지 않는다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from fastapi import APIRouter
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        def view():
+            pass
+        app.route("/outer")(app.route("/inner")(view))
+        for _ in []:
+            pass
+        else:
+            app.add_url_rule("/forelse", "forelse", view)
+        def returned():
+            return app.route("/returned")(view)
+        registered = [app.route("/listed")(view)]
+        print(app.add_url_rule("/argument", "argument", view))
+        if (walrus := app.route("/walrus")):
+            walrus(view)
+        alias = app.get
+        alias("/alias")(view)
+        @app.route("/klass")
+        class Klass:
+            pass
+        def make():
+            router: APIRouter = APIRouter()
+            @router.get("/annotated")
+            def annotated():
+                pass
+        class Service:
+            def __init__(self):
+                self.router = APIRouter()
+                @self.router.post("/self-router")
+                def posted():
+                    pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/outer", False, "app.py#view"),
+        ("GET", "/inner", False, "app.py#view"),
+        ("GET", "/forelse", False, "app.py#view"),
+    }
+    assert UNMODELED_REGISTRATIONS.format(count=6) in document["limitations"]  # type: ignore[operator]
 
 
 def test_routing_extension_and_blueprint_static(make_project: Callable[[dict[str, str]], Path]) -> None:
