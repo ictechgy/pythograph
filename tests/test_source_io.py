@@ -154,7 +154,9 @@ def test_small_source_reads_reserve_no_budget_sized_buffer(make_project: MakePro
     results: list[object] = []
     peak = allocation_peak(lambda: results.append(getattr(project, method)("pkg/mod.py")))
     assert peak < SMALL_READ_PEAK_BYTES
-    assert isinstance(results[0], SourceModule) if method == "module" else results == [content]
+    # `make_project`는 Windows에서 텍스트를 CRLF로 쓰므로(체크아웃과 같은 입력) 기대값은 디스크의 바이트다.
+    written = (root / "pkg" / "mod.py").read_bytes().decode("utf-8")
+    assert isinstance(results[0], SourceModule) if method == "module" else results == [written]
 
 
 class _RecordingBytes(io.BytesIO):
