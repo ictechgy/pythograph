@@ -206,12 +206,19 @@ is unknown: a route string built from it is `dynamic`, a method list from it lea
 or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
 `INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation. A Flask app or blueprint
 bound to such a name may be a different object at run time, so the rules and blueprint registrations that go through
-that name get the `base` anchor with `unresolved-route-prefix:`. A Flask view registered without `methods=` whose
-methods are not proven (a view held in a variable or wrapped in a call, a view from outside the project, a view class
-with an unknown base) is `ANY` with a scoped `route-coverage:`, because Flask uses `view_func.methods` before its `GET`
-default; an inline `lambda` is `GET`. Route registrations through an object that is not a known Flask app or blueprint
-(a parameter as in `def register(app)`, `self.app`, `app = create_app()`, `current_app`) and `app.route(rule)(view)`
-are not emitted; they are counted in an unscoped `route-coverage:`.
+that name get the `base` anchor with `unresolved-route-prefix:`. Flask reads a view's `methods` and
+`required_methods` attributes ("View Function Options") before its `GET` default, so a view whose methods are not proven
+is `ANY` with a scoped `route-coverage:` (with `methods=` the declared verbs keep that limitation): a view wrapped in a
+call or held in a rebound variable, a view from outside the project, a view class with an unknown base, and a function
+whose module sets one of those attributes on its name (assignment or `setattr`) or that a project decorator under the
+route sets them on. An inline `lambda` or `None` is `GET`, and a module variable bound once to `View.as_view(...)` keeps
+the class's methods. `app.route(rule)(view)` and the method shortcuts called the same way are emitted like
+`add_url_rule`; registrations in class bodies and methods and inside `match`, `while`, `async with`, and
+`try … except*` are read like the others. Route registrations through an object that is not a known Flask app or
+blueprint (a parameter as in `def register(app)`, `self.app`, `app = create_app()`, `current_app`, an app imported
+from another package, a Flask subclass instance) are not emitted; they are counted in an unscoped `route-coverage:`.
+Test doubles (`mock.patch`) and objects of the unsupported frameworks above (`FastAPI()`, `APIRouter()`, `Quart()`)
+are not counted there, because the framework import limitation already covers them.
 
 ### Decisions
 

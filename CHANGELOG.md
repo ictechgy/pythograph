@@ -69,23 +69,29 @@
   5개와 이 저장소의 graph·schema·client 문서가 종료 코드·표준 오류까지 바이트로 같다).
 - 표준 입력을 닫고 `--roots-from -`을 주면(`<&-`) 종료 64는 맞지만 문구가 깨진 입력과 같은 "could not be read as UTF-8
   text"라 원인을 가렸다. 이제 "standard input is closed"라고 알린다(종료 코드는 같다).
-- Flask에서 `methods` 없이 등록한 뷰의 method를 증명하지 못해도(변수에 담은 `Hook.as_view("hook")`, `login_required(...)`로
-  감싼 뷰, 프로젝트 밖 함수, `functools.partial`, 모르는 기반 클래스에서 `methods`를 받을 수 있는 `View`) GET으로 내고
-  "ANY로 냈다"는 `route-coverage:` 한계를 붙였다. Flask `add_url_rule`은 `view_func.methods`를 먼저 쓰므로 post만 정의한
-  `MethodView`를 변수로 등록하면 Flask가 405로 거부하는 GET 사실이 되고 받는 POST는 빠졌다(Flask 3.1.3 `url_map`으로
-  확인). 이제 그런 등록은 한계 문장대로 `ANY`다(템플릿 스코프 그대로). 그 자리에서 만든 `lambda`·`None` 뷰는 속성이
-  없어 GET이 맞으므로 GET 그대로이고 그 등록의 한계는 더 세지 않는다. 한계 문장은 `methods`를 준 등록과 아는 method를
-  내는 뷰도 덮도록 "were emitted as ANY or as their known methods"로 바꿨다(Django 문장과 같다).
-- Flask 규칙을 알려진 앱·블루프린트로 찾지 못한 객체로 등록하면(`def register(app): app.add_url_rule(...)` 같은 헬퍼
-  매개변수, `app = create_app()`에 단 `@app.route`, `current_app.add_url_rule`) 장식자 문법 밖의 `app.route(rule)(view)`와
-  함께 사실도 한계도 없이 사라져, 빈 문서가 완전한 결과처럼 읽혔다(flaskbb는 헬퍼 하나로 모든 라우트를 등록해 사실 0건,
-  한계 없음). 이제 그런 등록을 스코프 없는 `route-coverage:`로 센다. 사실은 바뀌지 않는다. Flask가 아닌 외부 이름
-  (`unittest.mock.patch` 장식자, `bottle.route`)은 세지 않고, 클래스 본문 안 등록은 아직 세지 않는다.
+- Flask에서 `methods` 없이 등록한 뷰의 method를 증명하지 못해도(감싼 `login_required(...)`·다시 묶인 변수의 뷰, 프로젝트 밖
+  함수, `functools.partial`, 모르는 기반 클래스에서 `methods`를 받을 수 있는 `View`) GET으로 내고 "ANY로 냈다"는
+  `route-coverage:` 한계를 붙였다. 프로젝트 함수도 Flask 문서("View Function Options")대로 `methods`·`required_methods`
+  속성을 다는 경우(`doc_index.methods = ["POST"]`, `setattr`, `@app.route` 아래에서 속성을 다는 프로젝트 장식자)를
+  무시하고 GET만 냈다. Flask `add_url_rule`은 그 속성을 GET 기본값보다 먼저 쓰므로 Flask가 405로 거부하는 GET 사실이 되고
+  받는 POST·PUT·DELETE는 빠졌다(Flask 3.1.3 `url_map`으로 확인). 이제 그런 등록은 `ANY`(`methods`를 주면 그 동사)와 템플릿
+  스코프의 한계다. 반대로 증명할 수 있는 것은 더 정확해졌다: 한 번만 묶인 모듈 변수의 `Hook.as_view("hook")`은 그
+  클래스의 method와 핸들러(post만 정의하면 `POST`), 그 자리의 `lambda`·`None` 뷰는 한계 없는 GET이다. 한계 문장은
+  `methods`를 준 등록과 아는 method를 내는 뷰도 덮도록 "were emitted as ANY or as their known methods"로 바꿨다(Django
+  문장과 같다).
+- Flask 등록 여러 모양이 사실도 한계도 없이 사라져 빈 문서가 완전한 결과처럼 읽혔다. 알려진 앱의 `app.route(rule)(view)`·
+  `app.post(rule)(view)`(문장·대입·주석 대입의 값), 클래스 본문·메서드 안 등록(확장의 `init_app`, 클래스 본문의
+  `@app.route`, 메서드에서 만든 앱), `match`·`while`·`async with`·`try … except*` 블록 안 등록은 이제 다른 등록처럼 사실로
+  낸다. 알려진 앱·블루프린트가 아닌 객체를 거친 등록(`def register(app)` 같은 헬퍼 매개변수, `app = create_app()`에 단
+  `@app.route`, `self.app`, `current_app`, 다른 패키지에서 import한 앱, Flask 하위 클래스 인스턴스, 수신자를 모르는
+  `x.route(rule)(view)`)은 스코프 없는 `route-coverage:`로 센다(flaskbb는 헬퍼 하나로 모든 라우트를 등록해 사실 0건, 한계
+  없음이었다). 테스트 대역(`mock.patch`)과 지원하지 않는 서버 프레임워크의 이름·인스턴스(`bottle.route`, `FastAPI()`·
+  `APIRouter()`·`bottle.Bottle()`·`Quart()`로 만든 객체)는 그 import 한계가 이미 세므로 세지 않는다.
 - 문서를 표준 출력의 `TextIOWrapper`로 써서, `python -u`·`PYTHONUNBUFFERED`(컨테이너 이미지에 흔하다)에서는 원시
   스트림의 짧은 쓰기와 블로킹하지 않는 파이프의 "쓰지 못함"(None)을 버리고 잘린 문서로 0이었다: 읽는 쪽이 중간에 닫은
   파이프, 파일 크기 상한(`RLIMIT_FSIZE`)·디스크 공간에 닿은 파일(`ulimit -f 100`이면 102,400 B로 잘림), 차 버린 블로킹하지
-  않는 파이프(65,536 B). 버퍼 있는 기본 표준 출력은 블로킹하지 않는 파이프에서 2를 돌려준 뒤 남은 바이트를 인터프리터
-  종료 때 다시 비우다 실패해 종료 상태가 계약 밖의 120이었다. 이제 프로세스 표준 출력은 문서를 1 Mi 문자 조각으로 인코딩해
+  않는 파이프(65,536 B). 버퍼 있는 기본 표준 출력은 블로킹하지 않는 파이프(모든 버전)와 파일 크기 상한(3.14)에서 2를
+  돌려준 뒤 남은 바이트를 인터프리터 종료 때 다시 비우다 실패해 종료 상태가 계약 밖의 120이었다. 이제 프로세스 표준 출력은 문서를 1 Mi 문자 조각으로 인코딩해
   그 아래 원시 스트림에 끝까지 쓰므로(짧은 쓰기는 남은 바이트로 다시 쓴다) 네 경우 모두 2이고 남는 바이트가 없다. 성공한
   출력의 바이트는 같고, 문서 전체를 한꺼번에 인코딩하지 않아 쓰는 동안의 할당 최고점도 줄었다(20 Mi 문자 문서
   20,971,893 B → 2,098,118 B). 주입한 스트림(라이브러리 호출)은 전처럼 그 스트림의 `write`로 쓴다.

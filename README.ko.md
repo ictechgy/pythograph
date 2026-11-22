@@ -158,11 +158,17 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 모르는 값이다. 그 값으로 만든 경로 문자열은 `dynamic`, method 목록은 아는 method나 `ANY`와 템플릿 스코프의
 `route-coverage:`, 조건부 `FORCE_SCRIPT_NAME`은 `base` 앵커, 그렇게 바뀌는 `INSTALLED_APPS`는 스코프 없는
 `framework-provided-routes:` 한계가 된다. 그런 이름에 묶인 Flask 앱·블루프린트는 실행할 때 다른 객체일 수 있으므로, 그
-이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다. `methods=` 없이 등록한 Flask
-뷰의 method를 증명하지 못하면(변수에 담거나 호출로 감싼 뷰, 프로젝트 밖 뷰, 모르는 기반 클래스의 뷰 클래스) Flask가
-`GET` 기본값보다 `view_func.methods`를 먼저 쓰므로 `ANY`와 템플릿 스코프의 `route-coverage:`이고, 그 자리의 `lambda`는
-`GET`이다. 알려진 Flask 앱·블루프린트가 아닌 객체(`def register(app)` 같은 매개변수, `self.app`, `app = create_app()`,
-`current_app`)를 거친 등록과 `app.route(rule)(view)`는 사실로 내지 않고 스코프 없는 `route-coverage:`로 센다.
+이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다. Flask는 `GET` 기본값보다 뷰의
+`methods`·`required_methods` 속성("View Function Options")을 먼저 읽으므로, method를 증명하지 못한 뷰는 `ANY`와 템플릿
+스코프의 `route-coverage:`다(`methods=`를 주면 그 동사에 같은 한계가 붙는다): 호출로 감싸거나 다시 묶인 변수에 담은 뷰,
+프로젝트 밖 뷰, 모르는 기반 클래스의 뷰 클래스, 모듈이 그 이름에 그 속성을 쓰거나(대입·`setattr`) 등록 장식자 아래의
+프로젝트 장식자가 그 속성을 다는 함수. 그 자리의 `lambda`·`None`은 `GET`이고, `View.as_view(...)`에 한 번만 묶인 모듈
+변수는 그 클래스의 method를 낸다. `app.route(rule)(view)`와 같은 모양의 단축 장식자는 `add_url_rule`처럼 내고, 클래스
+본문·메서드와 `match`·`while`·`async with`·`try … except*` 안 등록도 다른 등록처럼 읽는다. 알려진 Flask 앱·블루프린트가
+아닌 객체(`def register(app)` 같은 매개변수, `self.app`, `app = create_app()`, `current_app`, 다른 패키지에서 import한
+앱, Flask 하위 클래스 인스턴스)를 거친 등록은 사실로 내지 않고 스코프 없는 `route-coverage:`로 센다. 테스트 대역
+(`mock.patch`)과 위의 지원하지 않는 프레임워크 객체(`FastAPI()`, `APIRouter()`, `Quart()`)는 그 프레임워크 import 한계가
+이미 세므로 여기서 세지 않는다.
 
 ### 결정 사항
 

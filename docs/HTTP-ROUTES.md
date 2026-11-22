@@ -139,13 +139,23 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 - method: 선언한 동사에서 GET이 있으면 HEAD를 빼고, 자동 OPTIONS는 목록에 없으므로 내지 않는다. 명시한
   OPTIONS는 낸다(뷰가 직접 처리한다). 계약 동사 집합 밖 동사(`methods=["GET", "PURGE"]`의 `PURGE` 등)는 Django와
   같이 decl로 내지 않고 한계로 센다.
-- `methods` 없이 등록한 뷰는 `add_url_rule`이 `view_func.methods`를 먼저 보고 없을 때만 GET을 쓴다. 그래서 뷰가
-  증명한 프로젝트 함수(모듈 수준·앱 팩토리 안 정의)나 클래스 뷰(`Cls.as_view(...)`)일 때만 GET이나 클래스의 methods를
-  내고, 증명하지 못한 뷰 식(변수에 담은 `Hook.as_view("hook")`, `login_required(...)`로 감싼 뷰, 프로젝트 밖 함수,
-  `functools.partial`)과 모르는 기반 클래스에서 methods를 받을 수 있는 뷰 클래스는 `ANY` + 템플릿 스코프의
-  `route-coverage:`다. 그 자리에서 만든 `lambda`와 `None`은 속성이 없어 GET이다(한계를 세지 않는다). 0.3.1은 그런 뷰를
-  GET으로 내고 "ANY로 냈다"는 한계를 붙여, post만 정의한 `MethodView`를 변수로 등록하면 Flask가 405로 거부하는 GET
-  사실이 됐다.
+- `methods` 없이 등록한 뷰는 `add_url_rule`이 `view_func.methods`를 먼저 보고 없을 때만 GET을 쓰고, `methods`를 주든
+  말든 `view_func.required_methods`를 더한다(Flask 문서 "View Function Options"). 그래서 뷰가 옵션 속성을 달지 않은
+  프로젝트 함수(모듈 수준·앱 팩토리 안·클래스 본문의 정의), 클래스 뷰(`Cls.as_view(...)`), 한 번만 묶인 모듈 변수의
+  `Cls.as_view(...)`(그 변수에 옵션 속성을 쓰지 않을 때)일 때만 GET이나 클래스의 methods를 낸다. 증명하지 못한 뷰
+  식(다시 묶인 변수, `login_required(...)`로 감싼 뷰, 프로젝트 밖 함수, `functools.partial`), 모르는 기반 클래스에서
+  methods를 받을 수 있는 뷰 클래스, 옵션 속성을 다는 함수는 `ANY`(`methods`를 주면 그 동사) + 템플릿 스코프의
+  `route-coverage:`다. 옵션 속성 판정은 이름으로만 한다(`routes/flask/view_options.py`): 정의한 모듈이나 등록하는
+  모듈 어디서든 그 끝 이름의 `methods`·`required_methods`를 대입·주석 대입·누적 대입하거나 `setattr`(속성 이름이 리터럴이
+  아니어도)하면, 또는 등록 장식자 아래(먼저 적용되는) 프로젝트 장식자·장식자 팩토리의 본문이 무엇에든 그 속성을 쓰면
+  모른다. 쓰는 순서는 따지지 않고, 프로젝트 밖 장식자(`login_required` 등)는 옵션을 달지 않는다고 본다.
+  `provide_automatic_options`는 자동 OPTIONS만 바꾸고 자동 OPTIONS는 내지 않으므로 보지 않는다. 그 자리에서 만든
+  `lambda`와 `None`은 속성이 없어 GET이다(한계를 세지 않는다). 0.3.1은 이런 뷰를 GET으로 냈다.
+- 장식자를 직접 부른 등록(`app.route(rule)(view)`, `bp.post(rule)(view)` — 문장·대입·주석 대입의 값)은 수신자가 알려진
+  앱·블루프린트면 `view_func=view`인 `add_url_rule`과 같다. 수신자를 모르면 `route`만 한계로 세고, 모르는 수신자의
+  단축 장식자 모양(`handlers.get(name)(request)`)은 사전 조회 결과 호출과 구별할 수 없어 보지 않는다.
+- 걷개는 함수·클래스 본문(메서드 포함)과 `if`·`try`(`except*` 포함)·`with`·`async with`·`while`·`match` 블록 안을
+  모두 걷는다. 클래스 본문의 대입(`class C: app = Flask(...)`)은 메서드에서 이름으로 보이지 않으므로 객체로 두지 않는다.
 - `Flask(...)`·`Blueprint(...)`는 모듈 수준과 함수(앱 팩토리) 안 대입에서 찾고, 이름은 반복 변수(리터럴 목록을
   도는 `for`) → 함수 지역 → 바깥 함수 → 모듈 → import 순서로 푼다. 앱 팩토리 안의 import(`from app.auth import bp
   as auth_bp`, `from . import main` 뒤 `main.bp`)도 그 함수와 안쪽 함수의 지역 묶음으로 따라가며, 지역에서 묶은 이름은
@@ -178,7 +188,8 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | Flask 블루프린트 등록 순환(자기 자신이나 등록 경로의 조상을 다시 등록. Flask는 그런 앱을 등록하다 실패한다) | 순환을 닫는 등록을 따라가지 않고 `route-coverage:`(스코프 없음). 순환에 닿기 전 등록의 사실은 그대로다 |
 | 같은 블루프린트를 여러 경로로 등록한 격자(Flask는 경로마다 규칙을 다시 등록한다) | 경로마다 펼친다. 펼친 하위 등록이 200,000개(사실 상한의 두 배)를 넘으면 나머지를 따라가지 않고 `route-coverage:`(스코프 없음). 펼치는 도중 계약 동사 사실이 100,000개를 넘으면 바로 멈추고 사실 상한 오류(종료 2)로 끝난다 |
 | method를 확정하지 못한 뷰(모르는 기반 클래스·장식자 인자·뷰 식) | 아는 method 또는 `ANY` + 그 템플릿 `templates` 스코프의 `route-coverage:` |
-| 알려진 Flask 앱·블루프린트로 찾지 못한 수신자의 등록(`def register(app)` 같은 함수 매개변수, `self.app` 같은 속성, `app = create_app()`처럼 호출 결과를 담은 이름, `current_app`, 다른 프레임워크의 라우터)과 장식자 문법 밖의 `app.route(rule)(view)` | 사실로 내지 않고 등록마다 `route-coverage:`(스코프 없음, 그 객체가 접두사 있는 블루프린트일 수 있다). Flask가 아닌 외부 이름(`unittest.mock.patch` 장식자, `bottle.route`)은 세지 않는다. 클래스 본문 안 등록은 아직 세지 않는다 |
+| 알려진 Flask 앱·블루프린트로 찾지 못한 수신자의 등록(`def register(app)` 같은 함수 매개변수, `self.app` 같은 속성, `app = create_app()`처럼 호출 결과를 담은 이름, `current_app`, 다른 패키지에서 import한 앱, Flask 하위 클래스 인스턴스)과 수신자를 모르는 `x.route(rule)(view)` | 사실로 내지 않고 등록마다 `route-coverage:`(스코프 없음, 그 객체가 접두사 있는 블루프린트일 수 있다). 테스트 대역(`mock`·`unittest.mock`)과 지원하지 않는 서버 프레임워크의 이름·그 생성자로 만든 객체(`bottle.route`, 모듈·함수 안의 `FastAPI()`·`APIRouter()`·`bottle.Bottle()`·`Quart()`)는 그 import 한계가 이미 세므로 세지 않는다. Flask 하위 클래스(`class MyFlask(Flask)`)는 `route`·`add_url_rule`을 재정의할 수 있어 앱으로 모델링하지 않고 센다 |
+| 뷰 함수 옵션 속성(`methods`·`required_methods`)을 다는 함수(모듈의 대입·`setattr`, 등록 장식자 아래 프로젝트 장식자) | `ANY`(`methods`를 주면 그 동사) + 그 템플릿 `templates` 스코프의 `route-coverage:` |
 | 뷰 클래스 상속 사슬이 32단을 넘음, 또는 정적 상속 순환이 촘촘해 같은 클래스를 경로마다 1,024번 넘게 다시 펴야 함(파이썬으로는 만들 수 없는 계층) | 넘는 기반을 모르는 기반으로 본다(method를 확정하지 못한 뷰와 같다). 다이아몬드 상속은 (클래스, 깊이)마다 한 번 펴므로 경로 수와 무관하다 |
 | 계약 동사 집합 밖 method(`PURGE`·`PROPFIND` 등: Flask `methods`, Django `http_method_names`, viewset 매핑, `require_http_methods`·`api_view`·`@action` 인자) | 그 method의 decl을 내지 않고 등록마다 `route-coverage:`. 템플릿을 확정한 root 앵커 등록이면 그 `templates` 스코프(스코프 `methods`에는 계약 동사만 쓸 수 있어 싣지 않는다), dynamic·base 앵커면 스코프 없음 |
 | 템플릿으로 확정할 수 없는 경로 | dynamic 사실 + `route-coverage:`(펼침 상한은 `route-template-expansion-capped:`) |

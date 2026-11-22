@@ -707,6 +707,15 @@ def test_stdout_that_stops_accepting_exits_2_with_nothing_left(
     assert raw.calls == calls
 
 
+def test_write_all_flushes_pending_text_first() -> None:
+    """원시 스트림에 쓰기 전에 텍스트 래퍼에 남은 글자를 먼저 비워 순서를 지킨다(줄 버퍼 래퍼의 줄바꿈 없는 글자)."""
+    raw = _ShortRaw(limit=3)
+    stream = io.TextIOWrapper(io.BufferedWriter(raw), encoding="utf-8", line_buffering=True)  # type: ignore[arg-type]
+    stream.write("앞")
+    cli._write_all(stream, raw, "문서\n")
+    assert bytes(raw.data) == "앞문서\n".encode()
+
+
 def test_stdout_raw_finds_only_a_raw_stream_under_a_text_wrapper() -> None:
     """원시 스트림은 텍스트 래퍼 바로 아래나 그 `BufferedWriter` 아래에서만 찾고, 떼어 낸 래퍼·버퍼와 메모리 스트림은
     전처럼 래퍼의 `write`로 쓰게 둔다(쓰기 실패는 그 경로가 알린다)."""
@@ -756,8 +765,9 @@ def test_output_cut_by_file_size_limit_exits_2(unbuffered: bool, tmp_path: Path)
     """파일 크기 상한에 닿아 문서를 끝까지 쓰지 못하면 버퍼 여부와 관계없이 2다.
 
     파이썬은 SIGXFSZ를 무시하므로 상한을 넘는 쓰기는 상한까지 쓴 짧은 쓰기다. `python -u`에서는 그 짧은 쓰기를
-    버려 4,096바이트로 잘린 문서를 남기고 0으로 끝났다(버퍼 있는 표준 출력은 EFBIG으로 2였다). 디스크 공간이 쓰기
-    도중에 모자랄 때도 같은 짧은 쓰기다.
+    버려 4,096바이트로 잘린 문서를 남기고 0으로 끝났다. 버퍼 있는 표준 출력은 3.10–3.13에서 EFBIG으로 2였지만
+    3.14에서는 못 쓴 바이트를 `BufferedWriter`에 남겨 인터프리터가 끝날 때 다시 비우다 실패해 120이었다. 디스크 공간이
+    쓰기 도중에 모자랄 때도 같은 짧은 쓰기다.
     """
     launcher = (
         "import os, resource, sys\n"
