@@ -162,18 +162,23 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 `methods`·`required_methods` 속성("View Function Options")을 먼저 읽으므로, method를 증명하지 못한 뷰는 `ANY`와 템플릿
 스코프의 `route-coverage:`다(`methods=`를 주면 그 동사에 같은 한계가 붙는다): 호출로 감싸거나 다시 묶이거나 가려진
 변수에 담은 뷰, 프로젝트 밖 뷰, 모르는 기반 클래스나 본문 밖에서 `methods`를 대입한 뷰 클래스, 프로젝트 어디서든 그
-이름에 그 속성을 쓰거나(대입·`setattr`·`__dict__`·`vars`) 등록 장식자 아래 장식자가 그 속성을 달 수 있는 함수(그 속성을
-쓰는 프로젝트 장식자 함수·팩토리·클래스(`__call__`과 `methods` 선언 포함)·클래스 멤버·람다, 매개변수처럼 풀지 못한
-장식자). 프로젝트 밖 장식자와 프로젝트 밖 생성자로 만든 객체의 메서드(`login_required`, `cache.cached`)는 달지 않는다고
-본다. 프로젝트 함수·클래스에 묶지 못한 쓰기(`f = view` 같은 별칭, 반복 변수, 장식자가 아닌 함수의 매개변수, 그 속성이
-있는 함수의 `functools.wraps`·`update_wrapper`)는 `GET` 사실을 그대로 두고 스코프 없는 `route-coverage:` 하나로 센다. 그
+이름에 그 속성을 쓰거나(대입·`setattr`·`__dict__`·`vars`. 속성 이름·열쇠를 계산하는 쓰기는 대상이 쓰는 모듈에서
+정의했거나 그 모듈이 프로젝트에서 가져온 이름(`from views import index`, `views.index`)일 때만 센다) 등록 장식자 아래
+장식자가 그 속성을 달 수 있는 함수(그 속성을 쓰는 프로젝트 장식자 함수·팩토리·클래스(`__call__`과 `methods` 선언
+포함)·클래스 멤버·람다, 프로젝트 함수가 돌려준 객체의 메서드(`guard = make_guard()` 뒤 `@guard.allow(...)`), 매개변수처럼
+풀지 못한 장식자). 프로젝트 밖 장식자, `staticmethod` 같은 내장 이름, 프로젝트 밖 생성자로 만든 객체의
+메서드(`login_required`, `cache.cached`)는 달지 않는다고 본다. 프로젝트 함수·클래스에 묶지 못한 쓰기(`f = view` 같은
+별칭, 반복 변수, 프로젝트 함수와 이름이 같아도 감싼 함수의 매개변수·지역 변수, 그 속성이 있는 함수의
+`functools.wraps`·`update_wrapper`)는 `GET` 사실을 그대로 두고 스코프 없는 `route-coverage:` 하나로 센다. 그
 자리의 `lambda`·`None`은 `GET`이고, `View.as_view(...)`에 한 번만 묶인 모듈 변수는 그 클래스의 method를 낸다. 매개변수·지역
-대입·클래스 본문 대입은 파이썬처럼 같은 이름의 바깥 앱·블루프린트·뷰를 가린다. `app.route(rule)(view)`와 같은 모양의 단축
+대입(바다코끼리 대상 포함)·클래스 본문 대입, 안쪽 함수가 `nonlocal`로 다시 묶는 이름은 파이썬처럼 같은 이름의 바깥
+앱·블루프린트·뷰를 가린다. `app.route(rule)(view)`와 같은 모양의 단축
 장식자(겹친 것 포함)는 `add_url_rule`처럼 내고, 클래스 본문·메서드와 `match`·`while`·`async with`·`try … except*`·
 `for … else` 안 등록도 다른 등록처럼 읽으며, 호출되지 않는 함수·메서드 안 등록도 사실이 된다(앱 팩토리와 같은 설계).
 알려진 Flask 앱·블루프린트가 아닌 객체(`def register(app)` 같은 매개변수, `self.app`, `app = create_app()`,
 `current_app`, 다른 패키지에서 import한 앱, Flask 하위 클래스 인스턴스)를 거친 등록과 이 모양 밖의 알려진 앱 사용
-(`return app.route(rule)(view)`, 목록 원소·호출 인자, 바다코끼리, `x = app.get`, 클래스에 단 `@app.route`)은 사실로 내지
+(`return app.route(rule)(view)`, 목록 원소·호출 인자, 바다코끼리, `x = app.get`, 클래스에 단 `@app.route`. `if app.get:`
+같은 단순 참조는 등록이 아니다)은 사실로 내지
 않고 스코프 없는 `route-coverage:`로 센다. 테스트 대역(`mock.patch`)과 위의 지원하지 않는 프레임워크 객체(`FastAPI()`,
 `APIRouter()`, `Quart()`, 함수 지역 변수와 `self.X` 속성 포함)는 그 프레임워크 import 한계가 이미 세므로 여기서 세지 않는다.
 

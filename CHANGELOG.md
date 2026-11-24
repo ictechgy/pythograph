@@ -73,12 +73,15 @@
   대입이 가린 변수의 뷰, 프로젝트 밖 함수, `functools.partial`, 모르는 기반 클래스에서 `methods`를 받을 수 있는 `View`) GET으로
   내고 "ANY로 냈다"는 `route-coverage:` 한계를 붙였다. 프로젝트 함수도 Flask 문서("View Function Options")대로
   `methods`·`required_methods` 속성을 다는 경우(프로젝트 어디서든 `doc_index.methods = ["POST"]`·`setattr`·`__dict__`·`vars`
-  쓰기, `@app.route` 아래에서 그 속성을 다는 장식자: 모듈·앱 팩토리·클래스 본문의 함수, 장식자 팩토리, 클래스 장식자,
-  `Decos.post_only` 같은 클래스 멤버, 람다, 풀지 못한 장식자)를 무시하고 GET만 냈다. Flask `add_url_rule`은 그 속성을 GET
+  쓰기 — 계산한 이름의 쓰기는 쓰는 모듈의 정의와 그 모듈이 프로젝트에서 가져온 이름만 —, `@app.route` 아래에서 그 속성을
+  다는 장식자: 모듈·앱 팩토리·클래스 본문의 함수, 장식자 팩토리, 클래스 장식자, `Decos.post_only` 같은 클래스 멤버, 람다,
+  프로젝트 함수가 돌려준 객체의 메서드(`guard = make_guard()` 뒤 `@guard.allow(…)`), 풀지 못한 장식자)를 무시하고 GET만
+  냈다. Flask `add_url_rule`은 그 속성을 GET
   기본값보다 먼저 쓰므로 Flask가 405로 거부하는 GET 사실이 되고 받는 POST·PUT·DELETE는 빠졌다(Flask 3.1.3 `url_map`으로
   확인). 이제 그런 등록은 `ANY`(`methods`를 주면 그 동사)와 템플릿 스코프의 한계다. 프로젝트 함수·클래스에 묶지 못한 옵션
-  쓰기(별칭 `f = view`, 반복 변수, 장식자가 아닌 함수의 매개변수, 옵션을 쓴 함수의 `functools.wraps`·`update_wrapper`)는
-  GET 사실을 두고 스코프 없는 `route-coverage:`로 센다. 프로젝트 밖 장식자는 옵션을 달지 않는다고 본다. 반대로 증명할 수
+  쓰기(별칭 `f = view`, 반복 변수, 프로젝트 함수와 이름이 같아도 감싼 함수의 매개변수·지역 변수, 옵션을 쓴 함수의
+  `functools.wraps`·`update_wrapper`)는 GET 사실을 두고 스코프 없는 `route-coverage:`로 센다. 프로젝트 밖 장식자와
+  `staticmethod` 같은 내장 이름은 옵션을 달지 않는다고 본다. 반대로 증명할 수
   있는 것은 더 정확해졌다: 한 번만 묶인 모듈 변수의 `Hook.as_view("hook")`은 그 클래스의 method와 핸들러(post만 정의하면
   `POST`, 본문 밖에서 `Hook.methods = …`를 대입하면 `ANY`), 그 자리의 `lambda`·`None` 뷰는 한계 없는 GET이다. 한계 문장은
   `methods`를 준 등록과 아는 method를 내는 뷰도 덮도록 "were emitted as ANY or as their known methods"로 바꿨다(Django
@@ -90,9 +93,10 @@
   객체를 거친 등록(`def register(app)` 같은 헬퍼 매개변수, 매개변수·클래스 본문이 가린 같은 이름, `app = create_app()`에 단
   `@app.route`, `self.app`, `current_app`, 다른 패키지에서 import한 앱, Flask 하위 클래스 인스턴스, 수신자를 모르는
   `x.route(rule)(view)`)과 그 모양 밖의 알려진 앱 사용(`return app.route(rule)(view)`, 목록 원소·인자, 바다코끼리,
-  `x = app.get`, 클래스에 단 `@app.route`)은 스코프 없는 `route-coverage:`로 센다(flaskbb는 헬퍼 하나로 모든 라우트를
+  `x = app.get`, 클래스에 단 `@app.route`. `if app.get:` 같은 단순 참조는 빼고)은 스코프 없는 `route-coverage:`로 센다(flaskbb는 헬퍼 하나로 모든 라우트를
   등록해 사실 0건, 한계 없음이었다). 전에는 함수 매개변수 `bp`·`app`을 같은 이름의 모듈 블루프린트·앱으로 풀어 다른 접두사의
-  사실(`/main/items`, 실제 `/api/items`)을 냈다. 테스트 대역(`mock.patch`)과 지원하지 않는 서버 프레임워크의 이름·인스턴스
+  사실(`/main/items`, 실제 `/api/items`)을 냈고, 바다코끼리 대입(`if (bp := other):`)과 안쪽 함수의 `nonlocal` 재대입이 가린
+  이름도 바깥 블루프린트로 풀었다(`/main/walrus`, 실제 `/other/walrus`). 테스트 대역(`mock.patch`)과 지원하지 않는 서버 프레임워크의 이름·인스턴스
   (`bottle.route`, 모듈·함수 지역·`self.X`의 `FastAPI()`·`APIRouter()`·`bottle.Bottle()`·`Quart()`)는 그 import 한계가 이미
   세므로 세지 않는다.
 - 문서를 표준 출력의 `TextIOWrapper`로 써서, `python -u`·`PYTHONUNBUFFERED`(컨테이너 이미지에 흔하다)에서는 원시

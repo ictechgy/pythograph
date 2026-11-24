@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -85,6 +86,9 @@ _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 #: 테스트 대역 모듈이다. 그 이름으로 풀리는 수신자의 단축 장식자(`mock.patch`)는 라우트 등록이 아니다.
 _MOCK_MODULES = ("mock", "unittest.mock")
+
+#: 내장 이름이다. 프로젝트가 다시 묶지 않은 `staticmethod`·`property` 같은 장식자는 프로젝트 밖 이름이다.
+_BUILTIN_NAMES = frozenset(dir(builtins))
 
 #: 규칙을 등록하는 앱·블루프린트 메서드 이름이다(`_sweep`이 처리하지 못한 사용을 센다).
 _REGISTRATION_METHODS = frozenset({"route", "add_url_rule", *_SHORTCUTS})
@@ -815,6 +819,8 @@ class _Registrar:
         # 함수·클래스 본문의 단순 이름 대입 값((범위, 이름) → 값 식, 두 번 이상 묶이면 None)이다. 지역 장식자
         # (`limiter = Limiter(app)` 뒤 `@limiter.limit(…)`)가 프로젝트 밖 객체인지 본다.
         self.local_values: dict[tuple[str, str], ast.expr | None] = {}
+        # 안쪽 함수의 `nonlocal`이 다시 묶는 바깥 함수 지역 이름((범위, 이름))이다. 그 객체는 실행 경로에 따라 바뀐다.
+        self.rebound_locals: set[tuple[str, str]] = set()
         # 처리한(사실로 냈거나 센) 등록 메서드 속성 식의 id다. `_sweep`이 그 밖의 등록 사용을 센다.
         self.handled: set[int] = set()
         # 모듈 안 함수 정의(어휘적 점 경로 → 정의들)다. `view_func=이름` 등록마다 구문 트리 전체를 걷지 않도록 처음
@@ -840,6 +846,10 @@ class _Registrar:
             scope: 함수 점 경로.
             loops: 반복 변수 바인딩.
         """
+        # 바다코끼리 대입(`if (bp := other):`)도 그 함수의 지역 묶음이다.
+        self._shadow(_walrus_targets(statement), scope)
+        if isinstance(statement, ast.Nonlocal):
+            self._nonlocal(statement.names, scope)
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             # 클래스 본문과 메서드도 걷는다(확장의 `init_app(self, app)`, 클래스 본문의 `@app.route`). 매개변수는 바깥
             # 이름을 가리는 지역 묶음이다.
@@ -872,6 +882,19 @@ class _Registrar:
                 self.run(block, scope, loops)
         elif isinstance(statement, (ast.Import, ast.ImportFrom)) and scope:
             self._local_import(statement, scope)
+
+    def _nonlocal(self, names: list[str], scope: str) -> None:
+        """`nonlocal` 이름이 가리키는 바깥 함수 지역 이름을 다시 묶이는 이름으로 기록한다(그 객체로 풀지 않는다).
+
+        Args:
+            names: `nonlocal` 이름.
+            scope: `nonlocal`을 쓴 함수 점 경로.
+        """
+        for name in names:
+            for prefix in self._visible(scope)[1:]:
+                if (self.path, prefix, name) in self.collector.objects or (prefix, name) in self.local_imports:
+                    self.rebound_locals.add((prefix, name))
+                    break
 
     def _remember_values(self, targets: list[ast.expr], statement: ast.stmt, scope: str) -> None:
         """함수·클래스 본문의 단순 이름 대입 값을 기록한다(누적 대입이나 두 번째 묶음이면 모르는 값).
@@ -1048,6 +1071,8 @@ class _Registrar:
             return self._lookup(loops[node.id][0], scope, {})
         if isinstance(node, ast.Name):
             for prefix in self._visible(scope):
+                if (prefix, node.id) in self.rebound_locals:
+                    return None, True
                 found = self.collector.objects.get((self.path, prefix, node.id))
                 if found is not None:
                     return found, True
@@ -1200,6 +1225,9 @@ class _Registrar:
         target = decorator.func if isinstance(decorator, ast.Call) else decorator
         if isinstance(target, ast.Lambda):
             return self.collector.stores(target)
+        if isinstance(target, ast.Attribute) and target.attr in _REGISTRATION_METHODS:
+            # 겹친 등록 장식자(`@app.route` 아래 `@bp.get`)는 받은 함수를 그대로 돌려준다.
+            return False
         if not isinstance(target, (ast.Name, ast.Attribute)):
             return True
         if path == self.path and isinstance(target, ast.Name):
@@ -1213,10 +1241,14 @@ class _Registrar:
         )
         if symbol is None and isinstance(target, ast.Attribute):
             return self._owner_may_set_options(target.value, path, scope)
+        if symbol is None and isinstance(target, ast.Name) and target.id in _BUILTIN_NAMES:
+            return False
         return self._symbol_may_set_options(symbol, path)
 
     def _owner_may_set_options(self, owner: ast.expr, path: str, scope: str) -> bool:
         """`X.attr` 장식자의 `X`가 무엇인지로 판정한다(프로젝트 클래스면 그 본문, 프로젝트 밖 객체면 달지 않는다).
+
+        프로젝트 함수가 돌려준 객체(`guard = make_guard()`의 `guard.allow`)는 클래스를 모르므로 달 수 있다고 본다.
 
         Args:
             owner: 속성 앞 식.
@@ -1227,20 +1259,21 @@ class _Registrar:
             달 수 있으면 True.
         """
         if path == self.path and isinstance(owner, ast.Name) and self._local_binding(owner.id, scope) is True:
-            return self._value_may_set_options(self._local_value(owner.id, scope), path, scope)
+            return self._value_may_set_options(self._local_value(owner.id, scope), path, scope, owner=True)
         if not isinstance(owner, (ast.Name, ast.Attribute)):
             return True
         symbol = self._resolve(owner, scope) if path == self.path else self.collector.symbols.resolve_expr(path, owner)
         if isinstance(symbol, ModuleSymbol):
             return True
-        return self._symbol_may_set_options(symbol, path)
+        return self._symbol_may_set_options(symbol, path, owner=True)
 
-    def _symbol_may_set_options(self, symbol: Symbol | None, path: str) -> bool:
+    def _symbol_may_set_options(self, symbol: Symbol | None, path: str, owner: bool = False) -> bool:
         """해석한 장식자(또는 그 주인)가 옵션 속성을 달 수 있는지 본다.
 
         Args:
             symbol: 해석 결과.
             path: 모듈 경로.
+            owner: `X.attr` 장식자의 주인 `X`를 보는지.
 
         Returns:
             달 수 있으면 True.
@@ -1254,16 +1287,21 @@ class _Registrar:
             # `Decos.post_only` 같은 프로젝트 클래스 멤버는 그 클래스 본문 전체로 판정한다.
             return self.collector.stores(symbol.owner.node)
         if isinstance(symbol, ValueSymbol):
-            return self._value_may_set_options(symbol.node, symbol.path, "")
+            return self._value_may_set_options(symbol.node, symbol.path, "", owner=owner)
         return True
 
-    def _value_may_set_options(self, value: ast.expr | None, path: str, scope: str) -> bool:
+    def _value_may_set_options(self, value: ast.expr | None, path: str, scope: str, owner: bool = False) -> bool:
         """변수에 담은 장식자 값(람다, 생성자·팩토리 호출 결과)이 옵션 속성을 달 수 있는지 본다.
+
+        값을 장식자로 쓰면(`deco = make_deco()` 뒤 `@deco`) 팩토리 본문(안쪽 함수 포함)을 보고, 값의 속성을 장식자로
+        쓰면(`owner`, `guard = make_guard()` 뒤 `@guard.allow(…)`) 프로젝트 함수가 돌려준 객체의 클래스를 모르므로 달 수
+        있다고 본다. 프로젝트 클래스의 인스턴스면 그 클래스 본문, 프로젝트 밖 생성자의 결과면 달지 않는다.
 
         Args:
             value: 대입 값 식(모르면 None).
             path: 값이 있는 모듈 경로.
             scope: 값을 평가한 범위.
+            owner: 값의 속성을 장식자로 쓰는지.
 
         Returns:
             달 수 있으면 True.
@@ -1273,6 +1311,9 @@ class _Registrar:
         if isinstance(value, ast.Call) and isinstance(value.func, (ast.Name, ast.Attribute)):
             func = value.func
             built = self._resolve(func, scope) if path == self.path else self.collector.symbols.resolve_expr(path, func)
+            functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+            if owner and isinstance(built, ProjectSymbol) and isinstance(built.node, functions):
+                return True
             return self._symbol_may_set_options(built, path) if built is not None else True
         return True
 
@@ -1796,6 +1837,27 @@ def _blocks(statement: ast.stmt) -> list[list[ast.stmt]]:
     return blocks
 
 
+def _walrus_targets(statement: ast.stmt) -> list[ast.expr]:
+    """문장 자신의 식(안쪽 블록·본문 제외)에 있는 바다코끼리 대입 대상이다.
+
+    Args:
+        statement: 문장.
+
+    Returns:
+        대상 이름 식 목록.
+    """
+    nested = [statement.body] if isinstance(statement, _DEFINITIONS) else _blocks(statement)
+    skipped = {id(child) for block in nested for child in block}
+    found: list[ast.expr] = []
+    stack: list[ast.AST] = [statement]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.NamedExpr):
+            found.append(node.target)
+        stack.extend(child for child in ast.iter_child_nodes(node) if id(child) not in skipped)
+    return found
+
+
 def _is_self_attribute(node: ast.expr) -> bool:
     """`self.X`·`cls.X` 식인지 본다.
 
@@ -1823,8 +1885,9 @@ def _parameter_names(arguments: ast.arguments) -> list[str]:
 
 
 def _registration_uses(node: ast.AST, scope: str, names: frozenset[str]) -> Iterator[tuple[ast.Attribute, str]]:
-    """등록 메서드 속성(`X.route`·`X.add_url_rule`·`X.get`…) 중 `X` 끝 이름이 알려진 객체 이름인 것을 범위와 함께
-    찾는다.
+    """부르거나 장식자로 쓰거나 별칭으로 묶는 등록 메서드 속성(`X.route(…)`, `@X.route`, `x = X.get`) 중 `X` 끝 이름이
+    알려진 객체 이름인 것을 범위와 함께 찾는다. `if app.get:`·`print(app.route)`·`app.route = …` 같은 단순 참조는 등록이
+    아니다.
 
     Args:
         node: 구문 노드.
@@ -1834,10 +1897,15 @@ def _registration_uses(node: ast.AST, scope: str, names: frozenset[str]) -> Iter
     Returns:
         (속성 식, 범위) 반복자.
     """
-    if isinstance(node, ast.Attribute) and node.attr in _REGISTRATION_METHODS and _last_name(node.value) in names:
-        yield node, scope
+    used = node.func if isinstance(node, ast.Call) else getattr(node, "value", None)
+    if isinstance(node, (ast.Call, ast.Assign, ast.AnnAssign, ast.NamedExpr)) and _registration_attribute(used, names):
+        assert isinstance(used, ast.Attribute)
+        yield used, scope
     if isinstance(node, _DEFINITIONS):
         for decorator in node.decorator_list:
+            if _registration_attribute(decorator, names):
+                assert isinstance(decorator, ast.Attribute)
+                yield decorator, scope
             yield from _registration_uses(decorator, scope, names)
         inner = f"{scope}.{node.name}" if scope else node.name
         for statement in node.body:
@@ -1845,6 +1913,19 @@ def _registration_uses(node: ast.AST, scope: str, names: frozenset[str]) -> Iter
         return
     for child in ast.iter_child_nodes(node):
         yield from _registration_uses(child, scope, names)
+
+
+def _registration_attribute(node: object, names: frozenset[str]) -> bool:
+    """식이 알려진 객체 이름을 수신자로 둔 등록 메서드 속성(`app.route`)인지 본다.
+
+    Args:
+        node: 식(없을 수 있다).
+        names: 알려진 객체 이름.
+
+    Returns:
+        맞으면 True.
+    """
+    return isinstance(node, ast.Attribute) and node.attr in _REGISTRATION_METHODS and _last_name(node.value) in names
 
 
 def _last_name(node: ast.expr) -> str | None:

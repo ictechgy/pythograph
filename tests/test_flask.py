@@ -1199,6 +1199,172 @@ def test_more_registration_shapes_are_emitted_or_counted(make_project: Callable[
     assert UNMODELED_REGISTRATIONS.format(count=6) in document["limitations"]  # type: ignore[operator]
 
 
+def test_decorators_on_factory_objects_and_builtins(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """프로젝트 함수가 돌려준 객체의 메서드 장식자(`guard = make_guard()` 뒤 `@guard.allow("POST")`)는 그 객체의
+    클래스를 모르므로 옵션을 달 수 있다고 보고, 내장 장식자(`staticmethod`)와 겹친 등록 장식자는 달지 않는다고 본다.
+
+    팩토리 본문만 보고 GET으로 냈다(Flask는 POST·PUT). 반대로 `@app.route` 아래 `@staticmethod`는 풀지 못한 장식자로
+    보아 `ANY`였다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        class Guard:
+            def allow(self, *verbs):
+                def decorate(f):
+                    f.methods = list(verbs)
+                    return f
+                return decorate
+        def make_guard():
+            return Guard()
+        def make_api():
+            return Flask("api")
+        guard = make_guard()
+        api = make_api()
+        @app.route("/q3a")
+        @guard.allow("POST")
+        def module_guarded():
+            pass
+        def create():
+            local_guard = make_guard()
+            @app.route("/q3b")
+            @local_guard.allow("PUT")
+            def factory_guarded():
+                pass
+        instance = Guard()
+        @app.route("/q3c")
+        @instance.allow("DELETE")
+        def instance_guarded():
+            pass
+        class Holder:
+            @app.route("/static")
+            @staticmethod
+            def static_view():
+                pass
+        @app.route("/stacked")
+        @api.get("/stacked-api")
+        def stacked():
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/q3a", False, "app.py#module_guarded"),
+        ("ANY", "/q3b", False, "app.py#create.factory_guarded"),
+        ("ANY", "/q3c", False, "app.py#instance_guarded"),
+        ("GET", "/static", False, "app.py#Holder.static_view"),
+        ("GET", "/stacked", False, "app.py#stacked"),
+    }
+
+
+def test_dynamic_and_parameter_option_writes(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """다른 모듈이 가져온 뷰에 리터럴이 아닌 이름으로 쓰는 옵션(`setattr(index, NAME, …)`, `about.__dict__[KEY] = …`,
+    `views.extra.__dict__[KEY]`)은 그 뷰를 모르게 하고, 프로젝트 함수와 이름만 같은 매개변수에 쓰는 것은 묶지 못한
+    쓰기로 센다(같은 이름의 뷰는 GET 그대로다).
+
+    같은 모듈에서 정의한 이름만 받아 GET이었고(Flask는 POST·PUT), 매개변수 `handler`를 프로젝트 함수 `handler`에 묶어
+    세지 않았다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "views.py": """
+        def index():
+            pass
+        def about():
+            pass
+        def extra():
+            pass
+        def handler():
+            pass
+        def plain():
+            pass
+    """,
+            "tweaks.py": """
+        import views
+        from views import about, index
+        NAME = "methods"
+        KEY = "methods"
+        setattr(index, NAME, ["POST"])
+        about.__dict__[KEY] = ["PUT"]
+        views.extra.__dict__[KEY] = ["PATCH"]
+        def set_methods(handler, *verbs):
+            handler.methods = list(verbs)
+        set_methods(views.plain, "POST")
+        def touch(user, name, value):
+            setattr(user, name, value)
+    """,
+            "app.py": """
+        from flask import Flask
+        import tweaks
+        from views import about, extra, handler, index, plain
+        app = Flask(__name__, static_folder=None)
+        app.add_url_rule("/q4a", view_func=index)
+        app.add_url_rule("/q4b", view_func=about)
+        app.add_url_rule("/extra", view_func=extra)
+        app.add_url_rule("/handler", view_func=handler)
+        app.add_url_rule("/q4c", view_func=plain)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/q4a", False, "views.py#index"),
+        ("ANY", "/q4b", False, "views.py#about"),
+        ("ANY", "/extra", False, "views.py#extra"),
+        ("GET", "/handler", False, "views.py#handler"),
+        ("GET", "/q4c", False, "views.py#plain"),
+    }
+    assert UNTIED_OPTION_WRITES.format(count=1) in document["limitations"]  # type: ignore[operator]
+
+
+def test_bare_references_walrus_and_nonlocal(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """등록 메서드의 단순 참조(`if app.get:`, `print(app.route)`, `app.route = …`)는 세지 않고, 바다코끼리 대입과 안쪽
+    함수의 `nonlocal` 재대입이 가린 블루프린트 이름은 바깥 객체로 풀지 않고 센다.
+
+    전에는 참조마다 모델링하지 않은 등록을 하나씩 셌고, `if (bp := other): bp.add_url_rule(…)`·
+    `nonlocal bp2; bp2 = other`를 모듈·바깥 함수의 블루프린트로 풀어 Flask의 `/other/…` 대신 `/main/walrus`·`/o2/nl`을
+    냈다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Blueprint, Flask
+        app = Flask(__name__, static_folder=None)
+        other = Blueprint("other", __name__, url_prefix="/other")
+        bp = Blueprint("main", __name__, url_prefix="/main")
+        def view():
+            pass
+        if app.get:
+            pass
+        print(app.route)
+        def walrus():
+            if (bp := other):
+                bp.add_url_rule("/walrus", "walrus", view)
+        def outer():
+            bp2 = Blueprint("o2", __name__, url_prefix="/o2")
+            def inner():
+                nonlocal bp2
+                bp2 = other
+            inner()
+            bp2.add_url_rule("/nl", "nl", view)
+            app.register_blueprint(bp2, name="o2reg")
+        app.add_url_rule("/real", "real", view)
+        app.register_blueprint(bp)
+        app.register_blueprint(other)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/real", False, "app.py#view")}
+    assert UNMODELED_REGISTRATIONS.format(count=2) in document["limitations"]  # type: ignore[operator]
+
+
 def test_routing_extension_and_blueprint_static(make_project: Callable[[dict[str, str]], Path]) -> None:
     """라우트를 따로 등록하는 확장은 한계, 블루프린트 정적 폴더는 접두사 아래 스코프다."""
     root = make_project(

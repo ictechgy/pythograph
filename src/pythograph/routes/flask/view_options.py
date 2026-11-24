@@ -67,14 +67,42 @@ def scan_option_writes(trees: Iterable[ast.Module]) -> ProjectOptionWrites:
                 names.add(node.name)
                 decorators.update(name for item in node.decorator_list if (name := _decorator_name(item)))
         definitions |= names
-    writes: list[tuple[str | None, bool]] = []
+    writes: list[tuple[str | None, bool, bool]] = []
     copies: list[str] = []
     for tree in modules:
-        _collect_writes(tree, False, _Scan(decorators, local[id(tree)], writes, copies))
-    targets = frozenset(name for name, _ in writes if name is not None)
-    untied = sum(1 for name, inside in writes if not inside and (name is None or name not in definitions))
+        accepted, aliases = _project_imports(tree, definitions)
+        scan = _Scan(decorators, definitions, local[id(tree)] | accepted, aliases, writes, copies)
+        _collect_writes(tree, False, frozenset(), scan)
+    targets = frozenset(name for name, _, hidden in writes if name is not None and not hidden)
+    untied = sum(
+        1 for name, inside, hidden in writes if not inside and (name is None or hidden or name not in definitions)
+    )
     untied += sum(1 for name in copies if name in targets)
     return ProjectOptionWrites(targets, untied)
+
+
+def _project_imports(tree: ast.Module, definitions: set[str]) -> tuple[set[str], set[str]]:
+    """모듈이 프로젝트에서 가져온 이름을 모은다(리터럴이 아닌 쓰기의 대상으로 받는 이름).
+
+    `from views import index`·`from views import index as home`처럼 프로젝트 정의 이름을 가져온 묶음과,
+    `views.index`처럼 쓸 수 있는 모듈 별칭(`import views`)이다. 모듈이 프로젝트 것인지는 따지지 않고 가져온 이름이
+    프로젝트 정의 이름인지만 본다.
+
+    Args:
+        tree: 모듈 구문 트리.
+        definitions: 프로젝트의 함수·클래스 이름.
+
+    Returns:
+        (가져온 정의 이름의 묶음, 모듈 별칭).
+    """
+    names: set[str] = set()
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(alias.asname or alias.name for alias in node.names if alias.name in definitions)
+        elif isinstance(node, ast.Import):
+            aliases.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+    return names, aliases
 
 
 def stores_options(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda) -> bool:
@@ -101,33 +129,42 @@ class _Scan:
 
     Attributes:
         decorators: 프로젝트에서 장식자로 쓰는 이름.
-        local: 이 모듈에서 정의한 함수·클래스 이름.
-        writes: 모을 (대상 끝 이름, 장식자 안인지) 목록.
+        definitions: 프로젝트의 함수·클래스 이름.
+        accepted: 이 모듈에서 리터럴이 아닌 쓰기의 대상으로 받는 이름(이 모듈의 정의와 프로젝트에서 가져온 정의 이름).
+        aliases: 이 모듈의 모듈 별칭(`views.index`의 `views`).
+        writes: 모을 (대상 끝 이름, 장식자 안인지, 지역 이름인지) 목록.
         copies: 모을 `__dict__` 출처 이름 목록.
     """
 
     decorators: set[str]
-    local: set[str]
-    writes: list[tuple[str | None, bool]]
+    definitions: set[str]
+    accepted: set[str]
+    aliases: set[str]
+    writes: list[tuple[str | None, bool, bool]]
     copies: list[str]
 
 
-def _collect_writes(node: ast.AST, inside: bool, scan: _Scan) -> None:
-    """노드 아래의 옵션 쓰기를 (대상 끝 이름, 장식자 안인지)로, `wraps`·`update_wrapper`가 옮겨 오는 이름을 모은다.
+def _collect_writes(node: ast.AST, inside: bool, hidden: frozenset[str], scan: _Scan) -> None:
+    """노드 아래의 옵션 쓰기를 (대상 끝 이름, 장식자 안인지, 지역 이름인지)로, `wraps`·`update_wrapper`가 옮겨 오는
+    이름을 모은다.
 
-    장식자 이름으로 쓰는 함수·클래스 본문과 장식자 목록 안 식(람다 장식자)은 장식자 안이다. 속성 이름·열쇠가 리터럴이
-    아닌 쓰기(`setattr(user, name, value)`)는 대상이 이 모듈에서 정의한 함수·클래스일 때만 옵션 쓰기로 본다(사용자·모델
-    객체의 흔한 쓰기를 옵션으로 세지 않는다). 장식자 본문 안의 `wraps(f)`는 장식자 판정이 맡으므로 넣지 않는다.
+    장식자 이름으로 쓰는 함수·클래스 본문과 장식자 목록 안 식(람다 장식자)은 장식자 안이다. 감싼 함수의 매개변수·지역
+    대입 이름(`hidden`)은 같은 이름의 프로젝트 함수가 있어도 그 함수가 아니므로 묶지 못한 쓰기다. 속성 이름·열쇠가
+    리터럴이 아닌 쓰기(`setattr(user, name, value)`)는 대상이 이 모듈의 정의나 프로젝트에서 가져온 정의
+    이름(`views.index` 포함)일 때만 옵션 쓰기로 본다(사용자·모델 객체의 흔한 쓰기를 옵션으로 세지 않는다). 장식자
+    본문 안의 `wraps(f)`는 장식자 판정이 맡으므로 넣지 않는다.
 
     Args:
         node: 구문 노드.
         inside: 장식자 안인지.
+        hidden: 감싼 함수들의 매개변수·지역 대입 이름.
         scan: 모듈 재료.
     """
     for target, certain in _option_targets_of(node):
         name = _last_name(target)
-        if name not in _SELF_NAMES and (certain or name in scan.local):
-            scan.writes.append((name, inside))
+        if name in _SELF_NAMES or not (certain or _accepted(target, name, scan)):
+            continue
+        scan.writes.append((name, inside, isinstance(target, ast.Name) and name in hidden))
     copied = _copied_from(node)
     if copied is not None and not inside:
         scan.copies.append(copied)
@@ -137,13 +174,50 @@ def _collect_writes(node: ast.AST, inside: bool, scan: _Scan) -> None:
             source = _copied_from(decorator)
             if source is not None and not inside:
                 scan.copies.append(source)
-            _collect_writes(decorator, True, scan)
+            _collect_writes(decorator, True, hidden, scan)
         inner = inside or node.name in scan.decorators
+        names = hidden if isinstance(node, ast.ClassDef) else hidden | _function_locals(node)
         for statement in node.body:
-            _collect_writes(statement, inner, scan)
+            _collect_writes(statement, inner, names, scan)
         return
     for child in ast.iter_child_nodes(node):
-        _collect_writes(child, inside, scan)
+        _collect_writes(child, inside, hidden, scan)
+
+
+def _accepted(target: ast.expr, name: str | None, scan: _Scan) -> bool:
+    """리터럴이 아닌 쓰기의 대상이 이 모듈의 정의·가져온 프로젝트 정의 이름인지 본다.
+
+    Args:
+        target: 쓰기 대상 식.
+        name: 대상 끝 이름.
+        scan: 모듈 재료.
+
+    Returns:
+        받으면 True.
+    """
+    if isinstance(target, ast.Name):
+        return target.id in scan.accepted
+    root = target.value if isinstance(target, ast.Attribute) else None
+    return isinstance(root, ast.Name) and root.id in scan.aliases and name in scan.definitions
+
+
+def _function_locals(function: ast.FunctionDef | ast.AsyncFunctionDef) -> frozenset[str]:
+    """함수의 매개변수와 본문(안쪽 정의 포함)에서 대입으로 묶는 이름이다.
+
+    Args:
+        function: 함수 정의.
+
+    Returns:
+        이름 집합.
+    """
+    arguments = function.args
+    names = {argument.arg for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
+    names.update(argument.arg for argument in (arguments.vararg, arguments.kwarg) if argument is not None)
+    for statement in function.body:
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.add(node.id)
+    return frozenset(names)
 
 
 def _option_targets_of(node: ast.AST) -> list[tuple[ast.expr, bool]]:
