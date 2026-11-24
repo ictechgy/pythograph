@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -379,6 +380,989 @@ def test_view_classes_and_unknown_methods(make_project: Callable[[dict[str, str]
     assert {"limitationIndex": 0, "methods": ["GET", "HEAD"], "templatePrefixes": ["/assets"]} in document[
         "limitationScopes"
     ]  # type: ignore[operator]
+
+
+#: method를 확정하지 못한 Flask 뷰의 한계 문장이다(`{count}` 자리).
+UNKNOWN_VIEW_METHODS = (
+    "route-coverage: {count} Flask views accept methods that could not be determined statically and were emitted "
+    "as ANY or as their known methods"
+)
+
+
+def test_unresolved_view_without_methods_is_any(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`methods` 없이 등록한 모르는 뷰 식은 GET이 아니라 `ANY`다.
+
+    `add_url_rule`은 `methods`가 없으면 `view_func.methods`를 먼저 보고 없을 때만 GET을 쓴다. 다시 묶은 변수의
+    `Hook.as_view("hook")`(post만 정의), 감싼 `login_required(Put.as_view("put"))`, 외부 함수, 모르는 기반 클래스 뷰를
+    GET으로 내고 "ANY로 냈다"는 한계를 붙여, Flask가 405로 거부하는 GET 사실을 만들고 받는 POST·PUT은 빠뜨렸다.
+    그 자리에서 만든 람다와 None은 속성이 없어 GET이 맞고 한계도 세지 않는다. `methods`를 준 등록은 그 동사 그대로다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView, View
+        from ext import ExtMixin, login_required, webhook
+        app = Flask(__name__, static_folder=None)
+        class Hook(MethodView):
+            def post(self):
+                pass
+        class Put(MethodView):
+            def put(self):
+                pass
+        class Mixed(ExtMixin, View):
+            def dispatch_request(self):
+                pass
+        class Bare(ExtMixin, MethodView):
+            pass
+        hook_view = Hook.as_view("hook")
+        hook_view = login_required(hook_view)
+        app.add_url_rule("/hook", view_func=hook_view)
+        app.add_url_rule("/put", view_func=login_required(Put.as_view("put")))
+        app.add_url_rule("/webhook", "webhook", webhook)
+        app.add_url_rule("/mixed", view_func=Mixed.as_view("mixed"))
+        app.add_url_rule("/bare", view_func=Bare.as_view("bare"))
+        app.add_url_rule("/declared", view_func=hook_view, methods=["POST"])
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/hook", False, None),
+        ("ANY", "/put", False, None),
+        ("ANY", "/webhook", False, None),
+        ("ANY", "/mixed", False, "app.py#Mixed.dispatch_request"),
+        ("ANY", "/bare", False, None),
+        ("POST", "/declared", False, None),
+    }
+    assert sorted((text, scope["templates"]) for text, scope in scoped_limitations(document)) == [
+        (UNKNOWN_VIEW_METHODS.format(count=1), [path])
+        for path in sorted(("/hook", "/put", "/webhook", "/mixed", "/bare", "/declared"))
+    ]
+    lambda_root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        app.add_url_rule("/lambda", "lambda", lambda: "")
+        app.add_url_rule("/none", "none", None)
+        app.add_url_rule("/none-keyword", endpoint="none_keyword", view_func=None, methods=["DELETE"])
+    """,
+        }
+    )
+    lambda_document = routes_document(lambda_root)
+    assert fact_rows(lambda_document) == {
+        ("GET", "/lambda", False, None),
+        ("GET", "/none", False, None),
+        ("DELETE", "/none-keyword", False, None),
+    }
+    assert not any(str(text).startswith("route-coverage:") for text in lambda_document["limitations"])  # type: ignore[union-attr]
+
+
+def test_single_bound_class_view_variable_keeps_class_methods(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """한 번만 묶인 모듈 변수에 담은 `Cls.as_view(...)`는 그 클래스의 method와 핸들러를 낸다.
+
+    Flask 문서의 `view = UserAPI.as_view(...)` 모양이다. post만 정의한 `Hook`을 변수로 등록하면 Flask는 POST만 받는데
+    `ANY`와 한계로 냈다. 그 변수에 옵션 속성을 쓰거나(`marked.methods = …`) 다시 묶으면 여전히 모른다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        class Hook(MethodView):
+            def post(self):
+                pass
+        hook_view = Hook.as_view("hook")
+        app.add_url_rule("/hook", view_func=hook_view)
+        app.add_url_rule("/hook-get", view_func=hook_view, methods=["GET"])
+        marked = Hook.as_view("marked")
+        marked.methods = ["PUT"]
+        app.add_url_rule("/marked", view_func=marked)
+        twice = Hook.as_view("twice")
+        twice = Hook.as_view("again")
+        app.add_url_rule("/twice", view_func=twice)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("POST", "/hook", False, "app.py#Hook.post"),
+        ("GET", "/hook-get", False, None),
+        ("ANY", "/marked", False, None),
+        ("ANY", "/twice", False, None),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == ["/marked", "/twice"]
+
+
+def test_view_function_options_make_methods_unknown(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """뷰 함수 옵션 속성(`methods`·`required_methods`)을 쓰면 프로젝트 함수라도 method를 모른다.
+
+    Flask 문서("View Function Options")대로 `add_url_rule`은 `view_func.methods`·`required_methods`를 읽는다. 모듈의
+    `doc_index.methods = ["POST"]`·`setattr(…, "methods", …)`, `required_methods`, `@app.route` 아래에서 옵션을 다는
+    장식자(팩토리 포함)를 무시하고 GET만 냈다(Flask는 POST·DELETE·PUT, `required_methods`는 GET·POST). `@app.route` 위의
+    장식자는 등록 뒤에 감싸므로 GET이 맞다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import functools
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        def doc_index():
+            pass
+        doc_index.methods = ["POST"]
+        app.add_url_rule("/docattr", view_func=doc_index)
+        def req():
+            pass
+        req.required_methods = ["POST"]
+        app.add_url_rule("/required", view_func=req, methods=["GET"])
+        def set_methods(f):
+            f.methods = ["POST"]
+            return f
+        @app.route("/stacked")
+        @set_methods
+        def stacked():
+            pass
+        def via_setattr():
+            pass
+        setattr(via_setattr, "methods", ["DELETE"])
+        app.add_url_rule("/setattr", view_func=via_setattr)
+        def wraps_methods(verb):
+            def decorate(f):
+                @functools.wraps(f)
+                def wrapper(*args, **kwargs):
+                    return f(*args, **kwargs)
+                wrapper.methods = [verb]
+                return wrapper
+            return decorate
+        @app.route("/factory")
+        @wraps_methods("PUT")
+        def factory_decorated():
+            pass
+        @set_methods
+        @app.route("/above")
+        def above():
+            pass
+        def plain():
+            pass
+        app.add_url_rule("/plain", view_func=plain)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/docattr", False, "app.py#doc_index"),
+        ("GET", "/required", False, "app.py#req"),
+        ("ANY", "/stacked", False, "app.py#stacked"),
+        ("ANY", "/setattr", False, "app.py#via_setattr"),
+        ("ANY", "/factory", False, "app.py#factory_decorated"),
+        ("GET", "/above", False, "app.py#above"),
+        ("GET", "/plain", False, "app.py#plain"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == [
+        "/docattr",
+        "/factory",
+        "/required",
+        "/setattr",
+        "/stacked",
+    ]
+
+
+def test_view_option_targets_and_block_targets() -> None:
+    """옵션 속성 쓰기는 대입·주석 대입·누적 대입·`setattr`(이름이 리터럴이 아니어도)·`__dict__`·`vars` 쓰기의 끝
+    이름으로 찾고, 프로젝트 함수·클래스에 묶지 못한 쓰기와 그 대상의 `wraps`를 센다. 블록 문장이 묶는 이름
+    (`with … as`, 예외 이름, `match` 캡처)은 함수 지역 묶음으로 가린다."""
+    tree = ast.parse(
+        "a.methods = 1\n"
+        "pkg.b.required_methods: list = []\n"
+        "c.methods += ['X']\n"
+        "setattr(d, name, 1)\n"
+        "setattr(e, 'methods', 1)\n"
+        "setattr(f, 'other', 1)\n"
+        "make().methods = 1\n"
+        "g.methods[0] = 'GET'\n"
+        "h.other = 1\n"
+        "i.__dict__['methods'] = 1\n"
+        "vars(j).update(methods=1)\n"
+        "k.__dict__.update(other=1)\n"
+        "l.__dict__.update(options)\n"
+        "self.methods = 1\n"
+        "functools.wraps(a)\n"
+        "functools.update_wrapper(w, zz)\n"
+        "def tied():\n    pass\n"
+        "tied.methods = 1\n"
+        "def dynamic():\n    pass\n"
+        "setattr(dynamic, name, 1)\n"
+    )
+    writes = flask_extract.scan_option_writes([tree])
+    # 이름이 리터럴이 아닌 쓰기(`setattr(d, name, 1)`, `l.__dict__.update(options)`)는 이 모듈의 함수에만 묶는다.
+    assert writes.targets == {"a", "b", "c", "e", "i", "j", "tied", "dynamic"}
+    assert writes.untied == 8
+    decorator, harmless = ast.parse(
+        "def deco(f):\n    def wrapper():\n        pass\n    wrapper.required_methods = ['PUT']\n    return wrapper\n"
+        "def harmless(f):\n    f.other = 1\n    return f\n"
+    ).body
+    assert isinstance(decorator, ast.FunctionDef) and isinstance(harmless, ast.FunctionDef)
+    assert flask_extract.stores_options(decorator) and not flask_extract.stores_options(harmless)
+    blocks = ast.parse(
+        "with open(p) as handle:\n    pass\n"
+        "try:\n    pass\nexcept ValueError as error:\n    pass\n"
+        "match value:\n    case [first, *rest]:\n        pass\n    case {'k': 1, **others}:\n        pass\n"
+        "    case Point(x=captured) as whole:\n        pass\n"
+    ).body
+    names = {
+        node.id
+        for statement in blocks
+        for node in flask_extract._block_targets(statement)
+        if isinstance(node, ast.Name)
+    }
+    assert names == {"handle", "error", "first", "rest", "others", "captured", "whole"}
+
+
+def test_call_form_registrations_are_emitted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """알려진 앱에 장식자를 직접 부른 등록(`app.route(rule)(view)`, `app.post(rule)(view)`)은 `add_url_rule`처럼 낸다.
+
+    대입·주석 대입의 값이나 문장으로 쓴 모양이 사실도 한계도 없이 사라졌다(Flask는 모두 등록한다). 모르는 수신자의
+    `get(…)(…)`은 사전 조회 결과 호출(`handlers.get(name)(request)`)과 같은 모양이라 보지 않는다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        def view():
+            pass
+        def posted():
+            pass
+        def third():
+            pass
+        def annotated():
+            pass
+        view2 = app.route("/assigned")(view)
+        posted_view = app.post("/assigned-post")(posted)
+        app.get("/shortcut-expr")(third)
+        registered: object = app.route("/ann", methods=["PUT"])(annotated)
+        handlers = {}
+        def dispatch(name, request):
+            return handlers.get(name)(request)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/assigned", False, "app.py#view"),
+        ("POST", "/assigned-post", False, "app.py#posted"),
+        ("GET", "/shortcut-expr", False, "app.py#third"),
+        ("PUT", "/ann", False, "app.py#annotated"),
+    }
+    assert not any(str(text).startswith("route-coverage:") for text in document["limitations"])  # type: ignore[union-attr]
+
+
+def test_registrations_inside_other_blocks_are_emitted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """`match`·`while`·`async with`·`try … except*` 블록 안 등록도 `if`·`try` 안처럼 낸다(전에는 한계 없이 사라졌다).
+
+    `except*`는 3.11 문법이라 3.10에서는 그 파일만 파싱하지 못한 소스가 된다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import os
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        match os.environ.get("MODE"):
+            case "a":
+                @app.route("/match")
+                def matched():
+                    pass
+            case _:
+                pass
+        while not app.url_map:
+            @app.route("/while")
+            def looped():
+                pass
+        async def setup(lock):
+            async with lock:
+                @app.route("/asyncwith")
+                def guarded():
+                    pass
+    """,
+            "star.py": """
+        from app import app
+        try:
+            @app.route("/trystar")
+            def starred():
+                pass
+        except* ValueError:
+            pass
+    """,
+        }
+    )
+    expected = {
+        ("GET", "/match", False, "app.py#matched"),
+        ("GET", "/while", False, "app.py#looped"),
+        ("GET", "/asyncwith", False, "app.py#setup.guarded"),
+    }
+    if sys.version_info >= (3, 11):
+        expected.add(("GET", "/trystar", False, "star.py#starred"))
+    assert fact_rows(routes_document(root)) == expected
+
+
+#: 앱·블루프린트로 찾지 못한 수신자나 모델링하지 않은 모양의 등록 한계 문장이다(`{count}` 자리).
+UNMODELED_REGISTRATIONS = (
+    "route-coverage: {count} route registrations (route, add_url_rule or a method shortcut) go through an object "
+    "that is not a known Flask app or blueprint (a parameter, attribute, call result, Flask subclass instance or app "
+    "imported from another package) or use a form that is not modeled, so their routes were not emitted"
+)
+
+
+def test_registrations_on_unknown_receivers_are_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """앱·블루프린트로 찾지 못한 수신자의 등록은 사실이 아니라 한계로 센다.
+
+    `app = create_app()`(팩토리 결과)에 단 `@app.route`·`@app.post`, 헬퍼 매개변수의 `app.add_url_rule`,
+    `current_app.add_url_rule`, 다른 패키지에서 import한 앱, Flask 하위 클래스 인스턴스, 모르는 수신자의
+    `x.route(rule)(view)`가 사실도 한계도 없이 사라져 빈 문서가 완전한 결과처럼 읽혔다. 테스트 대역(`mock.patch`)과
+    지원하지 않는 서버 프레임워크의 이름·인스턴스(`bottle.route`, 모듈·함수 안의 `FastAPI()`·`APIRouter()`·
+    `bottle.Bottle()`·`Quart()`)는 그 import 한계가 이미 세므로 세지 않는다. 알려진 앱의 `route(rule)(view)`는 낸다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "factory.py": """
+        from flask import Flask
+        def create_app():
+            built = Flask(__name__, static_folder=None)
+            return built
+    """,
+            "wsgi.py": """
+        from unittest import mock
+        import bottle
+        from fastapi import APIRouter, FastAPI
+        from quart import Quart
+        from externalpkg.web import shared_app
+        from flask import Flask, current_app
+        from factory import create_app
+        app = create_app()
+        known = Flask(__name__, static_folder=None)
+        class MyFlask(Flask):
+            pass
+        sub = MyFlask(__name__)
+        router = APIRouter()
+        fast = FastAPI()
+        bot = bottle.Bottle()
+        quart_app = Quart(__name__)
+        @app.route("/health")
+        def health():
+            pass
+        @app.post("/hook")
+        def hook():
+            pass
+        def register(target):
+            target.add_url_rule("/helper", view_func=health)
+            target.route("/helper-call")(health)
+        def late():
+            current_app.add_url_rule("/late", view_func=health)
+        @shared_app.route("/external-app")
+        def external():
+            pass
+        @sub.route("/sub")
+        def subclassed():
+            pass
+        known.route("/call")(health)
+        @known.get("/known")
+        def emitted():
+            pass
+        @mock.patch("os.getcwd")
+        def patched(getcwd):
+            pass
+        @bottle.route("/bottle")
+        def bottled():
+            pass
+        @router.get("/router")
+        def routed():
+            pass
+        @fast.post("/fast")
+        def fasted():
+            pass
+        @bot.route("/bot")
+        def botted():
+            pass
+        @quart_app.route("/quart")
+        async def quarted():
+            pass
+        def local_framework():
+            local = FastAPI()
+            @local.get("/local")
+            def inner():
+                pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/call", False, "wsgi.py#health"),
+        ("GET", "/known", False, "wsgi.py#emitted"),
+    }
+    assert UNMODELED_REGISTRATIONS.format(count=7) in document["limitations"]  # type: ignore[operator]
+
+
+def test_class_bodies_are_walked(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """클래스 본문과 메서드 안 등록도 본다: 알려진 앱이면 사실, 아니면 한계다.
+
+    Flask 확장의 `init_app(self, app)`·`self.app.add_url_rule`, 클래스 본문의 `@app.route`, 메서드 안에서 만든 앱의
+    등록이 걷개가 클래스에 들어가지 않아 사실도 한계도 없었다(Flask는 모두 등록한다). 클래스 본문의
+    `app = Blueprint(…)`는 메서드에서 이름으로 보이지 않으므로 메서드의 `app`은 모듈 앱이다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Blueprint, Flask
+        app = Flask(__name__, static_folder=None)
+        def ext_view():
+            pass
+        class Ext:
+            def __init__(self, target=None):
+                self.app = target
+                if target is not None:
+                    self.init_app(target)
+            def init_app(self, target):
+                target.add_url_rule("/ext", view_func=ext_view)
+                self.app.add_url_rule("/selfapp", view_func=ext_view, endpoint="selfapp")
+        class Api:
+            @app.route("/inclass", methods=["PATCH"])
+            def handler():
+                pass
+        class Builder:
+            app = Blueprint("holder", __name__, url_prefix="/holder")
+            def build(self):
+                local = Flask(__name__, static_folder=None)
+                local.add_url_rule("/built", view_func=ext_view)
+                app.add_url_rule("/module-app", view_func=ext_view, endpoint="module_app")
+        Ext(app)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("PATCH", "/inclass", False, "app.py#Api.handler"),
+        ("GET", "/built", False, "app.py#ext_view"),
+        ("GET", "/module-app", False, "app.py#ext_view"),
+    }
+    assert {fact["pathAnchor"] for fact in document["facts"]} == {"root"}  # type: ignore[union-attr]
+    assert UNMODELED_REGISTRATIONS.format(count=2) in document["limitations"]  # type: ignore[operator]
+
+
+def test_hidden_names_are_not_resolved_to_module_objects(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """매개변수·지역 대입·클래스 본문 대입이 가린 이름은 같은 이름의 모듈 변수·앱·블루프린트로 풀지 않는다.
+
+    모듈 `view = Getter.as_view(…)`(get만)을 매개변수·지역 `view`(Poster, post만)에 써서 Flask가 POST만 받는 `/poster`·
+    `/poster2`를 `Getter.get`의 GET으로 냈고, 클래스 본문의 `bp`·메서드·함수 매개변수 `bp`를 모듈 `bp`(접두사 `/main`)로
+    풀어 Flask의 `/admin/panel`·`/api/items` 대신 `/main/…`을 냈다. 가린 이름의 등록은 세고, 모르는 뷰는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Blueprint, Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        bp = Blueprint("main", __name__, url_prefix="/main")
+        api_bp = Blueprint("api", __name__, url_prefix="/api")
+        class Getter(MethodView):
+            def get(self):
+                pass
+        class Poster(MethodView):
+            def post(self):
+                pass
+        def poster():
+            pass
+        poster.methods = ["POST"]
+        def items():
+            pass
+        view = Getter.as_view("getter")
+        app.add_url_rule("/getter", view_func=view)
+        def register(rule, view):
+            app.add_url_rule(rule, view_func=view)
+        def factory():
+            view = Poster.as_view("poster2")
+            app.add_url_rule("/poster2", view_func=view)
+            items = poster
+            app.add_url_rule("/function", view_func=items)
+        class Admin:
+            bp = Blueprint("admin", __name__, url_prefix="/admin")
+            @bp.route("/panel")
+            def panel():
+                pass
+        class Api:
+            def register(self, bp):
+                bp.add_url_rule("/items", view_func=items)
+        def attach(bp):
+            bp.add_url_rule("/attached", view_func=items)
+        app.register_blueprint(bp)
+        app.register_blueprint(api_bp)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/getter", False, "app.py#Getter.get"),
+        ("ANY", None, True, None),
+        ("ANY", "/poster2", False, None),
+        ("ANY", "/function", False, None),
+    }
+    assert UNMODELED_REGISTRATIONS.format(count=3) in document["limitations"]  # type: ignore[operator]
+
+
+#: 프로젝트 함수·클래스에 묶지 못한 뷰 옵션 속성 쓰기의 한계 문장이다(`{count}` 자리).
+UNTIED_OPTION_WRITES = (
+    "route-coverage: {count} writes of the Flask view options methods or required_methods go through a name that is "
+    "not a project function or class (an alias, loop variable, parameter, __dict__ or vars, functools.wraps or "
+    "update_wrapper), so views registered without methods may accept other methods than the emitted GET"
+)
+
+
+def test_decorators_outside_module_level_are_checked(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """앱 팩토리 안·클래스 본문·클래스 멤버(`staticmethod`)·클래스 장식자와 매개변수 장식자도 옵션 속성 판정에 든다.
+
+    모듈 수준 함수 장식자만 풀어 Flask가 POST만 받는 뷰를 한계 없이 GET으로 냈다. 프로젝트 밖 장식자와 그 객체의
+    메서드(`cache.cached`, 지역 `limiter = Limiter(app)`의 `limiter.limit`)는 그대로 GET이다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        import functools
+        from flask import Flask
+        from flask_caching import Cache
+        from flask_limiter import Limiter
+        from somelib import make_decorator
+        app = Flask(__name__, static_folder=None)
+        cache = Cache(app)
+        class Decos:
+            @staticmethod
+            def post_only(f):
+                f.methods = ["POST"]
+                return f
+        class Plain:
+            @staticmethod
+            def harmless(f):
+                return f
+        class PostOnly:
+            def __init__(self, f):
+                functools.update_wrapper(self, f)
+                self.methods = ["POST"]
+        def create(deco):
+            def local_post(f):
+                f.methods = ["POST"]
+                return f
+            def local_harmless(f):
+                return f
+            limiter = Limiter(app)
+            external_local = make_decorator()
+            @app.route("/factory-deco")
+            @local_post
+            def factory_view():
+                pass
+            @app.route("/factory-harmless")
+            @local_harmless
+            def factory_harmless():
+                pass
+            @app.route("/external-local")
+            @external_local
+            def external_local_view():
+                pass
+            @app.route("/param-deco")
+            @deco
+            def param_view():
+                pass
+            @app.route("/limited")
+            @limiter.limit("1/second")
+            def limited():
+                pass
+        @app.route("/static-deco")
+        @Decos.post_only
+        def static_view():
+            pass
+        class Views:
+            def body_post(f):
+                f.methods = ["POST"]
+                return f
+            @app.route("/class-deco")
+            @body_post
+            def class_view():
+                pass
+        @app.route("/class-based")
+        @PostOnly
+        def class_based():
+            pass
+        @app.route("/cached")
+        @cache.cached(timeout=5)
+        def cached():
+            pass
+        @app.route("/member")
+        @Plain.harmless
+        def member():
+            pass
+        @app.route("/lambda-harmless")
+        @(lambda f: f)
+        def lambda_harmless():
+            pass
+        @app.route("/undefined")
+        @undefined_decorator
+        def undefined():
+            pass
+    """,
+        }
+    )
+    rows = fact_rows(routes_document(root))
+    assert rows == {
+        ("ANY", "/factory-deco", False, "app.py#create.factory_view"),
+        ("ANY", "/param-deco", False, "app.py#create.param_view"),
+        ("GET", "/limited", False, "app.py#create.limited"),
+        ("ANY", "/static-deco", False, "app.py#static_view"),
+        ("ANY", "/class-deco", False, "app.py#Views.class_view"),
+        ("ANY", "/class-based", False, "app.py#class_based"),
+        ("GET", "/cached", False, "app.py#cached"),
+        ("GET", "/member", False, "app.py#member"),
+        ("GET", "/factory-harmless", False, "app.py#create.factory_harmless"),
+        ("GET", "/external-local", False, "app.py#create.external_local_view"),
+        ("GET", "/lambda-harmless", False, "app.py#lambda_harmless"),
+        ("ANY", "/undefined", False, "app.py#undefined"),
+    }
+
+
+def test_indirect_option_writes_are_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """프로젝트 함수·클래스 이름에 묶지 못한 옵션 속성 쓰기는 스코프 없는 한계로 세고, 묶을 수 있는 쓰기는 그 뷰를
+    모른다.
+
+    별칭(`f = view`)·반복 변수·장식자가 아닌 함수의 매개변수에 쓰는 것과 옵션을 쓴 함수의 `functools.wraps`는 어느 뷰에
+    닿는지 몰라 GET 사실에 한계 없이 남았다. 다른 모듈(`tweak.py`)의 `view.methods = …`, `__dict__`·`vars` 쓰기,
+    `setattr` 람다 장식자, 클래스 본문 밖 `Hook.methods = …`는 그 뷰를 `ANY`로 만든다(Flask는 모두 다른 method다).
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "views.py": """
+        def shared():
+            pass
+    """,
+            "tweak.py": """
+        from views import shared
+        shared.methods = ["POST"]
+    """,
+            "app.py": """
+        import functools
+        from flask import Flask
+        from flask.views import MethodView
+        from views import shared
+        app = Flask(__name__, static_folder=None)
+        def alias_target():
+            pass
+        f = alias_target
+        f.methods = ["POST"]
+        def index():
+            pass
+        for fn in (index,):
+            fn.methods = ["POST"]
+        def helper(target, verb):
+            target.methods = [verb]
+            return target
+        def base():
+            pass
+        base.methods = ["POST"]
+        @functools.wraps(base)
+        def wrapped():
+            pass
+        def via_dict():
+            pass
+        via_dict.__dict__["methods"] = ["POST"]
+        def via_vars():
+            pass
+        vars(via_vars).update(methods=["POST"])
+        class Hook(MethodView):
+            def post(self):
+                pass
+            def put(self):
+                pass
+        Hook.methods = {"PUT"}
+        app.add_url_rule("/alias", view_func=alias_target)
+        app.add_url_rule("/loop", view_func=index)
+        app.add_url_rule("/wraps", view_func=wrapped)
+        app.add_url_rule("/third", view_func=shared)
+        app.add_url_rule("/dict", view_func=via_dict)
+        app.add_url_rule("/vars", view_func=via_vars)
+        app.add_url_rule("/hook", view_func=Hook.as_view("hook"))
+        @app.route("/lambda")
+        @(lambda target: setattr(target, "methods", ["PATCH"]) or target)
+        def lambda_decorated():
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/alias", False, "app.py#alias_target"),
+        ("GET", "/loop", False, "app.py#index"),
+        ("GET", "/wraps", False, "app.py#wrapped"),
+        ("ANY", "/third", False, "views.py#shared"),
+        ("ANY", "/dict", False, "app.py#via_dict"),
+        ("ANY", "/vars", False, "app.py#via_vars"),
+        ("ANY", "/hook", False, None),
+        ("ANY", "/lambda", False, "app.py#lambda_decorated"),
+    }
+    assert UNTIED_OPTION_WRITES.format(count=4) in document["limitations"]  # type: ignore[operator]
+
+
+def test_decorator_option_checks_are_remembered(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 프로젝트 장식자를 쓰는 등록마다 장식자 본문을 다시 걷지 않는다(등록 수 × 본문 크기였다)."""
+    views = "".join(f'@app.route("/r{index}")\n@deco\ndef view_{index}():\n    pass\n' for index in range(40))
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\napp = Flask(__name__, static_folder=None)\n"
+            "def deco(f):\n    return f\n" + views,
+        }
+    )
+    calls: list[str] = []
+    original = flask_extract.stores_options
+
+    def counting(node: ast.AST) -> bool:
+        """부른 정의를 기록하고 원래 판정을 돌려준다."""
+        calls.append(getattr(node, "name", "lambda"))
+        return original(node)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(flask_extract, "stores_options", counting)
+    assert len(fact_rows(routes_document(root))) == 40
+    assert calls == ["deco"]
+
+
+def test_more_registration_shapes_are_emitted_or_counted(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """겹친 장식자 호출과 `for … else`는 사실로 내고, 걷개의 모양 밖 등록(`return`·목록 원소·인자·바다코끼리·별칭·
+    클래스에 단 `@app.route`)은 센다. 함수 안 `r: APIRouter = APIRouter()`와 메서드 안 `self.router = APIRouter()`의
+    등록은 프레임워크 import 한계가 이미 세므로 세지 않는다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from fastapi import APIRouter
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        def view():
+            pass
+        app.route("/outer")(app.route("/inner")(view))
+        for _ in []:
+            pass
+        else:
+            app.add_url_rule("/forelse", "forelse", view)
+        def returned():
+            return app.route("/returned")(view)
+        registered = [app.route("/listed")(view)]
+        print(app.add_url_rule("/argument", "argument", view))
+        if (walrus := app.route("/walrus")):
+            walrus(view)
+        alias = app.get
+        alias("/alias")(view)
+        @app.route("/klass")
+        class Klass:
+            pass
+        def make():
+            router: APIRouter = APIRouter()
+            @router.get("/annotated")
+            def annotated():
+                pass
+        class Service:
+            def __init__(self):
+                self.router = APIRouter()
+                @self.router.post("/self-router")
+                def posted():
+                    pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/outer", False, "app.py#view"),
+        ("GET", "/inner", False, "app.py#view"),
+        ("GET", "/forelse", False, "app.py#view"),
+    }
+    assert UNMODELED_REGISTRATIONS.format(count=6) in document["limitations"]  # type: ignore[operator]
+
+
+def test_decorators_on_factory_objects_and_builtins(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """프로젝트 함수가 돌려준 객체의 메서드 장식자(`guard = make_guard()` 뒤 `@guard.allow("POST")`)는 그 객체의
+    클래스를 모르므로 옵션을 달 수 있다고 보고, 내장 장식자(`staticmethod`)와 겹친 등록 장식자는 달지 않는다고 본다.
+
+    팩토리 본문만 보고 GET으로 냈다(Flask는 POST·PUT). 반대로 `@app.route` 아래 `@staticmethod`는 풀지 못한 장식자로
+    보아 `ANY`였다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        app = Flask(__name__, static_folder=None)
+        class Guard:
+            def allow(self, *verbs):
+                def decorate(f):
+                    f.methods = list(verbs)
+                    return f
+                return decorate
+        def make_guard():
+            return Guard()
+        def make_api():
+            return Flask("api")
+        guard = make_guard()
+        api = make_api()
+        @app.route("/q3a")
+        @guard.allow("POST")
+        def module_guarded():
+            pass
+        def create():
+            local_guard = make_guard()
+            @app.route("/q3b")
+            @local_guard.allow("PUT")
+            def factory_guarded():
+                pass
+        instance = Guard()
+        @app.route("/q3c")
+        @instance.allow("DELETE")
+        def instance_guarded():
+            pass
+        class Holder:
+            @app.route("/static")
+            @staticmethod
+            def static_view():
+                pass
+        @app.route("/stacked")
+        @api.get("/stacked-api")
+        def stacked():
+            pass
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/q3a", False, "app.py#module_guarded"),
+        ("ANY", "/q3b", False, "app.py#create.factory_guarded"),
+        ("ANY", "/q3c", False, "app.py#instance_guarded"),
+        ("GET", "/static", False, "app.py#Holder.static_view"),
+        ("GET", "/stacked", False, "app.py#stacked"),
+    }
+
+
+def test_dynamic_and_parameter_option_writes(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """다른 모듈이 가져온 뷰에 리터럴이 아닌 이름으로 쓰는 옵션(`setattr(index, NAME, …)`, `about.__dict__[KEY] = …`,
+    `views.extra.__dict__[KEY]`)은 그 뷰를 모르게 하고, 프로젝트 함수와 이름만 같은 매개변수에 쓰는 것은 묶지 못한
+    쓰기로 센다(같은 이름의 뷰는 GET 그대로다).
+
+    같은 모듈에서 정의한 이름만 받아 GET이었고(Flask는 POST·PUT), 매개변수 `handler`를 프로젝트 함수 `handler`에 묶어
+    세지 않았다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "views.py": """
+        def index():
+            pass
+        def about():
+            pass
+        def extra():
+            pass
+        def handler():
+            pass
+        def plain():
+            pass
+    """,
+            "tweaks.py": """
+        import views
+        from views import about, index
+        NAME = "methods"
+        KEY = "methods"
+        setattr(index, NAME, ["POST"])
+        about.__dict__[KEY] = ["PUT"]
+        views.extra.__dict__[KEY] = ["PATCH"]
+        def set_methods(handler, *verbs):
+            handler.methods = list(verbs)
+        set_methods(views.plain, "POST")
+        def touch(user, name, value):
+            setattr(user, name, value)
+    """,
+            "app.py": """
+        from flask import Flask
+        import tweaks
+        from views import about, extra, handler, index, plain
+        app = Flask(__name__, static_folder=None)
+        app.add_url_rule("/q4a", view_func=index)
+        app.add_url_rule("/q4b", view_func=about)
+        app.add_url_rule("/extra", view_func=extra)
+        app.add_url_rule("/handler", view_func=handler)
+        app.add_url_rule("/q4c", view_func=plain)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/q4a", False, "views.py#index"),
+        ("ANY", "/q4b", False, "views.py#about"),
+        ("ANY", "/extra", False, "views.py#extra"),
+        ("GET", "/handler", False, "views.py#handler"),
+        ("GET", "/q4c", False, "views.py#plain"),
+    }
+    assert UNTIED_OPTION_WRITES.format(count=1) in document["limitations"]  # type: ignore[operator]
+
+
+def test_bare_references_walrus_and_nonlocal(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """등록 메서드의 단순 참조(`if app.get:`, `print(app.route)`, `app.route = …`)는 세지 않고, 바다코끼리 대입과 안쪽
+    함수의 `nonlocal` 재대입이 가린 블루프린트 이름은 바깥 객체로 풀지 않고 센다.
+
+    전에는 참조마다 모델링하지 않은 등록을 하나씩 셌고, `if (bp := other): bp.add_url_rule(…)`·
+    `nonlocal bp2; bp2 = other`를 모듈·바깥 함수의 블루프린트로 풀어 Flask의 `/other/…` 대신 `/main/walrus`·`/o2/nl`을
+    냈다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Blueprint, Flask
+        app = Flask(__name__, static_folder=None)
+        other = Blueprint("other", __name__, url_prefix="/other")
+        bp = Blueprint("main", __name__, url_prefix="/main")
+        def view():
+            pass
+        if app.get:
+            pass
+        print(app.route)
+        def walrus():
+            if (bp := other):
+                bp.add_url_rule("/walrus", "walrus", view)
+        def outer():
+            bp2 = Blueprint("o2", __name__, url_prefix="/o2")
+            def inner():
+                nonlocal bp2
+                bp2 = other
+            inner()
+            bp2.add_url_rule("/nl", "nl", view)
+            app.register_blueprint(bp2, name="o2reg")
+        app.add_url_rule("/real", "real", view)
+        app.register_blueprint(bp)
+        app.register_blueprint(other)
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {("GET", "/real", False, "app.py#view")}
+    assert UNMODELED_REGISTRATIONS.format(count=2) in document["limitations"]  # type: ignore[operator]
 
 
 def test_routing_extension_and_blueprint_static(make_project: Callable[[dict[str, str]], Path]) -> None:

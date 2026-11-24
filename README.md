@@ -106,7 +106,9 @@ Writes a bridge-facts v1 document to stdout: `platform: "python"`, `target: "htt
 - `--generated-at`: a fixed `generatedAt` for byte-identical output.
 - Exit codes: `0` success (zero facts is still success, not proof of completeness), `2` unreadable project,
   more than 100,000 facts, output over 16 Mi characters, or an internal error (the message states the cause
-  and a fix, never source text or absolute paths), `64` usage error. `1` is reserved.
+  and a fix, never source text or absolute paths), `64` usage error. `1` is reserved. The document goes straight to
+  the file under standard output, so output that cannot be written completely (a reader that closed the pipe, a
+  full disk or file size limit, a non-blocking pipe) is `2` also with `python -u` or `PYTHONUNBUFFERED`.
 
 Example (synthetic, compacted; the real output is key-sorted JSON with two-space indentation):
 
@@ -204,7 +206,36 @@ is unknown: a route string built from it is `dynamic`, a method list from it lea
 or `ANY` and a scoped `route-coverage:`, a conditional `FORCE_SCRIPT_NAME` gives the `base` anchor, and an
 `INSTALLED_APPS` changed this way gives an unscoped `framework-provided-routes:` limitation. A Flask app or blueprint
 bound to such a name may be a different object at run time, so the rules and blueprint registrations that go through
-that name get the `base` anchor with `unresolved-route-prefix:`.
+that name get the `base` anchor with `unresolved-route-prefix:`. Flask reads a view's `methods` and
+`required_methods` attributes ("View Function Options") before its `GET` default, so a view whose methods are not proven
+is `ANY` with a scoped `route-coverage:` (with `methods=` the declared verbs keep that limitation): a view wrapped in a
+call or held in a rebound or hidden variable, a view from outside the project, a view class with an unknown base or
+whose `methods` is assigned outside its body, and a function whose name gets one of those attributes anywhere in the
+project (assignment, `setattr`, `__dict__`, `vars`; a write with a computed attribute name or key counts only when its
+target is defined in the writing module or imported there from the project, as in `from views import index` or
+`views.index`) or that a decorator under the route may set them on: a project decorator function, factory, class
+(including `__call__` and a `methods` declaration), class member or lambda that writes them, a method of an object
+returned by a project function (`guard = make_guard()` then `@guard.allow(...)`), or a decorator that cannot be
+resolved, such as a parameter. Decorators from outside the project, built-ins such as `staticmethod`, and methods of
+objects built by outside constructors (`login_required`, `cache.cached`) are assumed not to set them. Writes that
+cannot be tied to a project function or class (an alias such as `f = view`, a loop variable, a parameter or local
+variable of the enclosing function even when it shares a name with a project function, `functools.wraps` or
+`update_wrapper` of a function with those attributes) leave the `GET` facts in place and are counted in one unscoped
+`route-coverage:`. An inline `lambda` or `None` is `GET`, and a module variable
+bound once to `View.as_view(...)` keeps the class's methods. Parameters, local assignments (including walrus targets),
+class-body assignments, and names an inner function rebinds through `nonlocal` hide outer apps, blueprints, and views
+of the same name, as in Python. `app.route(rule)(view)` and the method shortcuts
+called the same way (also nested) are emitted like `add_url_rule`; registrations in class bodies and methods and inside
+`match`, `while`, `async with`, `try … except*`, and `for … else` are read like the others, and registrations in
+functions or methods that are never called still produce facts (the same design as for app factories). Route
+registrations through an object that is not a known Flask app or blueprint (a parameter as in `def register(app)`,
+`self.app`, `app = create_app()`, `current_app`, an app imported from another package, a Flask subclass instance) and
+uses of a known app outside these shapes (`return app.route(rule)(view)`, a list element or call argument, a walrus,
+`x = app.get`, `@app.route` on a class; plain references such as `if app.get:` are not registrations) are not
+emitted; they are counted in an unscoped `route-coverage:`. Test
+doubles (`mock.patch`) and objects of the unsupported frameworks above (`FastAPI()`, `APIRouter()`, `Quart()`, also in
+function locals and `self.X` attributes) are not counted there, because the framework import limitation already covers
+them.
 
 ### Decisions
 

@@ -83,6 +83,21 @@ def _frameworks(tree: ast.Module, project: Project) -> set[str]:
     return found
 
 
+def unsupported_framework(dotted: str) -> str | None:
+    """외부 점 경로(모듈·모듈 안 이름)가 지원하지 않는 서버 프레임워크의 것이면 그 이름을 돌려준다.
+
+    Flask 추출기가 그 프레임워크의 라우터(`fastapi.APIRouter()`)에 단 등록을 모델링하지 않은 등록으로 두 번 세지 않게
+    쓴다(그 라우트는 이 모듈의 import 한계가 센다).
+
+    Args:
+        dotted: 외부 점 경로.
+
+    Returns:
+        프레임워크 이름 또는 None.
+    """
+    return _framework_of(dotted)
+
+
 def _framework_of(module: str) -> str | None:
     """점 경로가 지원하지 않는 서버 프레임워크(또는 그 하위 모듈)인지 본다.
 
