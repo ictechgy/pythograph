@@ -1103,9 +1103,17 @@ class A(Base, metaclass=M):
     (walrused := 3)
     comprehension = [inner for inner in range(3)]
     lambda_ = lambda bound=4: bound
+    snapshot = vars(other_object)
+    def inspect(self):
+        return vars(), locals()
 """
     node = ast.parse(source).body[0]
     assert isinstance(node, ast.ClassDef)
+    namespace = [
+        ast.parse(f"class B:\n    {line}\n").body[0]
+        for line in ("vars()['methods'] = 1", "locals().update(get=1)", "exec('methods = 1')", "x = [vars()][0]")
+    ]
+    assert all(class_body_module.irregular_names(cls) == {class_body_module.NAMESPACE_WRITES} for cls in namespace)  # type: ignore[arg-type]
     assert class_body_module.irregular_names(node) == {
         "alias",
         "captured",
@@ -1241,6 +1249,218 @@ def test_class_decorators_and_metaclasses_that_may_set_methods_are_unknown(
         ("GET", "/abstract", False, "app.py#Abstract.get"),
         ("GET", "/empty-list", False, None),
         ("GET", "/empty-set", False, None),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+def test_class_decorators_that_may_return_another_class_are_unknown(
+    make_project: Callable[[dict[str, str]], Path],
+) -> None:
+    """옵션을 쓰지 않아도 받은 클래스가 아닌 것을 돌려줄 수 있는 프로젝트 클래스 장식자는 값을 모른다.
+
+    장식한 이름은 장식자가 돌려준 값에 묶인다. 다른 클래스(`/swapped`·`/rebound`·`/maybe`·팩토리 `/swapping`는 Flask에서
+    DELETE만)나 하위 클래스(`/extended`는 GET·POST)를 돌려주는 장식자를 믿어 거짓 GET을 내거나 POST를 빠뜨렸다. 모든
+    `return`이 받은 클래스인 장식자와 그런 장식자를 돌려주는 팩토리는 값 그대로다(`/kept`·`/named`). 끝까지 가서
+    None을 돌려줄 수 있는 장식자(`/forgotten`)와 클래스 장식자(`/boxed`, 인스턴스를 돌려준다)는 Flask로 import하면
+    `as_view`에서 실패하는 모양이라 판정 없이 모름으로 둔다. 나머지 기대 사실은 Flask 3.1.3 `url_map`과 같거나 그것을
+    덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        FLAG = True
+        REGISTRY = []
+        class Other(MethodView):
+            def delete(self):
+                pass
+        def swap(cls):
+            return Other
+        def with_post(cls):
+            class Wrapped(cls):
+                def post(self):
+                    pass
+            return Wrapped
+        def keep(cls):
+            REGISTRY.append(cls)
+            return cls
+        def rebind(cls):
+            cls = Other
+            return cls
+        def maybe(cls):
+            if FLAG:
+                return Other
+            return cls
+        def named(label):
+            def deco(cls):
+                REGISTRY.append((label, cls))
+                return cls
+            return deco
+        def swapping(label):
+            def deco(cls):
+                return Other
+            return deco
+        def forget(cls):
+            REGISTRY.append(cls)
+        class Box:
+            def __init__(self, cls):
+                self.cls = cls
+        @swap
+        class Swapped(MethodView):
+            def get(self):
+                pass
+        @with_post
+        class Extended(MethodView):
+            def get(self):
+                pass
+        @keep
+        class Kept(MethodView):
+            def get(self):
+                pass
+        @rebind
+        class Rebound(MethodView):
+            def get(self):
+                pass
+        @maybe
+        class Maybe(MethodView):
+            def get(self):
+                pass
+        @named("x")
+        class Named(MethodView):
+            def get(self):
+                pass
+        @swapping("x")
+        class Swapping(MethodView):
+            def get(self):
+                pass
+        @forget
+        class Forgotten(MethodView):
+            def get(self):
+                pass
+        @Box
+        class Boxed(MethodView):
+            def get(self):
+                pass
+        app.add_url_rule("/swapped", view_func=Swapped.as_view("swapped"))
+        app.add_url_rule("/extended", view_func=Extended.as_view("extended"))
+        app.add_url_rule("/kept", view_func=Kept.as_view("kept"))
+        app.add_url_rule("/rebound", view_func=Rebound.as_view("rebound"))
+        app.add_url_rule("/maybe", view_func=Maybe.as_view("maybe"))
+        app.add_url_rule("/named", view_func=Named.as_view("named"))
+        app.add_url_rule("/swapping", view_func=Swapping.as_view("swapping"))
+        app.add_url_rule("/forgotten", view_func=Forgotten.as_view("forgotten"))
+        app.add_url_rule("/boxed", view_func=Boxed.as_view("boxed"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/boxed", "/extended", "/forgotten", "/maybe", "/rebound", "/swapped", "/swapping"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/kept", False, "app.py#Kept.get"),
+        ("GET", "/named", False, "app.py#Named.get"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+@pytest.mark.parametrize(
+    ("source", "kept"),
+    [
+        ("def deco(cls):\n    return cls", True),
+        ("def deco(cls):\n    REGISTRY.append(cls)\n    def inner():\n        return 1\n    return cls", True),
+        ("def deco(cls):\n    return Other", False),
+        ("def deco(cls):\n    if FLAG:\n        return Other\n    return cls", False),
+        ("def deco(cls):\n    cls = Other\n    return cls", False),
+        ("def deco(cls):\n    REGISTRY.append(cls)", False),
+        ("def deco(cls):\n    yield cls\n    return cls", False),
+        ("async def deco(cls):\n    return cls", False),
+        ("def deco():\n    return None", False),
+        ("class Deco:\n    pass", False),
+    ],
+)
+def test_class_decorator_returns_its_argument(source: str, kept: bool) -> None:
+    """장식자는 모든 `return`이 받은 클래스이고 끝 문장도 그것이며 그 매개변수를 다시 묶지 않을 때만 클래스를 둔다."""
+    node = ast.parse(source).body[0]
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    assert class_body_module.returns_its_argument(node) is kept
+
+
+@pytest.mark.parametrize(
+    ("source", "kept"),
+    [
+        ("def factory(label):\n    def deco(cls):\n        return cls\n    return deco", True),
+        ("def factory(label):\n    def deco(cls):\n        return Other\n    return deco", False),
+        ("def factory(label):\n    return lambda cls: cls", False),
+        ("def factory(label):\n    def deco(cls):\n        return cls\n    deco = other\n    return deco", False),
+        (
+            "def factory(label):\n    def deco(cls):\n        return cls\n"
+            "    if label:\n        return None\n    return deco",
+            False,
+        ),
+        ("def factory(label):\n    yield\n    def deco(cls):\n        return cls\n    return deco", False),
+        ("def factory(label):\n    def deco(cls):\n        return cls", False),
+        ("class Factory:\n    pass", False),
+    ],
+)
+def test_class_decorator_factory_returns_a_kept_decorator(source: str, kept: bool) -> None:
+    """팩토리는 맨 위에서 한 번 정의한 안쪽 장식자 하나만 돌려주고 그 장식자가 클래스를 그대로 둘 때만 믿는다."""
+    node = ast.parse(source).body[0]
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    assert class_body_module.returns_class_decorator(node) is kept
+
+
+def test_namespace_writes_in_class_bodies_are_unknown(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """클래스 본문의 인자 없는 `vars()`·`locals()`와 `exec(code)`는 클래스 사전의 어떤 이름이든 바꿀 수 있어 모른다.
+
+    `vars()["methods"] = ["PUT"]`(Flask는 PUT만), 반복문의 `locals()[verb] = handler`(GET·POST),
+    `exec("methods = …")`(PATCH만)를 보지 않아 거짓 GET을 내거나 POST를 빠뜨렸다. 인자 있는 `vars(Other)`와 메서드 안의
+    `locals()`는 클래스 사전을 바꾸지 않으므로 값 그대로다(`/inspecting`). 기대 사실은 Flask 3.1.3 `url_map`과 같거나
+    그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        def handler(self):
+            pass
+        class Other(MethodView):
+            def delete(self):
+                pass
+        class VarsMethods(MethodView):
+            vars()["methods"] = ["PUT"]
+            def get(self):
+                pass
+        class LocalsHandler(MethodView):
+            for _verb in ("post",):
+                locals()[_verb] = handler
+            def get(self):
+                pass
+        class Executed(MethodView):
+            exec("methods = ['PATCH']")
+            def get(self):
+                pass
+        class Inspecting(MethodView):
+            snapshot = vars(Other)
+            def get(self):
+                return str(locals())
+        app.add_url_rule("/vars-methods", view_func=VarsMethods.as_view("vars_methods"))
+        app.add_url_rule("/locals-handler", view_func=LocalsHandler.as_view("locals_handler"))
+        app.add_url_rule("/executed", view_func=Executed.as_view("executed"))
+        app.add_url_rule("/inspecting", view_func=Inspecting.as_view("inspecting"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/executed", "/locals-handler", "/vars-methods"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/inspecting", False, "app.py#Inspecting.get"),
     }
     assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
 

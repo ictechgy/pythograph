@@ -36,7 +36,13 @@ import builtins
 from types import EllipsisType
 
 from pythograph.routes.classes import ClassInfo, class_chain, framework_class, own_assignment
-from pythograph.routes.flask.class_body import calls_super_hook, irregular_names
+from pythograph.routes.flask.class_body import (
+    NAMESPACE_WRITES,
+    calls_super_hook,
+    irregular_names,
+    returns_class_decorator,
+    returns_its_argument,
+)
 from pythograph.routes.flask.view_options import stores_options
 from pythograph.source.evaluate import literal_value
 from pythograph.source.symbols import ExternalSymbol, ProjectSymbol, SymbolTable
@@ -49,6 +55,11 @@ MethodsValue = tuple[str, ...] | None | EllipsisType
 
 #: 펼친 상속 사슬의 항목이다(`ClassInfo.chain`).
 Chain = tuple[ProjectSymbol | ExternalSymbol | None, ...]
+
+#: 본문 묶음을 볼 이름들: 클래스 값, `MethodView` 핸들러, 하위 클래스 훅이다.
+_METHODS_NAMES = frozenset({"methods"})
+_HANDLER_NAMES = frozenset(HTTP_METHOD_FUNCS)
+_HOOK_NAMES = frozenset({"__init_subclass__"})
 
 #: 내장 이름이다. 다시 묶지 않은 내장 이름 장식자는 프로젝트 밖 이름이다.
 _BUILTIN_NAMES = frozenset(dir(builtins))
@@ -123,7 +134,7 @@ class ClassViewMethods:
             return self._looked_up(chain)
         if not all(hook is not None and calls_super_hook(hook, owner) for hook, owner, first in hooks if first):
             return ...
-        if any(self._irregular_names(entry) & set(HTTP_METHOD_FUNCS) for entry in _project_classes(chain)):
+        if any(self._binds_irregularly(entry, _HANDLER_NAMES) for entry in _project_classes(chain)):
             return ...
         return self._subclass_union(symbol, names)
 
@@ -154,7 +165,7 @@ class ClassViewMethods:
                 and statement.name == "__init_subclass__"
             )
             assigned = own_assignment(node, "__init_subclass__") is not None
-            if assigned or "__init_subclass__" in self._irregular_names(entry):
+            if assigned or self._binds_irregularly(entry, _HOOK_NAMES):
                 hooks.append((None, node.name, first))
         return hooks
 
@@ -336,25 +347,29 @@ class ClassViewMethods:
         return self._changed[symbol]
 
     def _decorator_may_set(self, path: str, decorator: ast.expr) -> bool:
-        """클래스 장식자가 옵션 속성을 쓸 수 있는지 본다.
+        """클래스 장식자가 `methods`를 바꿀 수 있는지 본다(옵션 속성을 쓰거나 다른 클래스를 돌려준다).
 
-        프로젝트 함수·클래스는 본문(장식자 팩토리면 팩토리 본문 전체)에 옵션 속성 쓰기가 있을 때, 다시 묶지 않은 내장
-        이름과 프로젝트 밖 이름(`dataclass` 등)은 쓰지 않는다고 본다. 그 밖(매개변수, 모듈 변수, 인스턴스 메서드처럼
-        풀지 못한 장식자)은 쓸 수 있다고 본다.
+        프로젝트 함수는 본문(장식자 팩토리면 팩토리 본문 전체)에 옵션 속성 쓰기가 없고 받은 클래스를 그대로 돌려줄 때만
+        바꾸지 않는다고 본다(`class_body.returns_its_argument`, 팩토리는 `returns_class_decorator`). 다른 클래스·하위
+        클래스·None을 돌려줄 수 있으면 그 결과의 `methods`를 모른다. 다시 묶지 않은 내장 이름과 프로젝트 밖
+        이름(`dataclass` 등)은 바꾸지 않는다고 본다(함수 뷰 장식자와 같은 원칙). 그 밖(프로젝트 클래스, 매개변수,
+        모듈 변수, 인스턴스 메서드처럼 풀지 못한 장식자)은 바꿀 수 있다고 본다.
 
         Args:
             path: 클래스를 정의한 모듈 경로.
             decorator: 장식자 식.
 
         Returns:
-            쓸 수 있으면 True.
+            바꿀 수 있으면 True.
         """
         target = decorator.func if isinstance(decorator, ast.Call) else decorator
         resolved = self.symbols.resolve_expr(path, target) if isinstance(target, (ast.Name, ast.Attribute)) else None
         if isinstance(resolved, ProjectSymbol) and isinstance(
             resolved.node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
         ):
-            return stores_options(resolved.node)
+            node = resolved.node
+            unchanged = returns_class_decorator(node) if isinstance(decorator, ast.Call) else returns_its_argument(node)
+            return stores_options(node) or not unchanged
         return not isinstance(resolved, ExternalSymbol) and not _builtin(target, resolved)
 
     def _metaclass(self, chain: Chain) -> bool:
@@ -381,6 +396,19 @@ class ClassViewMethods:
                 if not plain:
                     return True
         return False
+
+    def _binds_irregularly(self, symbol: ProjectSymbol, names: frozenset[str]) -> bool:
+        """클래스 본문이 이름 중 하나를 정적으로 읽을 수 없게 묶거나 이름공간 전체를 바꿀 수 있는지 본다.
+
+        Args:
+            symbol: 프로젝트 클래스.
+            names: 볼 이름들.
+
+        Returns:
+            그러면 True.
+        """
+        found = self._irregular_names(symbol)
+        return NAMESPACE_WRITES in found or not found.isdisjoint(names)
 
     def _irregular_names(self, symbol: ProjectSymbol) -> frozenset[str]:
         """클래스 본문이 정적으로 읽을 수 없게 묶은 이름을 기억해 둔 결과로 돌려준다(`class_body.irregular_names`).
@@ -409,7 +437,7 @@ class ClassViewMethods:
         """
         node = symbol.node
         assert isinstance(node, ast.ClassDef)
-        if "methods" in self._irregular_names(symbol):
+        if self._binds_irregularly(symbol, _METHODS_NAMES):
             return True, ...
         expr = own_assignment(node, "methods")
         if expr is None:

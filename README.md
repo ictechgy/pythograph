@@ -213,9 +213,12 @@ call or held in a rebound or hidden variable, a view from outside the project, a
 view class whose `methods` lookup passes a class (the view class or a base) with `methods` assigned outside its body,
 a view class with a project base class whose `__init_subclass__` writes those attributes (or, for a `MethodView`
 subclass without its own `methods`, may return before calling `super().__init_subclass__`), a view class whose lookup
-passes a project class decorator that writes them or one that cannot be resolved, a view class with a metaclass other
-than `type` or `abc.ABCMeta`, a view class that binds `methods`, a handler name, or `__init_subclass__` other than by a
-plain top-level assignment or definition (inside `if`/`try`/`for`, `+=`, `del`, unpacking), and a function whose
+passes a project class decorator that is not shown to write no view options and return the class unchanged (every
+`return` gives back its argument; a factory must return such a function) or a decorator that cannot be resolved, a view
+class with a metaclass other than `type` or `abc.ABCMeta`, a view class that binds `methods` other than by a plain
+top-level assignment (inside `if`/`try`/`for`, `+=`, `del`, unpacking) or calls `vars()`, `locals()` or `exec(code)` in
+its body, a `MethodView` subclass without its own `methods` whose class chain binds a handler name in such a way, a view
+class whose project base binds `__init_subclass__` in such a way, and a function whose
 name gets one of those attributes anywhere in the
 project (assignment, `setattr`, `__dict__`, `vars`; a write with a computed attribute name or key counts only when its
 target is defined in the writing module or imported there from the project, as in `from views import index` or

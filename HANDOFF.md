@@ -9,7 +9,8 @@
   (2026-11-24T16:28Z 실행). `ccr-37904670-hxdjsx`를 그 커밋에서 다시 시작해 HANDOFF "남긴 것"의 Flask `MethodView` 상속
   `methods` 누락과 같은 판정의 거짓 사실을 고쳤다(아래 "5차 개선"). 조정자가 `e7e8180`까지 올려 PR #36이 됐고, 실제 Flask
   3.1.3으로 돌린 독립 리뷰(차단 0·고쳐야 할 것 4·사소한 것 3, Django·DRF 출력은 바이트로 같음)를 그 다음 커밋이 고쳤다(아래
-  "5차 개선 리뷰 반영"). 그 커밋은 아직 push하지 않았다(조정자가 올린다).
+  "5차 개선 리뷰 반영", `cf6be4a`). 그 재확인(차단 0·고쳐야 할 것 1·사소한 것 2, 모두 모든 판에 있던 것)을 그 다음 커밋이
+  고쳤다(아래 "5차 개선 재확인 반영"). 그 커밋은 아직 push하지 않았다(조정자가 올린다).
 - 4차 개선(PR #35): Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
   한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. 독립 리뷰(차단 0)의 S1–S4·N1–N4, 그 델타
   리뷰(차단 1·고쳐야 할 것 4·사소한 것 5)와 재확인(차단 0·고쳐야 할 것 3·사소한 것 4)을 모두 반영한 뒤 머지됐다(아래
@@ -151,6 +152,37 @@ Django·DRF 출력은 바이트로 같음)를 고쳤다. 리뷰어 앱(`a0`, `a0
   mypy(`--platform` win32·linux·darwin) 통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14
   `unparsedFiles` 0·표준 오류 0바이트, 라우트 오라클 정밀도 69/69·28/28(기록 파일 변화 없음). 실제 프로젝트 15개 문서는
   `main`·`e7e8180`·이 판이 모두 바이트로 같다. Windows·macOS 실행은 CI만 확인한다.
+
+### 5차 개선 재확인 반영 (`cf6be4a` 이후)
+
+`e7e8180..cf6be4a` 재확인(차단 0)은 S1–S4·N2와 새 판정을 확인했고(새 적대적 입력 20개 이상, Django·DRF 바이트 같음, 성능
+`main`의 0.8–1.4배), 모든 판에 있던 것 셋이 문서가 덮는다고 적은 범위와 어긋난다고 짚었다. 리뷰어 앱 `apps2`(`b01`–`b07`)를
+그대로 썼다. "Flask / `cf6be4a` / 이 판"이다.
+
+| 지적 | 재현 | 반영 |
+|---|---|---|
+| R1(고쳐야 할 것): 다른 클래스를 돌려주는 프로젝트 클래스 장식자를 믿음(`b07`) | `def swap(cls): return Other`(`delete`만): DELETE / GET(한계 없음) / `ANY`. `with_post`가 돌려주는 하위 클래스 `Wrapped(cls)`: GET·POST / GET / `ANY`. 내 사례 `cls = Other; return cls`·`if FLAG: return Other`·팩토리가 돌려주는 `return Other` 장식자도 DELETE / GET / `ANY` | `class_body.returns_its_argument`가 장식자 함수의 모든 `return`(안쪽 정의 제외)이 첫 매개변수이고 마지막 맨 위 문장도 그것이며 그 매개변수를 다시 묶지 않는지 보고, `returns_class_decorator`가 팩토리는 맨 위에서 한 번 정의한 그런 안쪽 함수 하나를 돌려주는지 본다. 그렇지 않은 프로젝트 함수, 프로젝트 클래스 장식자(인스턴스를 돌려준다), `yield`·`async def` 장식자는 모른다. 끝까지 가서 None을 돌려줄 수 있는 장식자와 클래스 장식자는 Flask로 import하면 `as_view`에서 실패하므로 판정 없이 모름으로 둔다. `REGISTRY.append(cls); return cls`와 그런 팩토리는 값 그대로다 |
+| N1: 클래스 본문의 `vars()`·`locals()`(`b04`) | `vars()["methods"] = ["PUT"]`: PUT / GET / `ANY`. `for _v in ("post",): locals()[_v] = handler`: GET·POST / GET / `ANY`. 내 사례 `exec("methods = ['PATCH']")`: PATCH / GET / `ANY` | `class_body.irregular_names`가 안쪽 범위 밖의 인자 없는 `vars()`·`locals()`와 인자 하나인 `exec(code)`를 만나면 `NAMESPACE_WRITES`를 넣고, `view_methods`는 그 표식을 `methods`·핸들러 이름·`__init_subclass__` 모두의 비정규 묶음으로 본다. 인자 있는 `vars(Other)`와 메서드 안의 `locals()`는 값 그대로다 |
+| N2: README의 "핸들러 이름을 묶은 뷰 클래스" | 코드는 핸들러 이름 묶음을 본문에 `methods`가 없는 `MethodView` 하위 클래스의 합집합에만 쓴다(`methods`를 정의한 클래스·`View`는 값 그대로, 맞다) | README(영·한)를 코드대로 고쳤다: `methods`는 그 클래스의 값, 핸들러 이름은 `methods` 없는 `MethodView` 하위 클래스, `__init_subclass__`는 프로젝트 기반의 훅. 장식자 문장도 "옵션 속성을 쓰지 않고 받은 클래스를 그대로 돌려주는" 장식자만 믿는다고 고쳤다(`docs/HTTP-ROUTES.md`의 `dataclass` 문장 포함) |
+
+- **회귀 테스트와 변이**: 새 테스트 `test_class_decorators_that_may_return_another_class_are_unknown`(R1)·
+  `test_namespace_writes_in_class_bodies_are_unknown`(N1)은 `cf6be4a` 코드에서 단정 실패하고, 넓힌
+  `test_irregular_class_body_names_cover_every_binding_form`은 새 표식이 없어 실패한다. 단위 테스트
+  `test_class_decorator_returns_its_argument`(10개)·`test_class_decorator_factory_returns_a_kept_decorator`(8개)가 판정의 경계를
+  하나씩 본다. 변이 10개(모든 장식자 믿기, 끝 문장 `return` 확인 빼기, 매개변수 다시 묶기 무시, 아무 `return`이나 받기, 팩토리 믿기·
+  안쪽 함수 무시·팩토리 불신, `exec` 무시, 인자 있는 `vars` 세기, 표식 무시)와 앞선 변이 33개를 새 코드에 맞춘 것이 모두 하나
+  이상의 테스트에서 실패한다.
+- **다시 잰 적대적 입력**(같은 판정 방식): 리뷰어 앱 25개(`a*` 19개와 판정 있는 `b*` 6개, `b06`은 `six`가 없어 판정 없음)에서
+  한계 없이 빠지거나 거짓인 앱이 `main` 20·`cf6be4a` 5·이 판 4(거짓 사실 38·6·4개)다. 남은 넷은 다시 묶인 클래스 이름(`a14`)과
+  스코프 없는 "묶지 못한 옵션 속성 쓰기" 한계가 세는 프로젝트 함수 쓰기(`a12` `/c4`의 `_fix(cls)` 훅, `a16` `/d`의 `decorators`
+  속성, `b07` `/r3`의 `_set(cls)`를 부르는 장식자)다. 내 사례 81개(앞선 80개와 R1·N1 사례)는 `main` 51·`cf6be4a` 2·이 판
+  1(`c48`)이다. `cf6be4a` 대비 바뀐 출력은 `b04`·`b07`과 R1·N1 사례뿐이고, `main`이나 `cf6be4a`가 맞고 이 판이 틀린 사례는 없다.
+- **검증(이 커밋)**: 3.13.18 전체 테스트 1770 passed, 4 skipped(`cf6be4a`의 1750 + 새 20), 커버리지 94.22%(`class_body.py`
+  100%, `view_methods.py` 99%), 3.10.20 전체 테스트 1770 passed, 4 skipped, 3.14.6 `tests/test_flask.py` 66 passed. ruff·format·
+  mypy(`--platform` win32·linux·darwin) 통과, CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0·표준 오류 0바이트, 라우트 오라클 정밀도
+  69/69·28/28(기록 파일 변화 없음). 실제 프로젝트 15개 문서는 `cf6be4a`와 바이트로 같다. 성능 표본(사용자 CPU 초, `main` /
+  `cf6be4a` / 이 판, 한 번씩): 격자 240개 5.29 / 5.91 / 5.48, 깊이 30 사슬 6,000개 5.58 / 6.69 / 6.08이고 두 앱 모두 `cf6be4a`와
+  이 판의 문서가 바이트로 같다.
 
 ## 4차 개선 (2026-11-22, `main` `1244635` 기준)
 
@@ -796,7 +828,7 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | Flask 프레임워크 객체의 남은 이중 계수(델타 리뷰 반영) | `h.web = bottle.Bottle()` 뒤 `h.web.route`, `bottle.default_app().route`는 수신자를 프레임워크 객체로 증명하지 못해 모델링하지 않은 등록으로도 센다(프레임워크 import 한계와 이중). |
 | Flask 조건부 등록(결정 필요) | `docs/HTTP-ROUTES.md` 결정은 "조건부 등록은 decl이 아니라 스코프 있는 한계"인데 Flask 걷개는 `if`·`try` 블록 안 `@app.route`를 평범한 decl로 낸다(`if DEBUG:` 아래 `/debug`, 0.3.1부터). Django는 결정대로다. Flask도 결정대로 바꾸면 흔한 `if app.config[...]:` 등록이 사실에서 빠지므로 사용자 결정으로 남긴다. |
 | Flask `url_map.add(Rule(...))`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 드물고 새 한계 문장이 필요해 남겼다. 같은 행에 있던 `MethodView` 상속 `methods` 누락은 5차 개선에서 고쳤다. |
-| Flask 클래스 뷰 methods의 남은 모양(5차 개선, 리뷰 반영 뒤) | 같은 모듈에서 다시 묶인 기반 클래스 이름(`class B`를 두 번 정의)은 마지막 정의로 푼다(0.3.1부터, 하위 클래스를 만들 때의 `B`가 아닐 수 있어 거짓 사실이 남는다 — 이번 수정은 맞는 method를 더했을 뿐 고치지 않았다. 이름 해석의 문제라 같은 `analyze_class`를 쓰는 Django·DRF에도 닿을 수 있다). 훅이 프로젝트 함수에 클래스를 넘겨 그 함수가 `methods`를 쓰는 경우(`_fix(cls)`)와 `decorators` 클래스 속성의 장식자가 옵션 속성을 다는 경우는 클래스 뷰 판정이 보지 않고 "묶지 못한 옵션 속성 쓰기" 한계만 센다(그 함수를 다른 곳에서 `@` 장식자로 쓰면 세지 않는다). `locals()`·`vars()`로 클래스 이름공간을 바꾸는 코드는 보지 않는다. 상속 깊이 32를 넘는 사슬은 아는 method + 한계다. 본문 밖 쓰기·장식자·메타클래스·블록 안 묶음·훅은 순서·조건을 따지지 않아 원래 맞던 사실도 `ANY`가 될 수 있다(넓게 잡는 쪽). |
+| Flask 클래스 뷰 methods의 남은 모양(5차 개선, 리뷰 반영 뒤) | 같은 모듈에서 다시 묶인 기반 클래스 이름(`class B`를 두 번 정의)은 마지막 정의로 푼다(0.3.1부터, 하위 클래스를 만들 때의 `B`가 아닐 수 있어 거짓 사실이 남는다 — 이번 수정은 맞는 method를 더했을 뿐 고치지 않았다. 이름 해석의 문제라 같은 `analyze_class`를 쓰는 Django·DRF에도 닿을 수 있다). 훅이 프로젝트 함수에 클래스를 넘겨 그 함수가 `methods`를 쓰는 경우(`_fix(cls)`)와 `decorators` 클래스 속성의 장식자가 옵션 속성을 다는 경우는 클래스 뷰 판정이 보지 않고 "묶지 못한 옵션 속성 쓰기" 한계만 센다(그 함수를 다른 곳에서 `@` 장식자로 쓰면 세지 않는다). 받은 클래스를 돌려주는 장식자가 클래스를 프로젝트 함수에 넘겨 쓰는 경우(`_set(cls)`)도 같다. 상속 깊이 32를 넘는 사슬은 아는 method + 한계다. 본문 밖 쓰기·장식자·메타클래스·블록 안 묶음·훅은 순서·조건을 따지지 않아 원래 맞던 사실도 `ANY`가 될 수 있다(넓게 잡는 쪽). |
 | Django `http_method_names` 두 번 대입(5차 개선 리뷰 N3) | 클래스 본문에서 `http_method_names`를 두 번 대입하면 `attribute_literal`(`setdefault`)이 첫 값을 쓴다. 리뷰어의 `dj1` 앱에서 `Twice`는 GET만 받는데 `main`·이 판 모두 POST `/twice/`를 낸다(거짓 사실, 0.3.1부터). Django 판정은 이 PR 범위 밖이라 바꾸지 않았다. `own_assignment`처럼 마지막 대입을 읽고 블록 안 묶음을 모름으로 세는 것이 다음 후보다(Django·DRF 오라클로 확인 필요). |
 
 ## 다음 할 일

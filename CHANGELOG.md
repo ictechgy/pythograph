@@ -116,11 +116,12 @@
     `class C(View, Mixin)`(조회가 `View.methods`에서 멈추는데 믹스인 값을 냈다), 본문의 빈 `methods`(`[]`·`set()`, Flask는
     GET, 전에는 `ANY`와 한계).
   - 값을 모르므로 `ANY` + 템플릿 스코프 `route-coverage:`가 된 것(전에는 거짓 method나 한계 없는 누락): 본문 밖에서 `methods`를
-    쓴 기반 클래스(`Base.methods = …`), 옵션 속성을 쓰는 프로젝트 클래스 장식자나 풀지 못한 클래스 장식자, `type`·
-    `abc.ABCMeta`가 아닌 메타클래스, 블록(`if`·`try`·`for`) 안 대입·정의나 누적 대입·`del`·풀어 쓰는 대입·바다코끼리로 묶은
-    `methods`·핸들러 이름·`__init_subclass__`, 옵션 속성을 쓰거나 함수가 아닌 프로젝트 기반 `__init_subclass__`, 다음 훅을
-    반드시 부르지 않는 훅(`if skip: return`·`try … except: return` 뒤의 `super()`, `super(MethodView, cls)`, 조건 안의 호출,
-    `yield`를 담은 훅).
+    쓴 기반 클래스(`Base.methods = …`), 옵션 속성을 쓰거나 받은 클래스가 아닌 것(다른 클래스·하위 클래스·None)을 돌려줄 수
+    있는 프로젝트 클래스 장식자(팩토리 포함)와 풀지 못한 클래스 장식자, `type`·`abc.ABCMeta`가 아닌 메타클래스, 블록(`if`·
+    `try`·`for`) 안 대입·정의나 누적 대입·`del`·풀어 쓰는 대입·바다코끼리로 묶은 `methods`·핸들러 이름·`__init_subclass__`,
+    본문의 인자 없는 `vars()`·`locals()`와 `exec(code)`(클래스 사전 전체를 바꿀 수 있다), 옵션 속성을 쓰거나 함수가 아닌
+    프로젝트 기반 `__init_subclass__`, 다음 훅을 반드시 부르지 않는 훅(`if skip: return`·`try … except: return` 뒤의
+    `super()`, `super(MethodView, cls)`, 조건 안의 호출, `yield`를 담은 훅).
   - 정밀도만 잃는 것: 쓰는 순서·조건은 따지지 않으므로 기반 쓰기가 하위 클래스 정의 뒤에 있거나 조건이 실행되지 않아 원래
     사실이 맞았던 경우도 `ANY`가 된다.
 
