@@ -107,18 +107,26 @@
   그 아래 원시 스트림에 끝까지 쓰므로(짧은 쓰기는 남은 바이트로 다시 쓴다) 네 경우 모두 2이고 남는 바이트가 없다. 성공한
   출력의 바이트는 같고, 문서 전체를 한꺼번에 인코딩하지 않아 쓰는 동안의 할당 최고점도 줄었다(20 Mi 문자 문서
   20,971,893 B → 2,098,118 B). 주입한 스트림(라이브러리 호출)은 전처럼 그 스트림의 `write`로 쓴다.
-- Flask 클래스 뷰의 methods를 Flask가 만드는 대로 구한다(`routes/flask/view_methods.py`). 기반 클래스가 `methods`를 정의하면
-  그 값만 내서, 하위 클래스가 정의하거나 상속한 핸들러(`class Child(Base): def put`)·믹스인 값·다른 기반 값이 사실도 한계도
-  없이 빠졌다. 이제 본문이 `methods`를 정의하지 않은 `MethodView` 하위 클래스는 직접 기반의 값과 `hasattr`인 핸들러의
-  합집합이다(`MethodView.__init_subclass__`, `docs/HTTP-ROUTES.md`에 적은 규칙은 그대로다). 같은 판정에서 0.3.1부터 있던
-  거짓 사실도 고쳤다: 본문의 `methods = None`(Flask는 GET, 전에는 핸들러 method), 본문의 두 번째 대입(전에는 첫 대입),
-  `class C(View, Mixin)`(조회가 `View.methods`에서 멈추는데 믹스인 값을 냈다), 본문 밖에서 `methods`를 쓴 기반 클래스
-  (`Base.methods = …`, 쓰기를 보지 않았다), `super().__init_subclass__`를 본문 맨 위에서 부르지 않거나 옵션 속성을 쓰는 프로젝트
-  기반의 `__init_subclass__`. 뒤 둘은 값을 모르므로 `ANY` + 템플릿 스코프 `route-coverage:`다. 기반 쓰기가 하위 클래스 정의
-  뒤에 있어 원래 사실이 맞았던 경우도 `ANY`가 된다(쓰는 순서는 따지지 않는다, 정밀도만 잃는다). 빈 목록을 정의한 기반
-  (`methods = []`) 아래 하위 클래스는 `ANY`와 그 한계 대신 Flask와 같은 핸들러 method를 낸다. 본문이 리터럴 목록을 한 번
-  대입한 클래스와 사슬 어디에도 `methods` 정의·쓰기가 없는 클래스는 프로젝트 기반에 `__init_subclass__`가 없으면 사실이 바뀌지
-  않는다.
+- Flask 클래스 뷰의 methods를 Flask가 만드는 대로 구한다(`routes/flask/view_methods.py`·`class_body.py`). 기반 클래스가
+  `methods`를 정의하면 그 값만 내서, 하위 클래스가 정의하거나 상속한 핸들러(`class Child(Base): def put`)·믹스인 값·다른 기반
+  값이 사실도 한계도 없이 빠졌다. 이제 본문이 `methods`를 정의하지 않은 `MethodView` 하위 클래스는 직접 기반의 값과
+  `hasattr`인 핸들러의 합집합이다(`MethodView.__init_subclass__`, `docs/HTTP-ROUTES.md`에 적은 규칙은 그대로다). 값은 본문 맨
+  위의 이름 대입·함수 정의만 읽는다. 같은 판정에서 0.3.1부터 있던 거짓 사실도 고쳤다.
+  - 정확한 값이 된 것: 본문의 `methods = None`(Flask는 GET, 전에는 핸들러 method), 본문의 두 번째 대입(전에는 첫 대입),
+    `class C(View, Mixin)`(조회가 `View.methods`에서 멈추는데 믹스인 값을 냈다), 본문의 빈 `methods`(`[]`·`set()`, Flask는
+    GET, 전에는 `ANY`와 한계).
+  - 값을 모르므로 `ANY` + 템플릿 스코프 `route-coverage:`가 된 것(전에는 거짓 method나 한계 없는 누락): 본문 밖에서 `methods`를
+    쓴 기반 클래스(`Base.methods = …`), 옵션 속성을 쓰는 프로젝트 클래스 장식자나 풀지 못한 클래스 장식자, `type`·
+    `abc.ABCMeta`가 아닌 메타클래스, 블록(`if`·`try`·`for`) 안 대입·정의나 누적 대입·`del`·풀어 쓰는 대입·바다코끼리로 묶은
+    `methods`·핸들러 이름·`__init_subclass__`, 옵션 속성을 쓰거나 함수가 아닌 프로젝트 기반 `__init_subclass__`, 다음 훅을
+    반드시 부르지 않는 훅(`if skip: return`·`try … except: return` 뒤의 `super()`, `super(MethodView, cls)`, 조건 안의 호출,
+    `yield`를 담은 훅).
+  - 정밀도만 잃는 것: 쓰는 순서·조건은 따지지 않으므로 기반 쓰기가 하위 클래스 정의 뒤에 있거나 조건이 실행되지 않아 원래
+    사실이 맞았던 경우도 `ANY`가 된다.
+
+  본문이 비지 않은 리터럴 목록을 한 번 대입한 클래스와 사슬 어디에도 `methods` 정의·쓰기가 없는 클래스는 사슬에
+  `__init_subclass__`·클래스 장식자·메타클래스·블록 안 묶음이 없으면 사실이 바뀌지 않는다. 같은 모듈에서 다시 묶인 기반
+  클래스 이름은 여전히 마지막 정의로 풀어 거짓 사실이 남을 수 있다.
 
 ### Changed
 

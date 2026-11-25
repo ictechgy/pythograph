@@ -1646,7 +1646,7 @@ class _Registrar:
             dispatch = f"{base_id}.dispatch_request"
             return [("*", None, dispatch)], (), True
         # 본문 정의, `MethodView` 하위 클래스의 기반 값과 핸들러 합집합, 보통 속성 조회 순서다(`view_methods`).
-        methods = self.collector.class_view_methods().value(info.symbol)
+        methods = self.collector.class_view_methods().value(info)
         if isinstance(methods, EllipsisType):
             return [("*", None, "unresolved-view")], (), True
         return self._method_view_handlers(info.names, base_id, info.kinds), methods, info.unknown_bases

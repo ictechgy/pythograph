@@ -7,7 +7,9 @@
 
 - **5차 개선 브랜치**: PR #35(4차 개선)가 `main` `1b3812a`로 스쿼시 머지됐고 그 `main` push의 CI가 성공했다
   (2026-11-24T16:28Z 실행). `ccr-37904670-hxdjsx`를 그 커밋에서 다시 시작해 HANDOFF "남긴 것"의 Flask `MethodView` 상속
-  `methods` 누락과 같은 판정의 거짓 사실을 고쳤다(아래 "5차 개선"). 아직 push하지 않았다(조정자가 올린다).
+  `methods` 누락과 같은 판정의 거짓 사실을 고쳤다(아래 "5차 개선"). 조정자가 `e7e8180`까지 올려 PR #36이 됐고, 실제 Flask
+  3.1.3으로 돌린 독립 리뷰(차단 0·고쳐야 할 것 4·사소한 것 3, Django·DRF 출력은 바이트로 같음)를 그 다음 커밋이 고쳤다(아래
+  "5차 개선 리뷰 반영"). 그 커밋은 아직 push하지 않았다(조정자가 올린다).
 - 4차 개선(PR #35): Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
   한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. 독립 리뷰(차단 0)의 S1–S4·N1–N4, 그 델타
   리뷰(차단 1·고쳐야 할 것 4·사소한 것 5)와 재확인(차단 0·고쳐야 할 것 3·사소한 것 4)을 모두 반영한 뒤 머지됐다(아래
@@ -75,8 +77,11 @@ Werkzeug 3.1.9를 설치한 스크래치 가상 환경에서 합성 앱 76개를
   `None` 기반, 소문자 동사, 주석 대입(`ClassVar`), 튜플·집합, `put = B.post` 같은 대입 핸들러, `get = None`, `async def`, 메타클래스
   키워드, `Generic[T]` 기반, 중첩 클래스 기반, 앱 팩토리 지역 클래스, 함수가 만든 클래스, 조건부 기반 정의, 다시 묶인 기반 이름,
   `required_methods` 클래스 속성, `methods=`를 준 등록, `login_required(...)`로 감싼 뷰, 깊이 41 사슬, 모르는 외부 믹스인, 블록 안
-  `methods`. `main`은 48개에서 사실이 빠지거나 거짓이었고(거짓 12개), 이 판은 1개다(다시 묶인 기반 이름 `class B` 두 번 —
-  `main`의 거짓 DELETE가 그대로 남고 맞는 GET이 더해졌다, 아래 "남긴 것"). 51개의 출력이 바뀌었다. 새 `ANY` 16개 중 14개는
+  `methods`. `main`은 48개에서 사실이 빠지거나 거짓이었고(거짓 12개), `e7e8180`은 1개였다(다시 묶인 기반 이름 `class B` 두 번 —
+  `main`의 거짓 DELETE가 그대로 남고 맞는 GET이 더해졌다, 아래 "남긴 것"). 이 문장은 그 76개에 대해서만 맞았다: 목록의
+  메타클래스(`ABCMeta`)·블록 안 `methods`(실행되지 않는 `if DEBUG:`) 사례는 우연히 맞는 무해한 변형뿐이었고, 리뷰가 찾은 일반
+  모양(옵션을 쓰는 메타클래스·장식자, 실행되는 블록 안 대입, 일찍 끝나는 훅)은 `e7e8180`에서 틀렸다. 아래 "5차 개선 리뷰
+  반영"에서 고치고 다시 쟀다. 51개의 출력이 바뀌었다. 새 `ANY` 16개 중 14개는
   빠지거나 거짓이던 사실을 대신하고, 2개는 맞던 사실을 대신한다(하위 클래스 정의 뒤의 기반 쓰기, `MethodView` 앞 믹스인의
   `super()` 없는 훅 — 정밀도만 잃는다). `methods = []` 기반 아래 하위 클래스 2개는 `ANY`와 그 한계 대신 Flask와 같은 GET이다.
   한계 수가 줄어든 사례는 셋이고 모두 Flask `url_map`으로 증명했다: 그 두 라우트의 `route-coverage:` 1개와 usr 없는 `ANY`의
@@ -88,9 +93,10 @@ Werkzeug 3.1.9를 설치한 스크래치 가상 환경에서 합성 앱 76개를
   수신자(`register_view(bp, …)`, `cls.as_view`)나 테스트 함수의 앱 매개변수를 거쳐 사실이 아니라 계수이고, flasky·microblog·
   examples는 클래스 뷰를 쓰지 않아 이 경로를 타지 않는다. 그래서 합성 오라클이 주된 근거다. 라우트 오라클(`run_all.py`)은
   정밀도 69/69·28/28, 기록 파일 변화 없음.
-- **성능**(부하 평균 약 30인 기계, 사용자 CPU 초, 두 번씩): 사슬 깊이 3의 클래스 N개를 두 번씩 등록한 모듈에서 `main` /
+- **성능**(`e7e8180`, 부하 평균 약 30인 기계, 사용자 CPU 초, 두 번씩): 사슬 깊이 3의 클래스 N개를 두 번씩 등록한 모듈에서 `main` /
   이 판이 N=1,000 1.72–2.13 / 2.46–2.47, N=2,000 3.38–3.43 / 4.34–4.89다(이 판은 사실을 4배 낸다). 두 판 모두 N에 선형이다.
-- **검증(이 브랜치)**: 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1745 passed, 4 skipped(기존 1741 + 새 4, 건너뜀은
+  이 측정은 깊이 3 사슬만 덮었고, 리뷰가 잰 깊은 사슬·격자에서는 2–3배 느렸다(아래 리뷰 반영 S4).
+- **검증(`e7e8180`)**: 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1745 passed, 4 skipped(기존 1741 + 새 4, 건너뜀은
   기존 대소문자 구별 3개·Windows 전용 1개), 3.13 커버리지 94.13%(하한 90%, `view_methods.py` 98%), ruff·format·mypy(`--platform`
   win32·linux·darwin) 통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14 `unparsedFiles` 0·
   표준 오류 0바이트. 라우트 golden·오라클 기록은 바뀌지 않았다(fixture의 `ItemAPI`는 본문이 `methods`를 정의한다). Windows·macOS
@@ -98,6 +104,53 @@ Werkzeug 3.1.9를 설치한 스크래치 가상 환경에서 합성 앱 76개를
 - **이번에 하지 않은 것**: `url_map.add(Rule(...))` 계수(드물고 새 한계 문장이 필요하다), Flask 조건부 등록(사용자 결정), 다시 묶인
   기반 클래스 이름(이름 해석의 문제라 같은 `analyze_class`를 쓰는 Django·DRF 클래스 뷰에도 닿을 수 있어 따로 봐야 한다), 릴리스
   (RELEASING에 따라 관리자가 한다).
+
+### 5차 개선 리뷰 반영 (PR #36, `e7e8180` 이후)
+
+실제 Flask 3.1.3·Werkzeug 3.1.9로 돌린 독립 리뷰(차단 0·고쳐야 할 것 4·사소한 것 3, `main`이 맞고 `e7e8180`이 틀린 사례 0,
+Django·DRF 출력은 바이트로 같음)를 고쳤다. 리뷰어 앱(`a0`, `a01`–`a18`)과 성능 앱을 그대로 다시 썼다. "Flask / `e7e8180` / 이
+판"이다(OPTIONS·GET 옆의 HEAD는 생략).
+
+| 지적 | 재현 | 반영 |
+|---|---|---|
+| S1: 다음 훅을 건너뛸 수 있는 훅의 거짓 사실(`a15`) | `if skip: return` 뒤 `super()`(클래스 키워드 `skip=True`), `super(MethodView, cls)`, `try … except ValueError: return` 뒤 `super()`: 셋 다 GET / GET·POST(한계 없음) / `ANY`. 리뷰 밖 `yield`를 담은 훅도 같다 | 새 `routes/flask/class_body.py` `calls_super_hook`이 본문 맨 위 문장의 호출만 받고, 그 앞 문장이 `return`·`raise`를 담으면(안쪽 정의 제외) 부르지 않는다고 본다. 인자 없는 `super()`와 `super(<정의한 클래스>, <첫 매개변수>)`만 받고 `yield`를 담거나 `async def`인 훅은 부르지 않는다고 본다. 안쪽 함수의 `return`과 `super(Own, cls)`는 합집합 그대로다(GET·POST) |
+| S2: 본문 블록·다른 문장의 묶음(`a10`·`a16`) | `if FLAG: methods = ["POST"]`: POST / GET·POST. `try: methods = ["PUT"]`: PUT / GET. `if FLAG: def post`만: POST / GET. `View`의 `if FLAG: methods = ["DELETE"]`: DELETE / GET. `for methods in …`: PATCH / GET. `methods += ["POST"]`: GET·POST / GET. `del methods`: GET / POST. `methods, other = …`: POST / GET. 바다코끼리 `(methods := …)`: PUT / GET. 블록 안 `__init_subclass__`: GET / GET·POST. 모두 이 판은 `ANY` | `class_body.irregular_names`가 본문 맨 위의 이름 대입(값 있는 주석 대입 포함)·함수 정의가 아닌 방법으로 클래스 사전에 묶거나 지우는 이름(블록 안 대입·정의, 누적 대입, `del`, 풀어 쓰는 대입, 바다코끼리, `for`·`with`·`except` 대상, import, `global`·`nonlocal`, `match` 캡처, 맨 위 함수 정의 `methods`)을 모으고, `methods`면 그 클래스의 값, 핸들러 이름이면 `MethodView` 합집합, `__init_subclass__`면 함수가 아닌 훅처럼 모른다고 본다. 안쪽 함수·클래스·람다·내포 식의 본문은 걷지 않으므로 메서드의 지역 변수 `methods`는 합집합 그대로다. Flask 판정만 쓰고 `analyze_class`(Django·DRF)는 바꾸지 않았다 |
+| S3: 클래스 장식자와 메타클래스(`a11`) | `@only_post`(`cls.methods = …`)·`setattr` 장식자: POST / GET·POST. `Meta.__new__`(PUT)·`Meta2.__init__`(DELETE): PUT·DELETE / GET. 메타클래스 기반 아래 `M3`: PUT / GET·POST(`main`은 GET). 이 판은 모두 `ANY` | 조회가 지나는 클래스(등록한 클래스, 합집합의 기반, 보통 조회의 사슬 항목)에 옵션 속성을 쓰는 프로젝트 장식자(팩토리면 팩토리 본문 전체를 `stores_options`로 본다)나 풀지 못한 장식자가 있으면, 또는 사슬의 프로젝트 클래스가 `type`·`abc.ABCMeta`가 아닌 메타클래스를 주면 모른다. 프로젝트 밖 장식자(`dataclass`)·다시 묶지 않은 내장 이름·옵션을 쓰지 않는 프로젝트 장식자·`ABCMeta`는 값 그대로다(함수 뷰 장식자와 같은 원칙) |
+| S4: 성능(깊은 사슬·격자에서 `main`의 2–3배) | 리뷰어 측정 격자 너비 6 깊이 30(180개) 6.7 s → 14.1 s, 너비 8(240개) 14.5 s → 45.1 s, 깊이 30 사슬 6,000개 15.9 s → 30.6 s. 등록한 클래스마다 사슬을 세 번 폈다 | `ClassViewMethods.value`가 `ClassInfo`를 받아 `analyze_class`가 편 사슬(`ClassInfo.chain`, 비교에 넣지 않는 부산물)과 이름을 그대로 쓴다. 기반의 직접 기반·`MethodView` 여부·본문 판정은 클래스마다 한 번, 기반에서 물려받은 값은 재귀 없이 기반 먼저 클래스마다 한 번 구해 다이아몬드와 여러 등록이 다시 쓴다(등록 수 × 깊이를 걷지 않는다). 정적 상속 순환에 걸린 클래스는 모른다(전에는 한계 없는 GET·POST). 측정은 아래 |
+| N1: 문서의 과장 | HANDOFF "적대적 입력"이 1개만 틀렸다고 적었고, README는 "follow Flask"라고만 적었다 | 위 "적대적 입력" 문장의 범위를 바로잡고, README(영·한)·`docs/HTTP-ROUTES.md`·CHANGELOG에 맨 위 대입·정의만 읽는다는 것과 모르는 경우·남은 모양을 적었다. 다시 잰 결과는 아래 |
+| N2: 본문의 빈 `methods`(`a02`) | `methods = set()`·`[]` + `def post`: GET / `ANY`와 한계 | `_own`이 빈 모음을 거짓 값(None)으로 돌려 GET이다(`url_map`으로 확인). 한계 1개씩 줄어든 것은 Flask 값으로 증명했다 |
+| N3: Django `http_method_names` 두 번 대입(`dj1`) | `Twice`는 GET만인데 두 판 모두 POST `/twice/` | 이 PR 범위 밖이라 바꾸지 않고 "남긴 것"에 적었다 |
+
+- **회귀 테스트와 변이**: 새 테스트 `test_hooks_that_may_skip_the_method_view_hook_are_unknown`(S1)·
+  `test_class_body_bindings_outside_plain_assignments_are_unknown`(S2)·
+  `test_class_decorators_and_metaclasses_that_may_set_methods_are_unknown`(S3·N2)·
+  `test_class_view_methods_reuse_the_registered_linearization`(S4, 먼저 등록한 기반의 사슬을 다시 펴지 않는다)가 모두 `e7e8180`
+  코드에서 실패한다(단정 실패). `test_irregular_class_body_names_cover_every_binding_form`은 새 모듈의 묶음 형태(대입·`for`·`with`·
+  `except`·import·`global`·`match` 캡처·누적 대입·`del`·풀어 쓰기·바다코끼리·안쪽 클래스)와 세지 않는 것(메서드 본문·안쪽 클래스
+  본문·내포 식·람다·값 없는 주석)을 하나씩 본다. `test_method_view_lattice_visits_each_base_once`는 격자의 모든 클래스를 등록해도 물려받는 값을
+  클래스마다 한 번 모으는지와 정적 상속 순환이 끝나는지를 본다. 스크래치 사본의 변이 33개(새 판정 16개: 앞 문장의
+  `return`·`raise`, `super` 인자, `yield`, 안쪽 정의 건너뛰기, 묶음 걷기가 안쪽 본문으로 들어감, 블록 안 `methods`·핸들러·훅,
+  장식자, 프로젝트 밖 장식자, 메타클래스, `ABCMeta`, 빈 모음, 사슬 다시 쓰기, 기반 장식자, 순환. 앞선 판정 17개를 새 코드에 맞춰
+  다시 겨눈 것)가 모두 하나 이상의 테스트에서 실패한다.
+- **다시 잰 적대적 입력**(Flask 3.1.3 `url_map`, HEAD·OPTIONS는 리뷰어 하네스처럼 판정, 스코프 한계가 덮는 누락은 따로 센다):
+  리뷰어 앱 19개에서 한계 없이 빠지거나 거짓인 앱이 `main` 15·`e7e8180` 6·이 판 3(거짓 사실 28·19·3개)이다. 남은 셋은
+  다시 묶인 클래스 이름(`a14`), 훅이 `_fix(cls)`에 넘겨 쓰는 경우(`a12` `/c4`)와 `decorators` 속성의 장식자(`a16` `/d`)다. 뒤 둘은
+  스코프 없는 "묶지 못한 옵션 속성 쓰기" 한계가 세고, `a16` `/deco`(클래스에 단 `@app.route`)는 모델링하지 않은 등록 한계가 센다.
+  `a17` `/leaf2`(깊이 40 믹스인 사슬)의 누락은 스코프 한계가 덮는다. 앞선 76개와 실행할 수 있는 새 사례 4개(S1·S2·S3·모든 클래스를
+  등록한 격자)는 `main` 50·`e7e8180` 4·이 판 1(다시 묶인 기반 이름 `c48`)이다. 정적 상속 순환 사례는 Flask로 실행할 수 없어(NameError)
+  판정하지 않았고, `e7e8180`의 한계 없는 GET·POST가 `ANY`가 됐다. `e7e8180` 대비 바뀐 출력은 리뷰어 앱 5개(`a02`·`a10`·`a11`·`a15`·
+  `a16`)와 사례 5개(`c46`, S1·S2·S3 사례, 순환)뿐이고, `main`이나 `e7e8180`이 맞고 이 판이 틀린 사례는 없다. `c46`(실행되지 않는 `if DEBUG: methods = …`)은 맞던 GET·POST가 `ANY`가 됐다(정밀도만 잃는다).
+- **성능**(부하 평균 약 24–30인 기계, 사용자 CPU 초, `main` / `e7e8180` / 이 판, 두 번씩, 리뷰어 앱): 격자 너비 6(180개)
+  1.98–2.09 / 5.88–6.56 / 2.26–2.28, 너비 8(240개) 5.55–5.60 / 17.40–17.69 / 5.68–5.91, 깊이 30 사슬 3,000개 2.33–2.83 /
+  4.54–4.71 / 3.16–3.18, 6,000개 5.38–5.88 / 9.41–11.81 / 6.51–7.44. 네 앱 모두 `e7e8180`과 이 판의 문서가 바이트로 같고 사실 수는
+  `main`과 같다. 남은 차이는 등록한 클래스마다 사슬을 한 번씩 보는 훅·핸들러 묶음·메타클래스 판정과 물려받은 값 계산이다
+  (6,000개 앱 프로파일에서 `analyze_class`의 약 30%).
+- **검증(이 커밋)**: 3.13.18 전체 테스트 1750 passed, 4 skipped(`e7e8180`의 1745 + 새 5), 커버리지 94.21%(하한 90%,
+  `view_methods.py` 99%, `class_body.py` 100%). 3.10.20·3.11.18·3.12.3·3.14.6 전체 테스트는 묶음 형태 단위 테스트를 더하기 전
+  트리에서 모두 1749 passed, 4 skipped였고, 마지막 `tests/test_flask.py`를 네 버전에서 다시 돌려 모두 46 passed다. ruff·format·
+  mypy(`--platform` win32·linux·darwin) 통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14
+  `unparsedFiles` 0·표준 오류 0바이트, 라우트 오라클 정밀도 69/69·28/28(기록 파일 변화 없음). 실제 프로젝트 15개 문서는
+  `main`·`e7e8180`·이 판이 모두 바이트로 같다. Windows·macOS 실행은 CI만 확인한다.
 
 ## 4차 개선 (2026-11-22, `main` `1244635` 기준)
 
@@ -743,11 +796,12 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | Flask 프레임워크 객체의 남은 이중 계수(델타 리뷰 반영) | `h.web = bottle.Bottle()` 뒤 `h.web.route`, `bottle.default_app().route`는 수신자를 프레임워크 객체로 증명하지 못해 모델링하지 않은 등록으로도 센다(프레임워크 import 한계와 이중). |
 | Flask 조건부 등록(결정 필요) | `docs/HTTP-ROUTES.md` 결정은 "조건부 등록은 decl이 아니라 스코프 있는 한계"인데 Flask 걷개는 `if`·`try` 블록 안 `@app.route`를 평범한 decl로 낸다(`if DEBUG:` 아래 `/debug`, 0.3.1부터). Django는 결정대로다. Flask도 결정대로 바꾸면 흔한 `if app.config[...]:` 등록이 사실에서 빠지므로 사용자 결정으로 남긴다. |
 | Flask `url_map.add(Rule(...))`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 드물고 새 한계 문장이 필요해 남겼다. 같은 행에 있던 `MethodView` 상속 `methods` 누락은 5차 개선에서 고쳤다. |
-| Flask 클래스 뷰 methods의 남은 모양(5차 개선) | 같은 모듈에서 다시 묶인 기반 클래스 이름(`class B`를 두 번 정의)은 마지막 정의로 푼다(0.3.1부터, 하위 클래스를 만들 때의 `B`가 아닐 수 있어 합성 사례에서 거짓 DELETE가 남는다 — 이번 수정은 맞는 GET을 더했을 뿐 그 거짓 사실을 고치지 않았다). 메타클래스·클래스 장식자가 바꾸는 `methods`, 클래스 본문 블록(`if`·`try`) 안의 대입·핸들러 정의는 보지 않는다. 상속 깊이 32를 넘는 사슬은 전처럼 `ANY`다. 본문 밖 `methods` 쓰기와 `__init_subclass__`는 순서·조건을 따지지 않아 원래 맞던 사실도 `ANY`가 될 수 있다(넓게 잡는 쪽). |
+| Flask 클래스 뷰 methods의 남은 모양(5차 개선, 리뷰 반영 뒤) | 같은 모듈에서 다시 묶인 기반 클래스 이름(`class B`를 두 번 정의)은 마지막 정의로 푼다(0.3.1부터, 하위 클래스를 만들 때의 `B`가 아닐 수 있어 거짓 사실이 남는다 — 이번 수정은 맞는 method를 더했을 뿐 고치지 않았다. 이름 해석의 문제라 같은 `analyze_class`를 쓰는 Django·DRF에도 닿을 수 있다). 훅이 프로젝트 함수에 클래스를 넘겨 그 함수가 `methods`를 쓰는 경우(`_fix(cls)`)와 `decorators` 클래스 속성의 장식자가 옵션 속성을 다는 경우는 클래스 뷰 판정이 보지 않고 "묶지 못한 옵션 속성 쓰기" 한계만 센다(그 함수를 다른 곳에서 `@` 장식자로 쓰면 세지 않는다). `locals()`·`vars()`로 클래스 이름공간을 바꾸는 코드는 보지 않는다. 상속 깊이 32를 넘는 사슬은 아는 method + 한계다. 본문 밖 쓰기·장식자·메타클래스·블록 안 묶음·훅은 순서·조건을 따지지 않아 원래 맞던 사실도 `ANY`가 될 수 있다(넓게 잡는 쪽). |
+| Django `http_method_names` 두 번 대입(5차 개선 리뷰 N3) | 클래스 본문에서 `http_method_names`를 두 번 대입하면 `attribute_literal`(`setdefault`)이 첫 값을 쓴다. 리뷰어의 `dj1` 앱에서 `Twice`는 GET만 받는데 `main`·이 판 모두 POST `/twice/`를 낸다(거짓 사실, 0.3.1부터). Django 판정은 이 PR 범위 밖이라 바꾸지 않았다. `own_assignment`처럼 마지막 대입을 읽고 블록 안 묶음을 모름으로 세는 것이 다음 후보다(Django·DRF 오라클로 확인 필요). |
 
 ## 다음 할 일
 
-1. 이 브랜치(5차 개선)를 PR로 올려 CI를 확인하고 독립 리뷰(가능하면 GLM `packet-ask`)를 받아 머지한다.
+1. PR #36(5차 개선)에 리뷰 반영 커밋을 올리고 CI를 확인한 뒤, 필요하면 그 델타만 다시 리뷰받아 머지한다.
 2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
 3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.

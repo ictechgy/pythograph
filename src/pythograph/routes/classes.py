@@ -205,6 +205,9 @@ class ClassInfo:
         kinds: 사슬에서 만난 프레임워크 뷰 종류.
         actions: DRF extra action 목록(사슬 순서).
         unknown_bases: 표에 없는 외부 기반 클래스나 해석하지 못한 기반이 있는지.
+        chain: 프로젝트 클래스의 펼친 상속 사슬(첫 항목이 클래스 자신, 외부 클래스는 `ExternalSymbol`, 해석 실패는
+            None, 외부 클래스를 분석하면 빈 튜플). 속성 조회 순서를 따지는 호출자가 사슬을 다시 펴지 않도록 남긴다. 위
+            결과를 만든 부산물이라 비교에 넣지 않는다.
     """
 
     symbol: ProjectSymbol | ExternalSymbol
@@ -213,6 +216,7 @@ class ClassInfo:
     kinds: set[str] = field(default_factory=set)
     actions: list[ActionInfo] = field(default_factory=list)
     unknown_bases: bool = False
+    chain: tuple[_Entry, ...] = field(default=(), compare=False)
 
 
 def framework_class(dotted: str) -> _FrameworkClass | None:
@@ -247,8 +251,8 @@ def analyze_class(symbols: SymbolTable, symbol: Symbol | None) -> ClassInfo | No
         return info
     if not isinstance(symbol, ProjectSymbol) or not isinstance(symbol.node, ast.ClassDef):
         return None
-    info = ClassInfo(symbol=symbol)
-    for entry in _Linearizer(symbols).entries(symbol):
+    info = ClassInfo(symbol=symbol, chain=_Linearizer(symbols).entries(symbol))
+    for entry in info.chain:
         if isinstance(entry, ProjectSymbol):
             _add_project(symbols, info, entry)
         elif isinstance(entry, ExternalSymbol):

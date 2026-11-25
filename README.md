@@ -212,7 +212,10 @@ is `ANY` with a scoped `route-coverage:` (with `methods=` the declared verbs kee
 call or held in a rebound or hidden variable, a view from outside the project, a view class with an unknown base, a
 view class whose `methods` lookup passes a class (the view class or a base) with `methods` assigned outside its body,
 a view class with a project base class whose `__init_subclass__` writes those attributes (or, for a `MethodView`
-subclass without its own `methods`, does not call `super().__init_subclass__` at its top level), and a function whose
+subclass without its own `methods`, may return before calling `super().__init_subclass__`), a view class whose lookup
+passes a project class decorator that writes them or one that cannot be resolved, a view class with a metaclass other
+than `type` or `abc.ABCMeta`, a view class that binds `methods`, a handler name, or `__init_subclass__` other than by a
+plain top-level assignment or definition (inside `if`/`try`/`for`, `+=`, `del`, unpacking), and a function whose
 name gets one of those attributes anywhere in the
 project (assignment, `setattr`, `__dict__`, `vars`; a write with a computed attribute name or key counts only when its
 target is defined in the writing module or imported there from the project, as in `from views import index` or
@@ -225,10 +228,12 @@ cannot be tied to a project function or class (an alias such as `f = view`, a lo
 variable of the enclosing function even when it shares a name with a project function, `functools.wraps` or
 `update_wrapper` of a function with those attributes) leave the `GET` facts in place and are counted in one unscoped
 `route-coverage:`. An inline `lambda` or `None` is `GET`, and a module variable
-bound once to `View.as_view(...)` keeps the class's methods. A class view's methods follow Flask: a `MethodView`
-subclass that does not assign `methods` in its body gets the union of its direct bases' `methods` and the handler
-names it has (`MethodView.__init_subclass__`), and other classes use ordinary attribute lookup, which stops at
-`View.methods` (`None`, so `GET`). Parameters, local assignments (including walrus targets),
+bound once to `View.as_view(...)` keeps the class's methods. Otherwise a class view's methods are computed the way
+Flask builds them, from plain top-level assignments and definitions only: a `MethodView` subclass that does not assign
+`methods` in its body gets the union of its direct bases' `methods` and the handler names it has
+(`MethodView.__init_subclass__`), other classes use ordinary attribute lookup, which stops at `View.methods`, and a
+`None` or empty `methods` means `GET`. The cases above that this cannot prove are `ANY`; a base class name defined
+twice in one module still resolves to the last definition (see `docs/HTTP-ROUTES.md`). Parameters, local assignments (including walrus targets),
 class-body assignments, and names an inner function rebinds through `nonlocal` hide outer apps, blueprints, and views
 of the same name, as in Python. `app.route(rule)(view)` and the method shortcuts
 called the same way (also nested) are emitted like `add_url_rule`; registrations in class bodies and methods and inside
