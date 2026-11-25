@@ -3,15 +3,15 @@
 세션을 이어받을 때 먼저 읽는 진행 상태 문서다. 작업 규칙의 정본은 [AGENTS.md](AGENTS.md)이고, 여기 적힌 상태는
 실제 Git 상태·코드·검증 결과와 대조한 뒤 쓴다. 자기 분석 기록은 [DOGFOOD.md](DOGFOOD.md)에 있다.
 
-## 현재 상태 (2026-11-22)
+## 현재 상태 (2026-11-25)
 
-- **4차 개선 브랜치**: PR #34(3차 개선)가 `main` `1244635`로 스쿼시 머지된 뒤 `ccr-37904670-hxdjsx`를 그 커밋에서 다시
-  시작했다(아래 "4차 개선"). Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
-  한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. PR #35(head `e5f3247`)의 CI는 9개 모두
-  성공했고, 독립 리뷰(차단 0, 표준 출력 쓰기는 유지)의 S1–S4·N1–N4를 `26b4172`가 고쳤다(아래 "4차 개선 리뷰 반영"). 그
-  델타 리뷰(차단 1·고쳐야 할 것 4·사소한 것 5)를 `ce58724`가, 그 재확인(차단 0·고쳐야 할 것 3·사소한 것 4)을 그 다음 커밋이
-  고쳤다(아래 "델타 리뷰 반영"·"델타 재확인 반영").
-  그 커밋은 아직 push하지 않았다(조정자가 올린다).
+- **5차 개선 브랜치**: PR #35(4차 개선)가 `main` `1b3812a`로 스쿼시 머지됐고 그 `main` push의 CI가 성공했다
+  (2026-11-24T16:28Z 실행). `ccr-37904670-hxdjsx`를 그 커밋에서 다시 시작해 HANDOFF "남긴 것"의 Flask `MethodView` 상속
+  `methods` 누락과 같은 판정의 거짓 사실을 고쳤다(아래 "5차 개선"). 아직 push하지 않았다(조정자가 올린다).
+- 4차 개선(PR #35): Flask의 모르는 뷰 식을 GET으로 내던 거짓 사실, 알려진 앱·블루프린트가 아닌 객체로 한 Flask 등록이
+  한계 없이 사라지던 것, 표준 출력 쓰기의 잘린 문서·종료 상태 120을 고쳤다. 독립 리뷰(차단 0)의 S1–S4·N1–N4, 그 델타
+  리뷰(차단 1·고쳐야 할 것 4·사소한 것 5)와 재확인(차단 0·고쳐야 할 것 3·사소한 것 4)을 모두 반영한 뒤 머지됐다(아래
+  "4차 개선"·"4차 개선 리뷰 반영"·"델타 리뷰 반영"·"델타 재확인 반영").
 - 3차 개선(PR #34): 상한 크기 버퍼를 미리 잡던 읽기(빠듯한 `ulimit -v`의 MemoryError), 닫힌 표준 입력 문구, Windows에서 건너뛰던
   금지 문자 이름 테스트, Windows mypy를 고쳤다. `dd67b99`의 CI는 9개 모두 성공했고 독립 리뷰의 지적은 그 다음 커밋이
   고쳤다(아래 "3차 개선 리뷰 반영").
@@ -51,6 +51,53 @@
   5(change-impact의 Ctrl+C가 12–17초 늦음 포함)·사소한 것 6과 함께 `02ff104`가 고치거나 적었고 **`02ff104`의 CI는 9개 모두
   성공**했다. 그 수정분만 다시 본 6차 리뷰가 고쳐야 할 것 1(끝을 알리지 못하고 죽은 작업 스레드의 예외를 Ctrl+C 없이도
   20초 늦게 전함, `02ff104`가 만든 회귀)과 사소한 것 4를 찾았고 이 HANDOFF 커밋이 고치거나 적었다(아래 "6차 리뷰 반영").
+
+## 5차 개선 (2026-11-25, `main` `1b3812a` 기준)
+
+HANDOFF "남긴 것"의 Flask `MethodView` 상속 `methods` 누락(사용자 결정이 필요 없는 사실 누락)을 고쳤다. 실제 Flask 3.1.3·
+Werkzeug 3.1.9를 설치한 스크래치 가상 환경에서 합성 앱 76개를 만들어 `url_map`과 pythograph 사실을 비교했고, 그 과정에서 같은
+판정의 거짓 사실 모양도 찾아 함께 고쳤다. 고치기 전 재현, 고친 뒤 같은 확인, 수정을 되돌린 코드와 변이에서 실패하는 회귀
+테스트를 확인했다. 모두 0.3.1부터 있었다.
+
+| 항목 | 재현(고치기 전, Flask `url_map` / pythograph) | 수정과 확인 |
+|---|---|---|
+| 기반이 `methods`를 정의한 `MethodView` 하위 클래스의 method 누락 | `class Base(MethodView): methods = ["GET", "POST"]; def get` 뒤 `class Child(Base): def put` 등록: GET·POST·PUT / GET·POST(PUT이 한계 없이 빠짐). 믹스인 앞뒤(`class C(Methods, MethodView)`·`class C(MethodView, Methods)`), 두 기반(`Both(Left, Right)`), 다이아몬드, 깊은 사슬, 다른 모듈·별칭 import·모듈 속성 기반, 블루프린트·변수·호출 모양 등록도 같다. `analyze_class`의 사슬 첫 `methods` 정의만 읽었다(`docs/HTTP-ROUTES.md`는 합집합이라고 적고 있었다) | 새 `routes/flask/view_methods.py`의 `ClassViewMethods`가 Flask처럼 구한다: 본문이 정의하면 그 값(마지막 대입), 본문이 정의하지 않은 `MethodView` 하위 클래스는 직접 기반을 따라 내려가며 본문이 정의한 값·믹스인의 보통 조회 값을 모으고(같은 기반은 한 번) 사슬 전체의 핸들러 이름을 더한 합집합(`__init_subclass__`), 그 밖은 보통 속성 조회(외부 `View`에서 None으로 멈춘다). `_class_handlers`가 이 값을 쓰고, 클래스(정의 노드)마다 값과 사슬을 기억한다. `classes.py`에 `class_chain`·`own_assignment`를 더했다 |
+| 같은 판정의 거짓 사실 | 본문 `methods = None` + `def put`: GET / PUT. 본문에서 두 번 대입(`["GET"]` 뒤 `["POST"]`): POST / GET. `class Late(View, Methods)`(믹스인 `methods = ["post"]`): GET / POST. 기반에 본문 밖 쓰기 `Plain.methods = ["POST"]`(`View`): POST / GET. `super().__init_subclass__`를 부르지 않는 기반 훅: GET / GET·POST. 옵션을 쓰는 훅(`cls.methods = ["DELETE"]`): DELETE / POST. 조건 안에서만 `super()`를 부르는 훅을 클래스 키워드로 건너뜀: GET / GET·POST. 함수가 아닌 `__init_subclass__ = classmethod(...)`: GET / GET·POST | 앞의 셋은 정확한 값이 됐다. 조회가 지나는 클래스(기반 포함)에 본문 밖 쓰기가 있거나, 프로젝트 기반의 `__init_subclass__`가 옵션 속성을 쓰거나 함수 정의가 아니거나, 본문에 `methods`가 없는 `MethodView` 하위 클래스에서 `MethodView`보다 앞선 프로젝트 기반 훅이 본문 맨 위 문장에서 `super().__init_subclass__(…)`를 부르지 않으면 값을 모르므로 `ANY` + 템플릿 스코프 `route-coverage:`다. 등록한 클래스 자신의 훅(하위 클래스에만 돈다)과 `MethodView`보다 뒤의 훅은 보지 않는다 |
+
+- **회귀 테스트와 변이**: 새 테스트 `test_method_view_subclasses_union_inherited_methods`·
+  `test_class_view_methods_through_writes_and_subclass_hooks`·`test_class_view_methods_are_remembered`(같은 클래스 40번 등록에
+  값 계산 1번)·`test_method_view_lattice_visits_each_base_once`(깊이 12 다이아몬드 격자에서 기반마다 한 번). 앞의 셋은 `main`의
+  `_class_handlers`로 되돌린 코드에서 실패한다. 스크래치 사본의 변이 17개(`main` 코드, 기반 값 더하기·내려가기·핸들러 더하기·
+  기억·기반 쓰기·조회 쓰기·`View`에서 멈춤·마지막 대입·`None` 정의·훅 옵션 쓰기·훅 `super()`·`MethodView` 앞 훅만·`super()`
+  판정·자기 훅 제외·본 기반 건너뛰기를 각각 끄거나 바꾼 것, 맨 위 문장의 `super()`만 받는 것)가 모두 하나 이상의 테스트에서
+  실패한다.
+- **적대적 입력**(76개, 판정은 Flask 3.1.3 `url_map`): 위 표의 모양과 함께 리터럴이 아닌 정의(이름·`frozenset`·`+`), 빈 목록·
+  `None` 기반, 소문자 동사, 주석 대입(`ClassVar`), 튜플·집합, `put = B.post` 같은 대입 핸들러, `get = None`, `async def`, 메타클래스
+  키워드, `Generic[T]` 기반, 중첩 클래스 기반, 앱 팩토리 지역 클래스, 함수가 만든 클래스, 조건부 기반 정의, 다시 묶인 기반 이름,
+  `required_methods` 클래스 속성, `methods=`를 준 등록, `login_required(...)`로 감싼 뷰, 깊이 41 사슬, 모르는 외부 믹스인, 블록 안
+  `methods`. `main`은 48개에서 사실이 빠지거나 거짓이었고(거짓 12개), 이 판은 1개다(다시 묶인 기반 이름 `class B` 두 번 —
+  `main`의 거짓 DELETE가 그대로 남고 맞는 GET이 더해졌다, 아래 "남긴 것"). 51개의 출력이 바뀌었다. 새 `ANY` 16개 중 14개는
+  빠지거나 거짓이던 사실을 대신하고, 2개는 맞던 사실을 대신한다(하위 클래스 정의 뒤의 기반 쓰기, `MethodView` 앞 믹스인의
+  `super()` 없는 훅 — 정밀도만 잃는다). `methods = []` 기반 아래 하위 클래스 2개는 `ANY`와 그 한계 대신 Flask와 같은 GET이다.
+  한계 수가 줄어든 사례는 셋이고 모두 Flask `url_map`으로 증명했다: 그 두 라우트의 `route-coverage:` 1개와 usr 없는 `ANY`의
+  `missing-route-usrs` 1개, `class M(View, A)`를 기반으로 둔 하위 클래스의 usr 없는 거짓 POST가 usr 있는 GET이 된
+  `missing-route-usrs` 1개다. 핸들러 없는 method가 더해진 곳(`/child` POST 등)과 새 `ANY`에서는 `missing-route-usrs`가 는다.
+- **실제 프로젝트**(`main` 대 이 판, 같은 명령·고정 `--generated-at`): flaskbb·flasky·microblog·pgadmin4(`web/pgadmin`의 파이썬
+  파일)의 server routes와 `--include-tests`, Flask 저장소 자체 테스트와 examples 셋(tutorial·javascript·celery), flaskbb의
+  graph·schema·client 15개 문서가 모두 바이트로 같다. flaskbb·pgadmin4·Flask 테스트의 클래스 뷰 등록은 헬퍼 함수의 매개변수
+  수신자(`register_view(bp, …)`, `cls.as_view`)나 테스트 함수의 앱 매개변수를 거쳐 사실이 아니라 계수이고, flasky·microblog·
+  examples는 클래스 뷰를 쓰지 않아 이 경로를 타지 않는다. 그래서 합성 오라클이 주된 근거다. 라우트 오라클(`run_all.py`)은
+  정밀도 69/69·28/28, 기록 파일 변화 없음.
+- **성능**(부하 평균 약 30인 기계, 사용자 CPU 초, 두 번씩): 사슬 깊이 3의 클래스 N개를 두 번씩 등록한 모듈에서 `main` /
+  이 판이 N=1,000 1.72–2.13 / 2.46–2.47, N=2,000 3.38–3.43 / 4.34–4.89다(이 판은 사실을 4배 낸다). 두 판 모두 N에 선형이다.
+- **검증(이 브랜치)**: 전체 테스트 3.10.20·3.11.18·3.12.3·3.13.18·3.14.6 모두 1745 passed, 4 skipped(기존 1741 + 새 4, 건너뜀은
+  기존 대소문자 구별 3개·Windows 전용 1개), 3.13 커버리지 94.13%(하한 90%, `view_methods.py` 98%), ruff·format·mypy(`--platform`
+  win32·linux·darwin) 통과, CLI 계약 0/2/64(개발 설치와 새 가상 환경에 설치한 wheel), 자기 분석 3.10·3.13·3.14 `unparsedFiles` 0·
+  표준 오류 0바이트. 라우트 golden·오라클 기록은 바뀌지 않았다(fixture의 `ItemAPI`는 본문이 `methods`를 정의한다). Windows·macOS
+  실행은 CI만 확인한다. GLM 리뷰(`packet-ask`)는 이 환경에 없어 받지 못했다.
+- **이번에 하지 않은 것**: `url_map.add(Rule(...))` 계수(드물고 새 한계 문장이 필요하다), Flask 조건부 등록(사용자 결정), 다시 묶인
+  기반 클래스 이름(이름 해석의 문제라 같은 `analyze_class`를 쓰는 Django·DRF 클래스 뷰에도 닿을 수 있어 따로 봐야 한다), 릴리스
+  (RELEASING에 따라 관리자가 한다).
 
 ## 4차 개선 (2026-11-22, `main` `1244635` 기준)
 
@@ -695,11 +742,12 @@ CLI 계약 0/2/64, 자기 분석 `unparsedFiles` 0.
 | Flask 뷰 옵션 속성 판정의 남은 모양(델타 리뷰 반영) | 이름 기준이다. 다른 이름으로 단 속성(`f = view; f.methods = …`)·반복 변수·장식자가 아닌 함수의 매개변수·옵션을 쓴 함수의 `wraps`는 원래 뷰에 이르지 못해 GET 사실을 두고 스코프 없는 한계로만 센다(모두 `ANY`로 내리면 정밀도를 지나치게 잃는다). 프로젝트 밖 장식자는 옵션을 달지 않는다고 본다. 이름이 같은 다른 함수의 쓰기도 그 이름의 뷰를 `ANY`로 만들고, 쓰는 순서는 따지지 않는다(넓게 잡는 쪽). |
 | Flask 프레임워크 객체의 남은 이중 계수(델타 리뷰 반영) | `h.web = bottle.Bottle()` 뒤 `h.web.route`, `bottle.default_app().route`는 수신자를 프레임워크 객체로 증명하지 못해 모델링하지 않은 등록으로도 센다(프레임워크 import 한계와 이중). |
 | Flask 조건부 등록(결정 필요) | `docs/HTTP-ROUTES.md` 결정은 "조건부 등록은 decl이 아니라 스코프 있는 한계"인데 Flask 걷개는 `if`·`try` 블록 안 `@app.route`를 평범한 decl로 낸다(`if DEBUG:` 아래 `/debug`, 0.3.1부터). Django는 결정대로다. Flask도 결정대로 바꾸면 흔한 `if app.config[...]:` 등록이 사실에서 빠지므로 사용자 결정으로 남긴다. |
-| Flask `url_map.add(Rule(...))`·`MethodView` 상속 `methods`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 기반 클래스가 `methods`를 선언한 `MethodView` 하위 클래스는 Flask가 그 값과 핸들러의 합집합을 쓰는데(`__init_subclass__`) pythograph는 선언만 내 핸들러 method가 한계 없이 빠진다(사실 누락, 거짓은 아니다). 둘 다 드물어 남겼다. |
+| Flask `url_map.add(Rule(...))`(4차 개선) | Werkzeug `Rule`을 `app.url_map.add`로 직접 더한 규칙은 한계 없이 사라진다. 드물고 새 한계 문장이 필요해 남겼다. 같은 행에 있던 `MethodView` 상속 `methods` 누락은 5차 개선에서 고쳤다. |
+| Flask 클래스 뷰 methods의 남은 모양(5차 개선) | 같은 모듈에서 다시 묶인 기반 클래스 이름(`class B`를 두 번 정의)은 마지막 정의로 푼다(0.3.1부터, 하위 클래스를 만들 때의 `B`가 아닐 수 있어 합성 사례에서 거짓 DELETE가 남는다 — 이번 수정은 맞는 GET을 더했을 뿐 그 거짓 사실을 고치지 않았다). 메타클래스·클래스 장식자가 바꾸는 `methods`, 클래스 본문 블록(`if`·`try`) 안의 대입·핸들러 정의는 보지 않는다. 상속 깊이 32를 넘는 사슬은 전처럼 `ANY`다. 본문 밖 `methods` 쓰기와 `__init_subclass__`는 순서·조건을 따지지 않아 원래 맞던 사실도 `ANY`가 될 수 있다(넓게 잡는 쪽). |
 
 ## 다음 할 일
 
-1. PR #35에 델타 리뷰 반영 커밋을 올리고 CI(Windows의 표준 출력 쓰기 경로 포함)를 확인해 머지한다.
+1. 이 브랜치(5차 개선)를 PR로 올려 CI를 확인하고 독립 리뷰(가능하면 GLM `packet-ask`)를 받아 머지한다.
 2. 행렬로 바뀐 잡 이름(`verify-windows (3.10)`·`verify-windows (3.13)`)을 필수 체크로 둘지 정한다(PR #33에서 넘어온 일).
 3. 0.3.2 또는 0.4.0 릴리스. change-impact `input.files`의 의미가 바뀌었고 표준 출력이 항상 UTF-8·LF가 됐으므로 버전 판단에
    반영하고 RELEASING 절차를 따른다.
