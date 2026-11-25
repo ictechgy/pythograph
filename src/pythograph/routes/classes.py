@@ -608,6 +608,43 @@ def _merge_mapping(
                     action.methods[decorator.attr.lower()] = function.name
 
 
+def class_chain(symbols: SymbolTable, symbol: ProjectSymbol) -> tuple[_Entry, ...]:
+    """프로젝트 클래스의 상속 사슬을 `analyze_class`와 같은 순서로 돌려준다(첫 항목이 클래스 자신이다).
+
+    속성 조회가 어느 클래스에서 멈추는지(외부 기반 클래스가 프로젝트 기반보다 앞서는지) 순서로 따져야 하는
+    호출자가 쓴다.
+
+    Args:
+        symbols: 이름 해석기.
+        symbol: 프로젝트 클래스(`ast.ClassDef` 노드).
+
+    Returns:
+        클래스 목록(외부 클래스는 `ExternalSymbol`, 해석 실패는 None).
+    """
+    return _Linearizer(symbols).entries(symbol)
+
+
+def own_assignment(node: ast.ClassDef, name: str) -> ast.expr | None:
+    """클래스 본문이 직접 대입한 속성의 값 식을 돌려준다.
+
+    본문은 위에서 아래로 실행되므로 같은 이름을 여러 번 대입하면 마지막 값이 클래스 사전에 남는다. 블록(`if`·`try`)
+    안의 대입은 `analyze_class`처럼 보지 않는다.
+
+    Args:
+        node: 클래스 정의.
+        name: 속성 이름.
+
+    Returns:
+        마지막 대입의 값 식, 본문이 대입하지 않으면 None.
+    """
+    found: ast.expr | None = None
+    for statement in node.body:
+        for target, value in _class_assignments(statement):
+            if target == name:
+                found = value
+    return found
+
+
 def attribute_literal(info: ClassInfo, name: str) -> object:
     """클래스 속성 값을 리터럴로 읽는다.
 

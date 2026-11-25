@@ -118,7 +118,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | `@route`는 `add_url_rule`을 부르고 `@get`·`@post`·`@put`·`@delete`·`@patch`(2.0+)는 `methods=[동사]`다 | `flask/sansio/scaffold.py` `route`·`_method_route` |
 | Werkzeug `Rule`: `GET`이 있고 `HEAD`가 없으면 `HEAD`를 더한다 | `werkzeug/routing/rules.py` `Rule.__init__` |
 | 블루프린트 규칙: `url_prefix.rstrip("/") + "/" + rule.lstrip("/")`, 규칙이 비면 접두사 그대로. 등록 옵션 `url_prefix`가 블루프린트 값보다 앞선다. 중첩은 부모 접두사와 같은 방식으로 잇는다 | `flask/sansio/blueprints.py` `BlueprintSetupState.__init__`·`add_url_rule`, `Blueprint.register` |
-| `MethodView.methods`는 기반 클래스 `methods`와 정의한 핸들러(get·post·head·options·delete·put·trace·patch) 대문자의 합집합. `View`는 클래스 `methods` 선언, 없으면 None | `flask/views.py` `MethodView.__init_subclass__`, `View.as_view` |
+| `MethodView` 하위 클래스는 본문이 `methods`를 정의하지 않으면 만들어질 때 직접 기반마다 참인 `getattr(base, "methods")`와 `hasattr(cls, 이름)`인 핸들러(get·post·head·options·delete·put·trace·patch) 대문자의 합집합을 `cls.methods`로 둔다(비면 두지 않는다). 본문이 정의하면 그 값이다. 그 밖의 클래스는 보통 속성 조회이고 `View.methods`는 None이다. `as_view`는 `view.methods = cls.methods`로 옮긴다 | `flask/views.py` `MethodView.__init_subclass__`, `View.methods`, `View.as_view` |
 | 규칙 문법 `<변환기(인자):이름>`, 인자는 불리언·숫자·따옴표 문자열 | `rules.py` `_part_re`·`parse_converter_args`·`_pythonize` |
 | 기본 변환기: `default`·`string`(`[^/]{minlength,maxlength}`, 기본 minlength 1), `int`(`\d+`, signed면 `-?`), `float`(`\d+\.\d+`), `uuid`, `path`(`[^/].*?`, `/`를 넘음), `any(a, b)`, 사용자 변환기는 `url_map.converters` | `werkzeug/routing/converters.py` |
 | `merge_slashes`(기본 True)면 규칙의 연속 `/`를 하나로 합친다 | `rules.py` `Rule.compile` |
@@ -148,6 +148,17 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   `ANY`(`methods`를 주면 그 동사) + 템플릿 스코프의 `route-coverage:`다. `provide_automatic_options`는 자동 OPTIONS만
   바꾸고 자동 OPTIONS는 내지 않으므로 보지 않는다. 그 자리에서 만든 `lambda`와 `None`은 속성이 없어 GET이다(한계를
   세지 않는다). 0.3.1은 이런 뷰를 GET으로 냈다.
+- 클래스 뷰의 methods는 위 표의 규칙대로 구한다(`routes/flask/view_methods.py`). `MethodView` 하위 클래스가 `methods`를
+  정의하지 않으면 직접 기반을 따라 내려가며 본문이 정의한 값(다이아몬드의 같은 기반은 한 번)과 `MethodView`가 아닌
+  기반(믹스인)의 조회 값을 모으고, 등록한 클래스 사슬 전체의 핸들러 이름을 더한다. 본문이 직접 대입한 값만 보고(마지막
+  대입, `methods = None`은 GET, 블록 안 대입은 보지 않는다), `View`가 프로젝트 기반보다 앞선 보통 클래스는 `View.methods`에서
+  조회가 멈춘다. 다음은 값을 모르므로 `ANY` + 템플릿 스코프의 `route-coverage:`다: 조회가 지나는 클래스(기반 포함)에 본문
+  밖에서 `methods`를 쓴 경우(쓰는 순서는 따지지 않는다), 프로젝트 기반 클래스의 `__init_subclass__`가 옵션 속성을 쓰거나
+  함수 정의가 아닌 경우, 본문이 정의하지 않은 `MethodView` 하위 클래스에서 `MethodView`보다 앞선 프로젝트 기반의
+  `__init_subclass__`가 본문 맨 위 문장에서 `super().__init_subclass__(…)`를 부르지 않는 경우(조건 안에서만 부르면 클래스
+  키워드로 건너뛸 수 있다). 0.3.1은 기반이 `methods`를 정의하면 그 값만 내서 하위 클래스 핸들러·다른 기반 값을 한계 없이
+  빠뜨렸고, 기반에 쓴 값과 훅을 보지 않았다. 남은 모양: 같은 모듈에서 다시 묶인 기반 클래스 이름은 마지막 정의로 풀고
+  (`class B` 두 번), 메타클래스와 클래스 장식자가 바꾸는 `methods`는 보지 않는다.
 - 옵션 속성 판정은 이름으로만 하고 프로젝트 전체에서 모은다(`routes/flask/view_options.py`, 쓰는 순서는 따지지 않는다).
   - 대상: 어디서든 끝 이름 `X`에 `X.methods`·`X.required_methods`를 대입·주석 대입·누적 대입하거나 `setattr(X, "methods",
     …)`·`X.__dict__["methods"] = …`·`vars(X).update(methods=…)`처럼 리터럴 옵션 이름으로 쓰면 그 이름의 함수·클래스 뷰는
