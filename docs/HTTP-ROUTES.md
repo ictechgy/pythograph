@@ -118,7 +118,7 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
 | `@route`는 `add_url_rule`을 부르고 `@get`·`@post`·`@put`·`@delete`·`@patch`(2.0+)는 `methods=[동사]`다 | `flask/sansio/scaffold.py` `route`·`_method_route` |
 | Werkzeug `Rule`: `GET`이 있고 `HEAD`가 없으면 `HEAD`를 더한다 | `werkzeug/routing/rules.py` `Rule.__init__` |
 | 블루프린트 규칙: `url_prefix.rstrip("/") + "/" + rule.lstrip("/")`, 규칙이 비면 접두사 그대로. 등록 옵션 `url_prefix`가 블루프린트 값보다 앞선다. 중첩은 부모 접두사와 같은 방식으로 잇는다 | `flask/sansio/blueprints.py` `BlueprintSetupState.__init__`·`add_url_rule`, `Blueprint.register` |
-| `MethodView.methods`는 기반 클래스 `methods`와 정의한 핸들러(get·post·head·options·delete·put·trace·patch) 대문자의 합집합. `View`는 클래스 `methods` 선언, 없으면 None | `flask/views.py` `MethodView.__init_subclass__`, `View.as_view` |
+| `MethodView` 하위 클래스는 본문이 `methods`를 정의하지 않으면 만들어질 때 직접 기반마다 참인 `getattr(base, "methods")`와 `hasattr(cls, 이름)`인 핸들러(get·post·head·options·delete·put·trace·patch) 대문자의 합집합을 `cls.methods`로 둔다(비면 두지 않는다). 본문이 정의하면 그 값이다. 그 밖의 클래스는 보통 속성 조회이고 `View.methods`는 None이다. `as_view`는 `view.methods = cls.methods`로 옮긴다 | `flask/views.py` `MethodView.__init_subclass__`, `View.methods`, `View.as_view` |
 | 규칙 문법 `<변환기(인자):이름>`, 인자는 불리언·숫자·따옴표 문자열 | `rules.py` `_part_re`·`parse_converter_args`·`_pythonize` |
 | 기본 변환기: `default`·`string`(`[^/]{minlength,maxlength}`, 기본 minlength 1), `int`(`\d+`, signed면 `-?`), `float`(`\d+\.\d+`), `uuid`, `path`(`[^/].*?`, `/`를 넘음), `any(a, b)`, 사용자 변환기는 `url_map.converters` | `werkzeug/routing/converters.py` |
 | `merge_slashes`(기본 True)면 규칙의 연속 `/`를 하나로 합친다 | `rules.py` `Rule.compile` |
@@ -148,6 +148,37 @@ DefaultRouter의 상세 경로 형식 접미사 변형(`/orders/{}.{}`)은 한 �
   `ANY`(`methods`를 주면 그 동사) + 템플릿 스코프의 `route-coverage:`다. `provide_automatic_options`는 자동 OPTIONS만
   바꾸고 자동 OPTIONS는 내지 않으므로 보지 않는다. 그 자리에서 만든 `lambda`와 `None`은 속성이 없어 GET이다(한계를
   세지 않는다). 0.3.1은 이런 뷰를 GET으로 냈다.
+- 클래스 뷰의 methods는 위 표의 규칙대로 구한다(`routes/flask/view_methods.py`). `MethodView` 하위 클래스가 `methods`를
+  정의하지 않으면 직접 기반마다 본문이 정의한 값, `MethodView`가 아닌 기반(믹스인)의 조회 값, 정의하지 않은 `MethodView`
+  하위 기반이 물려받은 값을 모으고(클래스마다 한 번 구해 다이아몬드·여러 등록이 다시 쓴다), 등록한 클래스 사슬 전체의 핸들러
+  이름을 더한다. 값은 본문 맨 위의 이름 대입(마지막 대입)과 함수 정의만 읽는다. `methods = None`과 빈 모음(`[]`·`set()`)은
+  거짓 값이라 GET이고, `View`가 프로젝트 기반보다 앞선 보통 클래스는 `View.methods`에서 조회가 멈춘다. 다음은 값을 모르므로
+  `ANY` + 템플릿 스코프의 `route-coverage:`다(쓰는 순서·조건은 따지지 않는다).
+  - 조회가 지나는 클래스(기반 포함)에 본문 밖에서 `methods`를 쓴 경우, 옵션 속성을 쓰거나 받은 클래스를 그대로 돌려준다고
+    증명하지 못한 프로젝트 클래스 장식자가 있는 경우. 장식한 이름은 장식자가 돌려준 값에 묶이므로, 옵션 속성을 쓰지 않고
+    모든 `return`(안쪽 정의 제외)이 첫 매개변수이며 마지막 맨 위 문장도 그것이고 그 매개변수를 다시 묶지 않는 함수만 믿는다
+    (팩토리는 그런 안쪽 함수 하나를 돌려줄 때만). 다른 클래스·하위 클래스·None을 돌려줄 수 있는 함수, 프로젝트 클래스(인스턴스를
+    돌려준다), 풀지 못한 장식자는 모른다. 프로젝트 밖 장식자(`dataclass` 등)와 다시 묶지 않은 내장 이름은 바꾸지 않는다고
+    본다(함수 뷰 장식자와 같은 원칙).
+  - 사슬의 프로젝트 클래스가 `type`·`abc.ABCMeta`가 아닌 메타클래스를 준 경우(메타클래스는 상속된다).
+  - 본문이 맨 위 대입 밖에서 `methods`를 묶은 클래스의 값(블록 안 대입, 누적 대입, `del`, 풀어 쓰는 대입, 바다코끼리,
+    `for` 대상, import, `global`, 맨 위 함수 정의 `methods`), 사슬의 클래스가 블록 안 정의 등으로 핸들러 이름을 묶은
+    `MethodView` 하위 클래스의 합집합. 본문이 안쪽 범위 밖에서 인자 없는 `vars()`·`locals()`나 `exec(code)`를 부르면
+    클래스 사전의 어떤 이름이든 바뀔 수 있어 위 이름을 모두 모른다. 메서드 안의 지역 변수·`locals()`와 인자 있는 `vars(X)`는
+    클래스 사전을 바꾸지 않으므로 보지 않는다.
+  - 프로젝트 기반 클래스의 `__init_subclass__`가 옵션 속성을 쓰거나 함수 정의가 아니거나 맨 위 대입 밖에서 묶인 경우,
+    본문이 정의하지 않은 `MethodView` 하위 클래스에서 `MethodView`보다 앞선 그 훅이 다음 훅을 반드시 부르지 않는 경우:
+    인자 없는 `super()`나 `super(<정의한 클래스>, <첫 매개변수>)`의 `__init_subclass__(…)`를 본문 맨 위 문장에서 부르고 그 앞
+    문장에 `return`·`raise`가 없을 때만(안쪽 정의 제외) 부른다고 본다. `super(MethodView, cls)`, 조건 안의 호출, 그 앞의
+    `if skip: return`·`try … except: return`, `yield`를 담거나 `async def`인 훅은 부르지 않는다고 본다.
+
+  0.3.1은 기반이 `methods`를 정의하면 그 값만 내서 하위 클래스 핸들러·다른 기반 값을 한계 없이 빠뜨렸고, 기반에 쓴 값·훅·
+  장식자·메타클래스·블록 안 묶음을 보지 않아 거짓 method를 냈다. 남은 모양: 같은 모듈에서 다시 묶인 기반 클래스 이름은 마지막
+  정의로 푼다(`class B` 두 번, 거짓 사실이 남을 수 있다). 훅이 프로젝트 함수에 클래스를 넘겨 그 함수가 `methods`를 쓰는
+  경우(`_fix(cls)`)와 `decorators` 클래스 속성의 장식자가 옵션 속성을 다는 경우는 클래스 뷰 판정이 보지 않는다. 그 쓰기는
+  매개변수에 대한 쓰기라 아래 "묶지 못한 옵션 속성 쓰기" 한계가 세지만(그 함수를 다른 곳에서 `@` 장식자로도 쓰면 세지
+  않는다) 사실은 그대로다. 받은 클래스를 돌려주는 장식자가 클래스를 프로젝트 함수에 넘겨 그 함수가 `methods`를 쓰는
+  경우(`_set(cls)`)도 같다. 상속 깊이 32를 넘는 사슬은 `unknown_bases`로 아는 method + 한계다.
 - 옵션 속성 판정은 이름으로만 하고 프로젝트 전체에서 모은다(`routes/flask/view_options.py`, 쓰는 순서는 따지지 않는다).
   - 대상: 어디서든 끝 이름 `X`에 `X.methods`·`X.required_methods`를 대입·주석 대입·누적 대입하거나 `setattr(X, "methods",
     …)`·`X.__dict__["methods"] = …`·`vars(X).update(methods=…)`처럼 리터럴 옵션 이름으로 쓰면 그 이름의 함수·클래스 뷰는

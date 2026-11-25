@@ -12,14 +12,18 @@ from pathlib import Path
 import pytest
 
 from pythograph.exchange import document as document_module
+from pythograph.routes.flask import class_body as class_body_module
 from pythograph.routes.flask import extract as flask_extract
 from pythograph.routes.flask import rules as rules_module
+from pythograph.routes.flask import view_methods as view_methods_module
 from pythograph.routes.flask.rules import ConverterArguments, parse_converter_arguments, rule_alternatives
 from pythograph.routes.pattern import MAX_ROUTE_SOURCE_LENGTH, Literal, Skeleton, Unconvertible
+from pythograph.source.symbols import ProjectSymbol
 from tests.conftest import (
     FIXTURES,
     GENERATED_AT,
     ROUTE_DECL_METHODS,
+    class_lattice,
     fact_rows,
     facts_for,
     routes_document,
@@ -497,6 +501,1005 @@ def test_single_bound_class_view_variable_keeps_class_methods(make_project: Call
         ("ANY", "/twice", False, None),
     }
     assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == ["/marked", "/twice"]
+
+
+def test_method_view_subclasses_union_inherited_methods(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """본문이 `methods`를 정의하지 않은 `MethodView` 하위 클래스는 기반 값과 핸들러의 합집합이다.
+
+    Flask `MethodView.__init_subclass__`는 직접 기반마다 참인 `methods`와 `hasattr`인 핸들러 이름을 모은다. 기반이
+    `methods`를 정의하면 그 값만 내서 하위 클래스 핸들러(`/child` PUT)·믹스인 앞뒤의 핸들러·다른 기반 값이 한계 없이
+    빠졌다. 기대 사실은 Flask 3.1.3 `url_map`과 같다. 중간 클래스가 정의하면 그 위 정의는 섞이지 않고(`/leaf`), 빈 목록
+    기반은 거짓이라 GET이며(`/from-empty`, 전에는 `ANY`), 본문의 `methods = None`은 GET이고(`/cleared`, 전에는 거짓
+    PUT), 본문의 마지막 대입이 이긴다(`/twice`, 전에는 거짓 GET). `View`가 앞선 보통 클래스는 `View.methods`(None)에서
+    조회가 멈추고(`/late`, 전에는 거짓 POST), 프로젝트 `View` 기반이 정의한 값은 상속한다(`/inherits`, 전과 같다).
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "bases.py": """
+        from flask.views import MethodView
+        class Shared(MethodView):
+            methods = ["PUT"]
+    """,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView, View
+        from bases import Shared
+        app = Flask(__name__, static_folder=None)
+        class Base(MethodView):
+            methods = ["GET", "POST"]
+            def get(self):
+                pass
+        class Child(Base):
+            def put(self):
+                pass
+        class Methods:
+            methods = ["post"]
+        class Mixed(Methods, MethodView):
+            def get(self):
+                pass
+        class Left(MethodView):
+            methods = ["GET"]
+        class Right(MethodView):
+            methods = ("PUT",)
+        class Both(Left, Right):
+            def post(self):
+                pass
+        class Middle(Base):
+            methods = ["DELETE"]
+        class Leaf(Middle):
+            def patch(self):
+                pass
+        class Top(MethodView):
+            methods = ["POST"]
+        class West(Top):
+            def get(self):
+                pass
+        class East(Top):
+            def put(self):
+                pass
+        class Diamond(West, East):
+            pass
+        class Empty(MethodView):
+            methods = []
+        class FromEmpty(Empty):
+            def get(self):
+                pass
+        class Cleared(Base):
+            methods = None
+            def put(self):
+                pass
+        class Twice(MethodView):
+            methods = ["GET"]
+            methods = ["POST"]
+            def get(self):
+                pass
+            def post(self):
+                pass
+        class Late(View, Methods):
+            def dispatch_request(self):
+                pass
+        class Imported(Shared):
+            def get(self):
+                pass
+        class PostOnly(View):
+            methods = ["POST"]
+            def dispatch_request(self):
+                pass
+        class Inherits(PostOnly):
+            pass
+        app.add_url_rule("/child", view_func=Child.as_view("child"))
+        app.add_url_rule("/mixed", view_func=Mixed.as_view("mixed"))
+        app.add_url_rule("/both", view_func=Both.as_view("both"))
+        app.add_url_rule("/leaf", view_func=Leaf.as_view("leaf"))
+        app.add_url_rule("/diamond", view_func=Diamond.as_view("diamond"))
+        app.add_url_rule("/from-empty", view_func=FromEmpty.as_view("from_empty"))
+        app.add_url_rule("/cleared", view_func=Cleared.as_view("cleared"))
+        app.add_url_rule("/twice", view_func=Twice.as_view("twice"))
+        app.add_url_rule("/late", view_func=Late.as_view("late"))
+        app.add_url_rule("/imported", view_func=Imported.as_view("imported"))
+        app.add_url_rule("/inherits", view_func=Inherits.as_view("inherits"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("GET", "/child", False, "app.py#Child.get"),
+        ("POST", "/child", False, None),
+        ("PUT", "/child", False, "app.py#Child.put"),
+        ("GET", "/mixed", False, "app.py#Mixed.get"),
+        ("POST", "/mixed", False, None),
+        ("GET", "/both", False, None),
+        ("POST", "/both", False, "app.py#Both.post"),
+        ("PUT", "/both", False, None),
+        ("DELETE", "/leaf", False, None),
+        ("GET", "/leaf", False, "app.py#Leaf.get"),
+        ("PATCH", "/leaf", False, "app.py#Leaf.patch"),
+        ("GET", "/diamond", False, "app.py#Diamond.get"),
+        ("POST", "/diamond", False, None),
+        ("PUT", "/diamond", False, "app.py#Diamond.put"),
+        ("GET", "/from-empty", False, "app.py#FromEmpty.get"),
+        ("GET", "/cleared", False, "app.py#Cleared.get"),
+        ("POST", "/twice", False, "app.py#Twice.post"),
+        ("GET", "/late", False, "app.py#Late.dispatch_request"),
+        ("GET", "/imported", False, "app.py#Imported.get"),
+        ("PUT", "/imported", False, None),
+        ("POST", "/inherits", False, "app.py#Inherits.dispatch_request"),
+    }
+    assert scoped_limitations(document) == []
+    assert "missing-route-usrs: 7 Flask route handlers have no pythograph symbol id" in document["limitations"]  # type: ignore[operator]
+
+
+def test_class_view_methods_through_writes_and_subclass_hooks(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """본문 밖에서 `methods`를 쓴 기반과 프로젝트 `__init_subclass__`는 값을 모르게 만든다(`ANY`와 템플릿 한계).
+
+    기반에 쓴 값은 쓰는 순서에 따라 하위 클래스에 닿거나 닿지 않는다. 전에는 기반 쓰기를 보지 않아 `/from-written`의
+    PATCH를 빠뜨리고 `View` 하위 클래스 `/from-plain`을 거짓 GET으로 냈다. `super().__init_subclass__`를 부르지 않는
+    기반 훅은 `MethodView`의 합집합을 막아(`/from-silent`는 Flask에서 GET만) 거짓 POST를, 옵션을 쓰는 훅은
+    (`/from-setter`는 DELETE만) 거짓 POST를 냈다. 조건 안에서만 부르는 훅(`/from-gate`, 클래스 키워드로 건너뛴다)도
+    모른다. 함수가 아닌 훅(`/from-assigned`), 리터럴이 아닌 기반 정의(`/from-named`, 전부터 `ANY`), 믹스인 기반에 쓴 값
+    (`/from-mid`, 전에는 PATCH를 빠뜨렸다)도 모른다. 맨 위 문장에서 `super()`를 부르는 훅(`return super(…)` 포함),
+    본문이 정의한 클래스, `MethodView`보다 뒤의
+    훅, 등록한 클래스 자신의 훅(하위 클래스에만 돈다)은 값을 그대로 둔다. 기대 사실은 Flask 3.1.3 `url_map`과 같거나
+    그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView, View
+        app = Flask(__name__, static_folder=None)
+        class Written(MethodView):
+            def get(self):
+                pass
+        Written.methods = ["PATCH"]
+        class FromWritten(Written):
+            def put(self):
+                pass
+        class Plain(View):
+            def dispatch_request(self):
+                pass
+        Plain.methods = ["POST"]
+        class FromPlain(Plain):
+            pass
+        REGISTRY = []
+        class Silent(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                REGISTRY.append(cls)
+            def get(self):
+                pass
+        class FromSilent(Silent):
+            def post(self):
+                pass
+        class Setter(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                super().__init_subclass__(**kwargs)
+                cls.methods = ["DELETE"]
+        class FromSetter(Setter):
+            methods = ["POST"]
+            def post(self):
+                pass
+        class Registry(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                super().__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromRegistry(Registry):
+            def post(self):
+                pass
+        class Declared(Silent):
+            methods = ["PUT"]
+            def put(self):
+                pass
+        class Tail:
+            def __init_subclass__(cls, **kwargs):
+                pass
+        class AfterView(MethodView, Tail):
+            def get(self):
+                pass
+        class OwnHook(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                pass
+            def get(self):
+                pass
+        class Gate(MethodView):
+            def __init_subclass__(cls, skip=False, **kwargs):
+                if not skip:
+                    super().__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromGate(Gate, skip=True):
+            def post(self):
+                pass
+        class Forward(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                return super(Forward, cls).__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromForward(Forward):
+            def post(self):
+                pass
+        def _hook(cls, **kwargs):
+            pass
+        class Assigned(MethodView):
+            __init_subclass__ = classmethod(_hook)
+            def get(self):
+                pass
+        class FromAssigned(Assigned):
+            def post(self):
+                pass
+        NAMES = ["POST"]
+        class Named(MethodView):
+            methods = NAMES
+        class FromNamed(Named):
+            def get(self):
+                pass
+        class Root:
+            pass
+        Root.methods = ["PATCH"]
+        class Mid(Root):
+            pass
+        class FromMid(Mid, MethodView):
+            def get(self):
+                pass
+        app.add_url_rule("/from-written", view_func=FromWritten.as_view("from_written"))
+        app.add_url_rule("/from-plain", view_func=FromPlain.as_view("from_plain"))
+        app.add_url_rule("/from-silent", view_func=FromSilent.as_view("from_silent"))
+        app.add_url_rule("/from-setter", view_func=FromSetter.as_view("from_setter"))
+        app.add_url_rule("/from-registry", view_func=FromRegistry.as_view("from_registry"))
+        app.add_url_rule("/declared", view_func=Declared.as_view("declared"))
+        app.add_url_rule("/after-view", view_func=AfterView.as_view("after_view"))
+        app.add_url_rule("/own-hook", view_func=OwnHook.as_view("own_hook"))
+        app.add_url_rule("/from-gate", view_func=FromGate.as_view("from_gate"))
+        app.add_url_rule("/from-forward", view_func=FromForward.as_view("from_forward"))
+        app.add_url_rule("/from-assigned", view_func=FromAssigned.as_view("from_assigned"))
+        app.add_url_rule("/from-named", view_func=FromNamed.as_view("from_named"))
+        app.add_url_rule("/from-mid", view_func=FromMid.as_view("from_mid"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/from-written", False, None),
+        ("ANY", "/from-plain", False, None),
+        ("ANY", "/from-silent", False, None),
+        ("ANY", "/from-setter", False, None),
+        ("GET", "/from-registry", False, "app.py#FromRegistry.get"),
+        ("POST", "/from-registry", False, "app.py#FromRegistry.post"),
+        ("PUT", "/declared", False, "app.py#Declared.put"),
+        ("GET", "/after-view", False, "app.py#AfterView.get"),
+        ("GET", "/own-hook", False, "app.py#OwnHook.get"),
+        ("ANY", "/from-gate", False, None),
+        ("GET", "/from-forward", False, "app.py#FromForward.get"),
+        ("POST", "/from-forward", False, "app.py#FromForward.post"),
+        ("ANY", "/from-assigned", False, None),
+        ("ANY", "/from-named", False, None),
+        ("ANY", "/from-mid", False, None),
+    }
+    unknown = ["/from-assigned", "/from-gate", "/from-mid", "/from-named", "/from-plain", "/from-setter"]
+    assert sorted((text, scope["templates"]) for text, scope in scoped_limitations(document)) == [
+        (UNKNOWN_VIEW_METHODS.format(count=1), [path]) for path in [*unknown, "/from-silent", "/from-written"]
+    ]
+
+
+def test_class_view_methods_are_remembered(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """같은 클래스 뷰를 여러 번 등록해도 `methods` 값은 클래스마다 한 번 구한다(등록마다 사슬을 다시 걷지 않는다)."""
+    rules = "".join(f'app.add_url_rule("/r{index}", view_func=Leaf.as_view("r{index}"))\n' for index in range(40))
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\nfrom flask.views import MethodView\n"
+            "app = Flask(__name__, static_folder=None)\n"
+            'class Base(MethodView):\n    methods = ["POST"]\n'
+            "class Leaf(Base):\n    def get(self):\n        pass\n" + rules,
+        }
+    )
+    calls: list[str] = []
+    original = view_methods_module.ClassViewMethods._compute
+
+    def counting(
+        self: view_methods_module.ClassViewMethods, symbol: ProjectSymbol, names: set[str]
+    ) -> view_methods_module.MethodsValue:
+        """구한 클래스를 기록하고 원래 계산을 돌려준다."""
+        calls.append(symbol.qualname)
+        return original(self, symbol, names)
+
+    monkeypatch.setattr(view_methods_module.ClassViewMethods, "_compute", counting)
+    assert len(fact_rows(routes_document(root))) == 80
+    assert calls == ["Leaf"]
+
+
+def test_method_view_lattice_visits_each_base_once(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """다이아몬드 상속 격자의 클래스를 모두 등록해도 기반에서 물려받는 값은 클래스마다 한 번만 모은다.
+
+    경로마다 내려가면 2^깊이번이고, 등록한 클래스마다 조상 전체를 걸으면 등록 수 × 깊이다. 기대 사실은 Flask 3.1.3
+    `url_map`과 같다(`L0b`는 핸들러도 값도 없어 GET, 나머지는 `L0a`의 POST를 물려받는다). 정적 상속 순환도 끝난다.
+    """
+    lattice = class_lattice(12, "MethodView", 'methods = ["POST"]')
+    names = [line.split("(")[0].removeprefix("class ") for line in lattice.splitlines() if line.startswith("class ")]
+    rules = "".join(f'app.add_url_rule("/{name}", view_func={name}.as_view("{name}"))\n' for name in names)
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\nfrom flask.views import MethodView\n"
+            "app = Flask(__name__, static_folder=None)\n" + lattice + "\n" + rules,
+        }
+    )
+    collected: list[str] = []
+    original = view_methods_module.ClassViewMethods._collect
+
+    def counting(self: view_methods_module.ClassViewMethods, symbol: ProjectSymbol) -> view_methods_module.MethodsValue:
+        """값을 모은 클래스를 기록하고 원래 결과를 돌려준다."""
+        collected.append(symbol.qualname)
+        return original(self, symbol)
+
+    monkeypatch.setattr(view_methods_module.ClassViewMethods, "_collect", counting)
+    assert fact_rows(routes_document(root)) == {
+        ("GET" if name == "L0b" else "POST", f"/{name}", False, None) for name in names
+    }
+    assert len(names) == 2 * 12 + 3
+    assert len(collected) == len(set(collected)) <= len(names)
+    cycle = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        class First(Second, MethodView):
+            def get(self):
+                pass
+        class Second(First):
+            def post(self):
+                pass
+        app.add_url_rule("/first", view_func=First.as_view("first"))
+        app.add_url_rule("/second", view_func=Second.as_view("second"))
+    """,
+        }
+    )
+    # 정적 상속 순환(실행하면 NameError인 모양)은 끝나고, 물려받는 값을 모른다(전에는 한계 없는 GET·POST).
+    assert fact_rows(routes_document(cycle)) == {("ANY", "/first", False, None), ("ANY", "/second", False, None)}
+
+
+def test_hooks_that_may_skip_the_method_view_hook_are_unknown(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """다음 훅을 부르기 전에 끝날 수 있는 프로젝트 `__init_subclass__`는 `MethodView`의 합집합을 막으므로 값을 모른다.
+
+    `if skip: return`(클래스 키워드), `try … except: return`, `super(MethodView, cls)`(다음 훅을 건너뛴다), `yield`를
+    담은 훅에서 Flask는 GET만 받는데 거짓 POST를 냈다(맨 위 문장의 `super()` 호출만 보았다). 안쪽 함수의 `return`과
+    `super(<정의한 클래스>, cls)`는 다음 훅을 부르므로 합집합 그대로다. 기대 사실은 Flask 3.1.3 `url_map`과 같거나
+    그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        class Skip(MethodView):
+            def __init_subclass__(cls, skip=False, **kwargs):
+                if skip:
+                    return
+                super().__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromSkip(Skip, skip=True):
+            def post(self):
+                pass
+        class Past(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                super(MethodView, cls).__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromPast(Past):
+            def post(self):
+                pass
+        def validate(view):
+            raise ValueError
+        class Tried(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                try:
+                    validate(cls)
+                except ValueError:
+                    return
+                super().__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromTried(Tried):
+            def post(self):
+                pass
+        class Lazy(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                yield
+                super().__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromLazy(Lazy):
+            def post(self):
+                pass
+        class Own(MethodView):
+            def __init_subclass__(cls, **kwargs):
+                def helper():
+                    return None
+                super(Own, cls).__init_subclass__(**kwargs)
+            def get(self):
+                pass
+        class FromOwn(Own):
+            def post(self):
+                pass
+        app.add_url_rule("/from-skip", view_func=FromSkip.as_view("from_skip"))
+        app.add_url_rule("/from-past", view_func=FromPast.as_view("from_past"))
+        app.add_url_rule("/from-tried", view_func=FromTried.as_view("from_tried"))
+        app.add_url_rule("/from-lazy", view_func=FromLazy.as_view("from_lazy"))
+        app.add_url_rule("/from-own", view_func=FromOwn.as_view("from_own"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    assert fact_rows(document) == {
+        ("ANY", "/from-skip", False, None),
+        ("ANY", "/from-past", False, None),
+        ("ANY", "/from-tried", False, None),
+        ("ANY", "/from-lazy", False, None),
+        ("GET", "/from-own", False, "app.py#FromOwn.get"),
+        ("POST", "/from-own", False, "app.py#FromOwn.post"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == [
+        "/from-lazy",
+        "/from-past",
+        "/from-skip",
+        "/from-tried",
+    ]
+
+
+def test_class_body_bindings_outside_plain_assignments_are_unknown(
+    make_project: Callable[[dict[str, str]], Path],
+) -> None:
+    """본문 맨 위의 이름 대입·함수 정의 밖에서 `methods`·핸들러·`__init_subclass__`를 묶은 클래스는 값을 모른다.
+
+    블록(`if`·`try`·`for`) 안 대입·정의, 누적 대입, `del`, 풀어 쓰는 대입, 바다코끼리는 클래스 사전의 값을 실행 경로에
+    맡긴다. 전에는 맨 위 대입만 읽어 거짓 GET·POST를 냈다(`/guarded`는 Flask에서 POST만, `/dropped`는 GET만). 메서드
+    안의 지역 변수 `methods`(`/local`)는 클래스 사전에 묶이지 않으므로 합집합 그대로다. 기대 사실은 Flask 3.1.3
+    `url_map`과 같거나 그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView, View
+        app = Flask(__name__, static_folder=None)
+        FLAG = True
+        class Guarded(MethodView):
+            if FLAG:
+                methods = ["POST"]
+            def get(self):
+                pass
+            def post(self):
+                pass
+        class Tried(MethodView):
+            try:
+                methods = ["PUT"]
+            except NameError:
+                pass
+            def get(self):
+                pass
+        class Handler(MethodView):
+            if FLAG:
+                def post(self):
+                    pass
+        class Plain(View):
+            if FLAG:
+                methods = ["DELETE"]
+            def dispatch_request(self):
+                pass
+        class Looped(MethodView):
+            for methods in (["PATCH"],):
+                pass
+            def get(self):
+                pass
+        class Growing(MethodView):
+            methods = ["GET"]
+            methods += ["POST"]
+            def get(self):
+                pass
+        class Dropped(MethodView):
+            methods = ["POST"]
+            del methods
+            def get(self):
+                pass
+        class Unpacked(MethodView):
+            methods, other = ["POST"], 1
+            def get(self):
+                pass
+        class Walrus(MethodView):
+            (methods := ["PUT"])
+            def get(self):
+                pass
+        class Hooked(MethodView):
+            if FLAG:
+                def __init_subclass__(cls, **kwargs):
+                    pass
+            def get(self):
+                pass
+        class FromHooked(Hooked):
+            def post(self):
+                pass
+        class Local(MethodView):
+            def get(self):
+                methods = ["DELETE"]
+                return methods
+            def post(self):
+                pass
+        app.add_url_rule("/guarded", view_func=Guarded.as_view("guarded"))
+        app.add_url_rule("/tried", view_func=Tried.as_view("tried"))
+        app.add_url_rule("/handler", view_func=Handler.as_view("handler"))
+        app.add_url_rule("/plain", view_func=Plain.as_view("plain"))
+        app.add_url_rule("/looped", view_func=Looped.as_view("looped"))
+        app.add_url_rule("/growing", view_func=Growing.as_view("growing"))
+        app.add_url_rule("/dropped", view_func=Dropped.as_view("dropped"))
+        app.add_url_rule("/unpacked", view_func=Unpacked.as_view("unpacked"))
+        app.add_url_rule("/walrus", view_func=Walrus.as_view("walrus"))
+        app.add_url_rule("/from-hooked", view_func=FromHooked.as_view("from_hooked"))
+        app.add_url_rule("/local", view_func=Local.as_view("local"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/dropped", "/from-hooked", "/growing", "/guarded", "/handler", "/looped", "/plain", "/tried"]
+    unknown += ["/unpacked", "/walrus"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/local", False, "app.py#Local.get"),
+        ("POST", "/local", False, "app.py#Local.post"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+def test_irregular_class_body_names_cover_every_binding_form() -> None:
+    """맨 위 이름 대입·함수 정의가 아닌 묶음 형태를 모두 찾고, 안쪽 범위(메서드 본문·안쪽 클래스 본문·내포 식·람다)의
+    묶음과 값 없는 주석은 세지 않는다. 맨 위 함수 정의 `methods`는 `own_assignment`가 읽지 않으므로 센다."""
+    source = """
+class A(Base, metaclass=M):
+    plain = 1
+    annotated: list[str] = ["GET"]
+    only_annotated: int
+    first = second = 2
+    def get(self):
+        local = 1
+        return local
+    async def post(self):
+        pass
+    def methods(self):
+        pass
+    class put(Inner, flag=(chosen := 5)):
+        hidden = 1
+    if FLAG:
+        guarded = 1
+    for looped in ():
+        pass
+    with ctx() as managed:
+        pass
+    try:
+        pass
+    except Exception as caught:
+        pass
+    import imported_module.sub
+    from pkg import imported_name as alias
+    global declared
+    match subject:
+        case [captured, *rest]:
+            pass
+        case {"k": 1, **remainder}:
+            pass
+    counted += 1
+    del removed
+    unpacked, other = 1, 2
+    (walrused := 3)
+    comprehension = [inner for inner in range(3)]
+    lambda_ = lambda bound=4: bound
+    snapshot = vars(other_object)
+    def inspect(self):
+        return vars(), locals()
+"""
+    node = ast.parse(source).body[0]
+    assert isinstance(node, ast.ClassDef)
+    namespace = [
+        ast.parse(f"class B:\n    {line}\n").body[0]
+        for line in ("vars()['methods'] = 1", "locals().update(get=1)", "exec('methods = 1')", "x = [vars()][0]")
+    ]
+    assert all(class_body_module.irregular_names(cls) == {class_body_module.NAMESPACE_WRITES} for cls in namespace)  # type: ignore[arg-type]
+    assert class_body_module.irregular_names(node) == {
+        "alias",
+        "captured",
+        "caught",
+        "chosen",
+        "counted",
+        "declared",
+        "guarded",
+        "imported_module",
+        "looped",
+        "managed",
+        "methods",
+        "other",
+        "put",
+        "remainder",
+        "removed",
+        "rest",
+        "unpacked",
+        "walrused",
+    }
+
+
+def test_class_decorators_and_metaclasses_that_may_set_methods_are_unknown(
+    make_project: Callable[[dict[str, str]], Path],
+) -> None:
+    """옵션 속성을 쓰는 프로젝트 클래스 장식자(팩토리 포함)와 `type`·`abc.ABCMeta`가 아닌 메타클래스는 값을 모른다.
+
+    장식자는 클래스를 만든 뒤 `methods`를 바꾸고(`/from-root`는 장식한 기반의 값이 합집합에 들어간다), 메타클래스는
+    이름공간을 바꾸며 상속된다. 전에는 둘 다 보지 않아 거짓 GET·POST를 냈다. 옵션을 쓰지 않는 프로젝트 장식자,
+    프로젝트 밖 장식자(`dataclass`), `ABCMeta`는 값 그대로다. 본문의 빈 `methods`(`[]`·`set()`)는 거짓 값이라 Flask처럼
+    GET이다(전에는 `ANY`와 한계). 기대 사실은 Flask 3.1.3 `url_map`과 같거나 그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from abc import ABCMeta
+        from dataclasses import dataclass
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        REGISTRY = []
+        def only_post(cls):
+            cls.methods = ["POST"]
+            return cls
+        def post_only(cls):
+            setattr(cls, "methods", ["POST"])
+            return cls
+        def register(cls):
+            REGISTRY.append(cls)
+            return cls
+        def tagged(name):
+            def wrap(cls):
+                cls.methods = ["PATCH"]
+                return cls
+            return wrap
+        class Meta(type):
+            def __new__(mcs, name, bases, namespace):
+                namespace["methods"] = ["PUT"]
+                return super().__new__(mcs, name, bases, namespace)
+        @only_post
+        class Decorated(MethodView):
+            def get(self):
+                pass
+            def post(self):
+                pass
+        @post_only
+        class Set(MethodView):
+            def get(self):
+                pass
+            def post(self):
+                pass
+        @tagged("x")
+        class Factory(MethodView):
+            def get(self):
+                pass
+        @only_post
+        class Root(MethodView):
+            def get(self):
+                pass
+        class FromRoot(Root):
+            def put(self):
+                pass
+        class Metaed(MethodView, metaclass=Meta):
+            def get(self):
+                pass
+        class MetaBase(MethodView, metaclass=Meta):
+            methods = ["GET"]
+        class FromMetaBase(MetaBase):
+            def get(self):
+                pass
+            def post(self):
+                pass
+        @register
+        class Registered(MethodView):
+            def get(self):
+                pass
+        @dataclass
+        class Data(MethodView):
+            def get(self):
+                pass
+        class Abstract(MethodView, metaclass=ABCMeta):
+            def get(self):
+                pass
+        class EmptyList(MethodView):
+            methods = []
+            def post(self):
+                pass
+        class EmptySet(MethodView):
+            methods = set()
+            def post(self):
+                pass
+        app.add_url_rule("/decorated", view_func=Decorated.as_view("decorated"))
+        app.add_url_rule("/set", view_func=Set.as_view("set"))
+        app.add_url_rule("/factory", view_func=Factory.as_view("factory"))
+        app.add_url_rule("/from-root", view_func=FromRoot.as_view("from_root"))
+        app.add_url_rule("/metaed", view_func=Metaed.as_view("metaed"))
+        app.add_url_rule("/from-meta-base", view_func=FromMetaBase.as_view("from_meta_base"))
+        app.add_url_rule("/registered", view_func=Registered.as_view("registered"))
+        app.add_url_rule("/data", view_func=Data.as_view("data"))
+        app.add_url_rule("/abstract", view_func=Abstract.as_view("abstract"))
+        app.add_url_rule("/empty-list", view_func=EmptyList.as_view("empty_list"))
+        app.add_url_rule("/empty-set", view_func=EmptySet.as_view("empty_set"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/decorated", "/factory", "/from-meta-base", "/from-root", "/metaed", "/set"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/registered", False, "app.py#Registered.get"),
+        ("GET", "/data", False, "app.py#Data.get"),
+        ("GET", "/abstract", False, "app.py#Abstract.get"),
+        ("GET", "/empty-list", False, None),
+        ("GET", "/empty-set", False, None),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+def test_class_decorators_that_may_return_another_class_are_unknown(
+    make_project: Callable[[dict[str, str]], Path],
+) -> None:
+    """옵션을 쓰지 않아도 받은 클래스가 아닌 것을 돌려줄 수 있는 프로젝트 클래스 장식자는 값을 모른다.
+
+    장식한 이름은 장식자가 돌려준 값에 묶인다. 다른 클래스(`/swapped`·`/rebound`·`/maybe`·팩토리 `/swapping`는 Flask에서
+    DELETE만)나 하위 클래스(`/extended`는 GET·POST)를 돌려주는 장식자를 믿어 거짓 GET을 내거나 POST를 빠뜨렸다. 모든
+    `return`이 받은 클래스인 장식자와 그런 장식자를 돌려주는 팩토리는 값 그대로다(`/kept`·`/named`). 끝까지 가서
+    None을 돌려줄 수 있는 장식자(`/forgotten`)와 클래스 장식자(`/boxed`, 인스턴스를 돌려준다)는 Flask로 import하면
+    `as_view`에서 실패하는 모양이라 판정 없이 모름으로 둔다. 나머지 기대 사실은 Flask 3.1.3 `url_map`과 같거나 그것을
+    덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        FLAG = True
+        REGISTRY = []
+        class Other(MethodView):
+            def delete(self):
+                pass
+        def swap(cls):
+            return Other
+        def with_post(cls):
+            class Wrapped(cls):
+                def post(self):
+                    pass
+            return Wrapped
+        def keep(cls):
+            REGISTRY.append(cls)
+            return cls
+        def rebind(cls):
+            cls = Other
+            return cls
+        def maybe(cls):
+            if FLAG:
+                return Other
+            return cls
+        def named(label):
+            def deco(cls):
+                REGISTRY.append((label, cls))
+                return cls
+            return deco
+        def swapping(label):
+            def deco(cls):
+                return Other
+            return deco
+        def forget(cls):
+            REGISTRY.append(cls)
+        class Box:
+            def __init__(self, cls):
+                self.cls = cls
+        @swap
+        class Swapped(MethodView):
+            def get(self):
+                pass
+        @with_post
+        class Extended(MethodView):
+            def get(self):
+                pass
+        @keep
+        class Kept(MethodView):
+            def get(self):
+                pass
+        @rebind
+        class Rebound(MethodView):
+            def get(self):
+                pass
+        @maybe
+        class Maybe(MethodView):
+            def get(self):
+                pass
+        @named("x")
+        class Named(MethodView):
+            def get(self):
+                pass
+        @swapping("x")
+        class Swapping(MethodView):
+            def get(self):
+                pass
+        @forget
+        class Forgotten(MethodView):
+            def get(self):
+                pass
+        @Box
+        class Boxed(MethodView):
+            def get(self):
+                pass
+        app.add_url_rule("/swapped", view_func=Swapped.as_view("swapped"))
+        app.add_url_rule("/extended", view_func=Extended.as_view("extended"))
+        app.add_url_rule("/kept", view_func=Kept.as_view("kept"))
+        app.add_url_rule("/rebound", view_func=Rebound.as_view("rebound"))
+        app.add_url_rule("/maybe", view_func=Maybe.as_view("maybe"))
+        app.add_url_rule("/named", view_func=Named.as_view("named"))
+        app.add_url_rule("/swapping", view_func=Swapping.as_view("swapping"))
+        app.add_url_rule("/forgotten", view_func=Forgotten.as_view("forgotten"))
+        app.add_url_rule("/boxed", view_func=Boxed.as_view("boxed"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/boxed", "/extended", "/forgotten", "/maybe", "/rebound", "/swapped", "/swapping"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/kept", False, "app.py#Kept.get"),
+        ("GET", "/named", False, "app.py#Named.get"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+@pytest.mark.parametrize(
+    ("source", "kept"),
+    [
+        ("def deco(cls):\n    return cls", True),
+        ("def deco(cls):\n    REGISTRY.append(cls)\n    def inner():\n        return 1\n    return cls", True),
+        ("def deco(cls):\n    return Other", False),
+        ("def deco(cls):\n    if FLAG:\n        return Other\n    return cls", False),
+        ("def deco(cls):\n    cls = Other\n    return cls", False),
+        ("def deco(cls):\n    REGISTRY.append(cls)", False),
+        ("def deco(cls):\n    yield cls\n    return cls", False),
+        ("async def deco(cls):\n    return cls", False),
+        ("def deco():\n    return None", False),
+        ("class Deco:\n    pass", False),
+    ],
+)
+def test_class_decorator_returns_its_argument(source: str, kept: bool) -> None:
+    """장식자는 모든 `return`이 받은 클래스이고 끝 문장도 그것이며 그 매개변수를 다시 묶지 않을 때만 클래스를 둔다."""
+    node = ast.parse(source).body[0]
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    assert class_body_module.returns_its_argument(node) is kept
+
+
+@pytest.mark.parametrize(
+    ("source", "kept"),
+    [
+        ("def factory(label):\n    def deco(cls):\n        return cls\n    return deco", True),
+        ("def factory(label):\n    def deco(cls):\n        return Other\n    return deco", False),
+        ("def factory(label):\n    return lambda cls: cls", False),
+        ("def factory(label):\n    def deco(cls):\n        return cls\n    deco = other\n    return deco", False),
+        (
+            "def factory(label):\n    def deco(cls):\n        return cls\n"
+            "    if label:\n        return None\n    return deco",
+            False,
+        ),
+        ("def factory(label):\n    yield\n    def deco(cls):\n        return cls\n    return deco", False),
+        ("def factory(label):\n    def deco(cls):\n        return cls", False),
+        ("class Factory:\n    pass", False),
+    ],
+)
+def test_class_decorator_factory_returns_a_kept_decorator(source: str, kept: bool) -> None:
+    """팩토리는 맨 위에서 한 번 정의한 안쪽 장식자 하나만 돌려주고 그 장식자가 클래스를 그대로 둘 때만 믿는다."""
+    node = ast.parse(source).body[0]
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    assert class_body_module.returns_class_decorator(node) is kept
+
+
+def test_namespace_writes_in_class_bodies_are_unknown(make_project: Callable[[dict[str, str]], Path]) -> None:
+    """클래스 본문의 인자 없는 `vars()`·`locals()`와 `exec(code)`는 클래스 사전의 어떤 이름이든 바꿀 수 있어 모른다.
+
+    `vars()["methods"] = ["PUT"]`(Flask는 PUT만), 반복문의 `locals()[verb] = handler`(GET·POST),
+    `exec("methods = …")`(PATCH만)를 보지 않아 거짓 GET을 내거나 POST를 빠뜨렸다. 인자 있는 `vars(Other)`와 메서드 안의
+    `locals()`는 클래스 사전을 바꾸지 않으므로 값 그대로다(`/inspecting`). 기대 사실은 Flask 3.1.3 `url_map`과 같거나
+    그것을 덮는 `ANY`다.
+    """
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": """
+        from flask import Flask
+        from flask.views import MethodView
+        app = Flask(__name__, static_folder=None)
+        def handler(self):
+            pass
+        class Other(MethodView):
+            def delete(self):
+                pass
+        class VarsMethods(MethodView):
+            vars()["methods"] = ["PUT"]
+            def get(self):
+                pass
+        class LocalsHandler(MethodView):
+            for _verb in ("post",):
+                locals()[_verb] = handler
+            def get(self):
+                pass
+        class Executed(MethodView):
+            exec("methods = ['PATCH']")
+            def get(self):
+                pass
+        class Inspecting(MethodView):
+            snapshot = vars(Other)
+            def get(self):
+                return str(locals())
+        app.add_url_rule("/vars-methods", view_func=VarsMethods.as_view("vars_methods"))
+        app.add_url_rule("/locals-handler", view_func=LocalsHandler.as_view("locals_handler"))
+        app.add_url_rule("/executed", view_func=Executed.as_view("executed"))
+        app.add_url_rule("/inspecting", view_func=Inspecting.as_view("inspecting"))
+    """,
+        }
+    )
+    document = routes_document(root)
+    unknown = ["/executed", "/locals-handler", "/vars-methods"]
+    assert fact_rows(document) == {
+        *(("ANY", path, False, None) for path in unknown),
+        ("GET", "/inspecting", False, "app.py#Inspecting.get"),
+    }
+    assert sorted(scope["templates"][0] for _, scope in scoped_limitations(document)) == unknown
+
+
+def test_class_view_methods_reuse_the_registered_linearization(
+    make_project: Callable[[dict[str, str]], Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """등록한 클래스는 `analyze_class`가 편 사슬을 쓰고, 먼저 등록한 기반의 사슬도 다시 펴지 않는다.
+
+    전에는 등록한 클래스마다 사슬을 세 번 폈다(`analyze_class`, `class_chain`, 핸들러 이름을 위한 `analyze_class`).
+    """
+    rules = "".join(
+        f"class Level{index}(Level{index - 1}):\n    def {verb}(self):\n        pass\n"
+        f'app.add_url_rule("/level{index}", view_func=Level{index}.as_view("level{index}"))\n'
+        for index, verb in enumerate(["get", "post", "put", "delete", "patch"] * 4)
+        if index
+    )
+    root = make_project(
+        {
+            **REQUIREMENTS,
+            "app.py": "from flask import Flask\nfrom flask.views import MethodView\n"
+            "app = Flask(__name__, static_folder=None)\n"
+            'class Level0(MethodView):\n    methods = ["GET"]\n'
+            'app.add_url_rule("/level0", view_func=Level0.as_view("level0"))\n' + rules,
+        }
+    )
+    linearized: list[str] = []
+    original = view_methods_module.class_chain
+
+    def counting(symbols: object, symbol: ProjectSymbol) -> object:
+        """편 클래스를 기록하고 원래 사슬을 돌려준다."""
+        linearized.append(symbol.qualname)
+        return original(symbols, symbol)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(view_methods_module, "class_chain", counting)
+    rows = fact_rows(routes_document(root))
+    assert ("PATCH", "/level19", False, "app.py#Level19.patch") in rows
+    assert ("GET", "/level19", False, "app.py#Level19.get") in rows
+    assert linearized == []
 
 
 def test_view_function_options_make_methods_unknown(make_project: Callable[[dict[str, str]], Path]) -> None:

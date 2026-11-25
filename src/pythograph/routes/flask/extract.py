@@ -8,8 +8,8 @@
   `X.register_blueprint(bp, url_prefix=…)`(중첩 블루프린트 포함). 함수·클래스 본문과 모든 블록 문장 안을 걷는다.
 - method: `methods`가 없으면 `view_func.methods` 또는 `("GET",)`이고 `view_func.required_methods`를 더한다
   (`App.add_url_rule`). 그래서 증명하지 못한 뷰 식과 그 속성을 다는 함수(`view_options`)는 GET이 아니라 `ANY`다. GET이
-  있으면 HEAD를, `PROVIDE_AUTOMATIC_OPTIONS`면 OPTIONS를 Werkzeug·Flask가 더하므로 decl로 내지 않는다. `MethodView`는
-  정의한 핸들러 이름(대문자)과 기반 클래스 `methods`의 합집합이다(`__init_subclass__`).
+  있으면 HEAD를, `PROVIDE_AUTOMATIC_OPTIONS`면 OPTIONS를 Werkzeug·Flask가 더하므로 decl로 내지 않는다. 클래스 뷰의
+  methods는 `view_methods`가 Flask처럼 구한다(`MethodView.__init_subclass__`의 기반 값·핸들러 합집합, 보통 속성 조회).
 - 앱·블루프린트로 찾지 못한 수신자의 등록은 사실 대신 `route-coverage:`로 센다(`_UNMODELED_REGISTRATIONS`).
 - 접두사: 블루프린트 규칙은 `url_prefix.rstrip("/") + "/" + rule.lstrip("/")`(규칙이 비면 접두사 그대로),
   중첩은 부모 접두사와 같은 방식으로 잇는다(`BlueprintSetupState`, `Blueprint.register`).
@@ -27,13 +27,15 @@ import builtins
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from types import EllipsisType
 
 from pythograph.exchange.document import MAX_FACTS
 from pythograph.exchange.methods import ROUTE_DECL_METHODS
-from pythograph.routes.classes import analyze_class, attribute_literal
+from pythograph.routes.classes import analyze_class
 from pythograph.routes.django.urlconf import converter_regex, node_location
 from pythograph.routes.django.views import emitted_methods
 from pythograph.routes.flask.rules import rule_alternatives
+from pythograph.routes.flask.view_methods import HTTP_METHOD_FUNCS, ClassViewMethods
 from pythograph.routes.flask.view_options import ProjectOptionWrites, scan_option_writes, stores_options
 from pythograph.routes.model import Extraction, Location, RouteDecl, RouteShape, ScopeRange
 from pythograph.routes.pattern import (
@@ -61,9 +63,6 @@ from pythograph.source.symbols import (
 
 #: `@X.<method>` 단축 장식자(Flask 2.0+)다.
 _SHORTCUTS = {"get": "GET", "post": "POST", "put": "PUT", "delete": "DELETE", "patch": "PATCH"}
-
-#: `MethodView`가 핸들러로 보는 이름이다(`flask/views.py` `http_method_funcs`).
-_HTTP_METHOD_FUNCS = ("get", "post", "head", "options", "delete", "put", "trace", "patch")
 
 if sys.version_info >= (3, 11):  # pragma: no cover - 실행 중인 파이썬 버전에 따라 한쪽만 탄다.
     _TRY_STATEMENTS: tuple[type[ast.stmt], ...] = (ast.Try, ast.TryStar)
@@ -553,6 +552,8 @@ class _Collector:
         self._option_writes: ProjectOptionWrites | None = None
         # 장식자 정의 → 옵션 속성을 쓰는지다. 같은 장식자를 쓰는 등록마다 본문을 다시 걷지 않는다(등록 수 × 본문 크기).
         self._stores: dict[ast.AST, bool] = {}
+        # 클래스 뷰의 `methods` 값 계산기다(처음 쓸 때 만든다. 같은 클래스를 등록마다 다시 걷지 않는다).
+        self._class_view_methods: ClassViewMethods | None = None
 
     def object_names(self) -> frozenset[str]:
         """알려진 앱·블루프린트를 묶은 이름들이다(`_Registrar._sweep`이 수신자 후보를 거른다).
@@ -574,6 +575,16 @@ class _Collector:
             indexes = [self.symbols.index(path) for path in self._files()]
             self._option_writes = scan_option_writes(index.module.tree for index in indexes if index is not None)
         return self._option_writes
+
+    def class_view_methods(self) -> ClassViewMethods:
+        """클래스 뷰의 `methods` 값 계산기를 돌려준다(`view_methods.ClassViewMethods`, 옵션 속성 쓰기 대상을 넘긴다).
+
+        Returns:
+            계산기.
+        """
+        if self._class_view_methods is None:
+            self._class_view_methods = ClassViewMethods(self.symbols, self.option_writes().targets)
+        return self._class_view_methods
 
     def stores(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda) -> bool:
         """장식자 정의가 옵션 속성을 쓰는지 기억해 둔 결과로 돌려준다(`view_options.stores_options`).
@@ -1634,18 +1645,11 @@ class _Registrar:
             # 클래스 본문 밖에서 `Hook.methods = …`로 바꾸면 `as_view`가 그 값을 읽는다(`view.methods = cls.methods`).
             dispatch = f"{base_id}.dispatch_request"
             return [("*", None, dispatch)], (), True
-        dispatch = f"{base_id}.dispatch_request"
-        declared = attribute_literal(info, "methods")
-        if isinstance(declared, (list, tuple, set)) and all(isinstance(item, str) for item in declared):
-            methods = tuple(str(item).upper() for item in declared)
-            return self._method_view_handlers(info.names, base_id, info.kinds), methods, info.unknown_bases
-        if declared is not None:
+        # 본문 정의, `MethodView` 하위 클래스의 기반 값과 핸들러 합집합, 보통 속성 조회 순서다(`view_methods`).
+        methods = self.collector.class_view_methods().value(info)
+        if isinstance(methods, EllipsisType):
             return [("*", None, "unresolved-view")], (), True
-        if "flask-methodview" in info.kinds:
-            names = [name for name in _HTTP_METHOD_FUNCS if name in info.names]
-            methods = tuple(name.upper() for name in names)
-            return self._method_view_handlers(info.names, base_id, info.kinds), (methods or None), info.unknown_bases
-        return [("*", dispatch, dispatch)], None, info.unknown_bases
+        return self._method_view_handlers(info.names, base_id, info.kinds), methods, info.unknown_bases
 
     @staticmethod
     def _method_view_handlers(names: set[str], base_id: str, kinds: set[str]) -> list[tuple[str, str | None, str]]:
@@ -1667,7 +1671,7 @@ class _Registrar:
         if "flask-methodview" not in kinds:
             return [("*", dispatch, dispatch)]
         handlers: list[tuple[str, str | None, str]] = [
-            (name.upper(), f"{base_id}.{name}", f"{base_id}.{name}") for name in _HTTP_METHOD_FUNCS if name in names
+            (name.upper(), f"{base_id}.{name}", f"{base_id}.{name}") for name in HTTP_METHOD_FUNCS if name in names
         ]
         handlers.append(("", None, dispatch))
         return handlers

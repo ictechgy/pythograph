@@ -161,7 +161,14 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 이름을 거친 규칙과 블루프린트 등록은 `base` 앵커와 `unresolved-route-prefix:`가 된다. Flask는 `GET` 기본값보다 뷰의
 `methods`·`required_methods` 속성("View Function Options")을 먼저 읽으므로, method를 증명하지 못한 뷰는 `ANY`와 템플릿
 스코프의 `route-coverage:`다(`methods=`를 주면 그 동사에 같은 한계가 붙는다): 호출로 감싸거나 다시 묶이거나 가려진
-변수에 담은 뷰, 프로젝트 밖 뷰, 모르는 기반 클래스나 본문 밖에서 `methods`를 대입한 뷰 클래스, 프로젝트 어디서든 그
+변수에 담은 뷰, 프로젝트 밖 뷰, 모르는 기반 클래스가 있거나 `methods` 조회가 본문 밖에서 `methods`를 대입한 클래스(뷰
+클래스나 기반)를 지나거나 프로젝트 기반 클래스의 `__init_subclass__`가 그 속성을 쓰는 뷰 클래스(본문에 `methods`가 없는
+`MethodView` 하위 클래스는 그 훅이 `super().__init_subclass__`를 부르기 전에 끝날 수 있을 때도), 그 속성을 쓰지 않고
+받은 클래스를 그대로 돌려준다고 증명하지 못한 프로젝트 클래스 장식자(모든 `return`이 받은 인자여야 하고, 팩토리는 그런
+함수를 돌려줘야 한다)나 풀지 못한 클래스 장식자를 조회가 지나는 뷰 클래스, `type`·`abc.ABCMeta`가 아닌 메타클래스를 쓰는
+뷰 클래스, 본문 맨 위의 이름 대입이 아닌 방법(`if`·`try`·`for` 안, `+=`, `del`, 풀어 쓰는 대입)으로 `methods`를 묶거나
+본문에서 `vars()`·`locals()`·`exec(code)`를 부르는 뷰 클래스, 본문에 `methods`가 없고 사슬이 그런 방법으로 핸들러 이름을 묶은
+`MethodView` 하위 클래스, 프로젝트 기반이 그런 방법으로 `__init_subclass__`를 묶은 뷰 클래스, 프로젝트 어디서든 그
 이름에 그 속성을 쓰거나(대입·`setattr`·`__dict__`·`vars`. 속성 이름·열쇠를 계산하는 쓰기는 대상이 쓰는 모듈에서
 정의했거나 그 모듈이 프로젝트에서 가져온 이름(`from views import index`, `views.index`)일 때만 센다) 등록 장식자 아래
 장식자가 그 속성을 달 수 있는 함수(그 속성을 쓰는 프로젝트 장식자 함수·팩토리·클래스(`__call__`과 `methods` 선언
@@ -170,7 +177,11 @@ bridge-facts v1 문서를 표준 출력에 쓴다: `platform: "python"`, `target
 메서드(`login_required`, `cache.cached`)는 달지 않는다고 본다. 프로젝트 함수·클래스에 묶지 못한 쓰기(`f = view` 같은
 별칭, 반복 변수, 프로젝트 함수와 이름이 같아도 감싼 함수의 매개변수·지역 변수, 그 속성이 있는 함수의
 `functools.wraps`·`update_wrapper`)는 `GET` 사실을 그대로 두고 스코프 없는 `route-coverage:` 하나로 센다. 그
-자리의 `lambda`·`None`은 `GET`이고, `View.as_view(...)`에 한 번만 묶인 모듈 변수는 그 클래스의 method를 낸다. 매개변수·지역
+자리의 `lambda`·`None`은 `GET`이고, `View.as_view(...)`에 한 번만 묶인 모듈 변수는 그 클래스의 method를 낸다. 그 밖의
+클래스 뷰 method는 본문 맨 위의 이름 대입·정의만 읽어 Flask가 만드는 대로 구한다: 본문에서 `methods`를 대입하지 않은
+`MethodView` 하위 클래스는 직접 기반의 `methods`와 가진 핸들러 이름의 합집합이고(`MethodView.__init_subclass__`), 그 밖의
+클래스는 보통 속성 조회라 `View.methods`에서 멈추며, `None`이나 빈 `methods`는 `GET`이다. 위처럼 증명하지 못하는 경우는
+`ANY`이고, 한 모듈에서 두 번 정의한 기반 클래스 이름은 여전히 마지막 정의로 푼다(`docs/HTTP-ROUTES.md`). 매개변수·지역
 대입(바다코끼리 대상 포함)·클래스 본문 대입, 안쪽 함수가 `nonlocal`로 다시 묶는 이름은 파이썬처럼 같은 이름의 바깥
 앱·블루프린트·뷰를 가린다. `app.route(rule)(view)`와 같은 모양의 단축
 장식자(겹친 것 포함)는 `add_url_rule`처럼 내고, 클래스 본문·메서드와 `match`·`while`·`async with`·`try … except*`·
